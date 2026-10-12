@@ -14,6 +14,7 @@ internal sealed class OsdWindow : Form
     const string TouchpadGlyph = ""; // Touchpad
     const string LockGlyph = "";     // Lock
     const string UnlockGlyph = "";   // Unlock
+    const string LightGlyph = "";  // Lightbulb
 
     static readonly string IconFont = FontFamily.Families.Any(f => f.Name == "Segoe Fluent Icons") ? "Segoe Fluent Icons" : "Segoe MDL2 Assets";
 
@@ -62,6 +63,8 @@ internal sealed class OsdWindow : Form
     /// <summary>Shows the keyboard brightness as a fraction of the maximum, 0-1.</summary>
     public void ShowBrightness(float fraction) =>
         Flash(KeyboardGlyph, fraction <= 0 ? "Keyboard light off" : $"Keyboard light  {fraction:P0}", Math.Clamp(fraction, 0, 1));
+
+    public void ShowLightBar(bool on) => Flash(LightGlyph, on ? "Light bar on" : "Light bar off", -1);
 
     public void ShowTouchpad(bool enabled) => Flash(TouchpadGlyph, enabled ? "Touchpad on" : "Touchpad off", -1);
 

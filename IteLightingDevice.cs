@@ -4,23 +4,29 @@ using Microsoft.Win32.SafeHandles;
 
 namespace MonsterKeyboardRGB;
 
+internal enum LightingDeviceKind { Keyboard, LightBar }
+
 /// <summary>
-/// Drives the ITE 8291 four-zone keyboard controller directly over HID feature reports, using the same
-/// commands Control Center's GCUService sends (recovered from its decompiled LightingModel.LM_ITE_RGB).
-/// Every command is a 9-byte feature report: report ID 0, then 8 bytes.
+/// Drives an ITE lighting controller directly over HID feature reports, using the same commands Control Center's
+/// GCUService sends (recovered from its decompiled LightingModel.LM_ITE_RGB): the four-zone keyboard (ITE 8291) or
+/// the light bar on the front edge (LM_ITE_RGB type MEZone_Lighbar). Every command is a 9-byte feature report:
+/// report ID 0, then 8 bytes.
 /// </summary>
-internal sealed class FourZoneKeyboard : IDisposable
+internal sealed class IteLightingDevice : IDisposable
 {
     const ushort IteVendorId = 0x048D;
-    // ITE_SPEC.PIDList: keyboard controllers (lightbars use other PIDs).
+    // ITE_SPEC.PIDList and LBPIDList.
     static readonly ushort[] KeyboardProductIds = [0xCE00, 0x6000, 0x6001, 0x6002, 0x6003, 0x6004, 0x6006, 0x6007, 0x600A];
+    static readonly ushort[] LightBarProductIds = [0x6005, 0x6008, 0x6010];
     const ushort FourZoneUsagePage = 0xFF12; // ITE_SPEC.USAGE_PAGE_4Zone
+    const ushort LightBarUsagePage = 0xFF03; // ITE_SPEC.USAGE_PAGE_Ligbar
     const ushort ControlUsage = 0x0001;
 
     const byte CmdSetEffect = 0x08;
     const byte CmdSetBrightness = 0x09;
     const byte CmdSetColor = 0x14;
     const byte CmdGetFirmwareVersion = 0x80;
+    const byte CmdGetEffect = 0x88;
 
     const byte ControlOff = 1;
     const byte ControlLighting = 2;
@@ -29,24 +35,47 @@ internal sealed class FourZoneKeyboard : IDisposable
     const byte ColorIndexPalette = 8; // effect reads the circular palette loaded into slots 1..n
     const int PaletteSlots = 7;
 
-    const byte CmdGetEffect = 0x88;
+    /// <summary>Highest firmware brightness. Control Center's four levels are 8, 22, 36 and 50.</summary>
+    public const byte MaxLight = 50;
+
+    /// <summary>LM_ITE_RGB.Translate_ITE_LightValue: Control Center's brightness levels 0-4 as firmware values.</summary>
+    public static readonly byte[] StandardLights = [0, 8, 22, 36, 50];
+
+    // LM_ITE_RGB.Translate_ITE_SpeedValue (slider 0-4 -> firmware value).
+    static readonly byte[] SpeedValues = [10, 7, 5, 3, 1];
+
+    // HIDLightbar.RunEffct: the light bar's Rainbow is a seven-color circular palette.
+    static readonly Color[] LightBarRainbow =
+    [
+        Color.FromArgb(255, 0, 0), Color.FromArgb(255, 165, 0), Color.FromArgb(255, 255, 0), Color.FromArgb(0, 255, 0),
+        Color.FromArgb(0, 255, 255), Color.FromArgb(0, 0, 255), Color.FromArgb(139, 0, 255),
+    ];
 
     readonly SafeFileHandle handle;
     readonly int featureLength;
-    // Commands come from the UI thread and the brightness watcher; a query must not interleave with a command sequence.
+    // Commands come from the UI thread, the brightness watcher and the music loop; a query must not interleave
+    // with a command sequence.
     readonly Lock io = new();
     int lastKnownLight = -1;
     bool isOff; // switched off with control 1, which 09h can't undo
 
-    FourZoneKeyboard(SafeFileHandle handle, int featureLength)
+    IteLightingDevice(LightingDeviceKind kind, SafeFileHandle handle, int featureLength)
     {
+        Kind = kind;
         this.handle = handle;
         this.featureLength = featureLength;
     }
 
-    /// <summary>Finds and opens the four-zone keyboard controller, or returns null if there isn't one.</summary>
-    public static FourZoneKeyboard? Open()
+    public LightingDeviceKind Kind { get; }
+
+    public (byte Major, byte Minor) FirmwareVersion { get; private set; }
+
+    /// <summary>Finds and opens the controller, or returns null if this laptop doesn't have one.</summary>
+    public static IteLightingDevice? Open(LightingDeviceKind kind)
     {
+        var (productIds, usagePage) = kind == LightingDeviceKind.Keyboard
+            ? (KeyboardProductIds, FourZoneUsagePage)
+            : (LightBarProductIds, LightBarUsagePage);
         foreach (var path in Hid.EnumerateDevicePaths())
         {
             var h = Hid.OpenDevice(path);
@@ -54,21 +83,19 @@ internal sealed class FourZoneKeyboard : IDisposable
             var attributes = new Hid.Attributes { Size = Marshal.SizeOf<Hid.Attributes>() };
             if (Hid.HidD_GetAttributes(h, ref attributes)
                 && attributes.VendorId == IteVendorId
-                && KeyboardProductIds.Contains(attributes.ProductId)
+                && productIds.Contains(attributes.ProductId)
                 && Hid.TryGetCaps(h, out var caps)
-                && caps.UsagePage == FourZoneUsagePage && caps.Usage == ControlUsage)
+                && caps.UsagePage == usagePage && caps.Usage == ControlUsage)
             {
-                var keyboard = new FourZoneKeyboard(h, caps.FeatureReportByteLength);
-                try { keyboard.ReadFirmwareVersion(); }
-                catch { keyboard.Dispose(); throw; }
-                return keyboard;
+                var device = new IteLightingDevice(kind, h, caps.FeatureReportByteLength);
+                try { device.ReadFirmwareVersion(); }
+                catch { device.Dispose(); throw; }
+                return device;
             }
             h.Dispose();
         }
         return null;
     }
-
-    public (byte Major, byte Minor) FirmwareVersion { get; private set; }
 
     void ReadFirmwareVersion()
     {
@@ -76,26 +103,44 @@ internal sealed class FourZoneKeyboard : IDisposable
         FirmwareVersion = (reply[2], reply[3]);
     }
 
-    // FourZoneKeyboard.SetBrightnessStrategy: firmware >= 0x11.03 takes brightness through command 09h.
-    bool HasBrightnessCommand => FirmwareVersion.Major >= 0x11 && FirmwareVersion.Minor >= 0x03;
-
-    /// <summary>Highest firmware brightness. Control Center's four levels are 8, 22, 36 and 50.</summary>
-    public const byte MaxLight = 50;
-
-    /// <summary>LM_ITE_RGB.Translate_ITE_LightValue: Control Center's brightness levels 0-4 as firmware values.</summary>
-    public static readonly byte[] StandardLights = [0, 8, 22, 36, 50];
+    // FourZoneKeyboard.SetBrightnessStrategy: keyboard firmware >= 0x11.03 takes brightness through command 09h.
+    // The light bar's driver (HIDKeyboard.SetBrightnessStrategy) always uses it.
+    bool HasBrightnessCommand => Kind == LightingDeviceKind.LightBar
+        || (FirmwareVersion.Major >= 0x11 && FirmwareVersion.Minor >= 0x03);
 
     /// <summary>
     /// Shows an effect. <paramref name="light"/> is the firmware brightness, 0-<see cref="MaxLight"/> (0 keeps the
     /// effect running but dark, as Control Center's brightness 0 does); speed is 0-4 like Control Center's slider.
     /// </summary>
-    public void SetEffect(KeyboardEffect effect, IReadOnlyList<Color> colors, byte direction, byte light, int speed, bool saveToFirmware)
+    public void SetEffect(LightingEffect effect, IReadOnlyList<Color> colors, byte direction, byte light, int speed, bool saveToFirmware)
     {
         lock (io)
         {
             light = Math.Min(light, MaxLight);
             SetEffectLocked(effect, colors, direction, light, speed, saveToFirmware);
             lastKnownLight = light;
+        }
+    }
+
+    /// <summary>Switches the lights off (ILM_RGBKB_SetPower Off). Any later effect switches them back on.</summary>
+    public void SwitchOff()
+    {
+        lock (io)
+        {
+            Send(CmdSetEffect, ControlReset);
+            Send(CmdSetEffect, ControlOff);
+            isOff = true;
+            lastKnownLight = 0;
+        }
+    }
+
+    /// <summary>The controller's state: whether it's switched on, and its effect ID.</summary>
+    public (bool On, byte Effect) ReadState()
+    {
+        lock (io)
+        {
+            var reply = Query(CmdGetEffect);
+            return (reply[2] != ControlOff, reply[3]);
         }
     }
 
@@ -154,25 +199,28 @@ internal sealed class FourZoneKeyboard : IDisposable
         }
     }
 
-    void SetEffectLocked(KeyboardEffect effect, IReadOnlyList<Color> colors, byte direction, byte light, int speed, bool saveToFirmware)
+    void SetEffectLocked(LightingEffect effect, IReadOnlyList<Color> colors, byte direction, byte light, int speed, bool saveToFirmware)
     {
         isOff = false;
         Send(CmdSetEffect, ControlReset);
+        if (effect.Id == LightingEffect.RainbowId)
+        {
+            colors = Kind == LightingDeviceKind.LightBar ? LightBarRainbow : [];
+            if (Kind == LightingDeviceKind.Keyboard)
+            {
+                // Set_Lighting_Effect loads these fixed slots for the four-zone Rainbow, then starts it with no palette.
+                SetColor(1, Color.FromArgb(255, 0, 0));
+                SetColor(2, Color.FromArgb(0, 255, 0));
+                SetColor(3, Color.FromArgb(0, 0, 255));
+                SetColor(4, Color.FromArgb(255, 0, 255));
+            }
+        }
         byte colorIndex;
-        if (effect.Id == KeyboardEffect.RainbowId)
-        {
-            // Set_Lighting_Effect loads these fixed slots for the four-zone Rainbow, then starts it with no palette.
-            SetColor(1, Color.FromArgb(255, 0, 0));
-            SetColor(2, Color.FromArgb(0, 255, 0));
-            SetColor(3, Color.FromArgb(0, 0, 255));
-            SetColor(4, Color.FromArgb(255, 0, 255));
-            colorIndex = 0;
-        }
-        else if (colors.Count == 0)
+        if (colors.Count == 0)
         {
             colorIndex = 0;
         }
-        else if (colors.Count == 1)
+        else if (colors.Count == 1 && Kind == LightingDeviceKind.Keyboard)
         {
             // Set_ITE_Effect_Type_FwMode with a non-circular color: one color in slot 1.
             SetColor(1, colors[0]);
@@ -180,22 +228,22 @@ internal sealed class FourZoneKeyboard : IDisposable
         }
         else
         {
-            // A circular palette. Effects that cycle colors read all seven slots, so a shorter palette is repeated.
-            int slots = effect.Colors == EffectColors.Palette ? PaletteSlots : colors.Count;
+            // A circular palette. Effects that cycle colors read all the slots, so a shorter palette is repeated
+            // (the light bar's driver always sends circular palettes, even for one color).
+            int slots = effect.Colors == EffectColors.Palette ? Math.Max(PaletteSlots, colors.Count) : colors.Count;
             for (int i = 0; i < slots; i++) SetColor((byte)(i + 1), colors[i % colors.Count]);
             colorIndex = ColorIndexPalette;
         }
-        Send(CmdSetEffect, ControlLighting, effect.FirmwareId, SpeedValues[Math.Clamp(speed, 0, 4)],
+        Send(CmdSetEffect, ControlLighting, effect.Id, SpeedValues[Math.Clamp(speed, 0, 4)],
             light, colorIndex, effect.HasDirection ? direction : (byte)0, (byte)(saveToFirmware ? 1 : 0));
         if (HasBrightnessCommand) Send(CmdSetBrightness, ControlLighting, light);
     }
 
-    // LM_ITE_RGB.Translate_ITE_SpeedValue (slider 0-4 -> firmware value).
-    static readonly byte[] SpeedValues = [10, 7, 5, 3, 1];
-
     void SetColor(byte slot, Color color)
     {
-        var (r, g, b) = WhiteBalance(color.R, color.G, color.B);
+        var (r, g, b) = Kind == LightingDeviceKind.Keyboard
+            ? KeyboardWhiteBalance(color.R, color.G, color.B)
+            : LightBarWhiteBalance(color.R, color.G, color.B);
         Send(CmdSetColor, 0, slot, r, g, b);
     }
 
@@ -203,11 +251,22 @@ internal sealed class FourZoneKeyboard : IDisposable
     /// WKDColor.cheatRGB_4Zone: the LEDs' green and blue are much stronger than red, so the service scales
     /// them down. This is the branch for every project except IDs 6 and 7 (this laptop reports 15).
     /// </summary>
-    static (byte R, byte G, byte B) WhiteBalance(byte r, byte g, byte b) => (r, g, b) switch
+    static (byte R, byte G, byte B) KeyboardWhiteBalance(byte r, byte g, byte b) => (r, g, b) switch
     {
         (255, 100, 0) => (255, 40, 0),
         (255, 165, 0) => (255, 70, 0),
         _ => (r, (byte)(100 * g / 255), (byte)(200 * b / 255)),
+    };
+
+    /// <summary>WKDColor.cheatRGB_HIDLightbar: the light bar's own color correction.</summary>
+    static (byte R, byte G, byte B) LightBarWhiteBalance(byte r, byte g, byte b) => (r, g, b) switch
+    {
+        (255, 255, 255) => (220, 120, 110),
+        (255, 165, 0) => (220, 30, 0),
+        (255, 255, 0) => (220, 120, 0),
+        (0, 255, 255) => (0, 60, 110),
+        (139, 0, 255) => (220, 0, 110),
+        _ => ((byte)(220 * r / 255), (byte)(120 * g / 255), (byte)(110 * b / 255)),
     };
 
     void Send(params byte[] command)
@@ -336,22 +395,30 @@ internal sealed class FourZoneKeyboard : IDisposable
 internal enum EffectColors { None, Zones, Palette }
 
 /// <summary>
-/// A lighting effect from Control Center's four-zone page, with its ITE effect ID
-/// (LM_ITE_RGB.Translate_ITE_EffectIndex).
+/// A lighting effect from one of Control Center's lighting pages, with the firmware effect ID it sends
+/// (LM_ITE_RGB.Translate_ITE_EffectIndex, and HIDLightbar.RunEffct for the light bar).
 /// </summary>
-internal sealed record KeyboardEffect(string Key, string DisplayName, byte Id, EffectColors Colors, bool HasSpeed,
-    bool HasDirection = false, string? Hint = null)
+internal sealed record LightingEffect(string Key, string DisplayName, byte Id, EffectColors Colors, bool HasSpeed,
+    bool HasDirection = false, int MaxColors = 7, string? Hint = null)
 {
     public const byte StaticId = 1;
     public const byte RainbowId = 5;
     public const byte MusicId = 34;
 
+    // Control Center's default 7-color palette for animated effects (from its RGBKeyboard.reg defaults).
+    public static readonly Color[] DefaultPalette =
+    [
+        Color.FromArgb(255, 0, 0), Color.FromArgb(255, 165, 0), Color.FromArgb(255, 255, 0), Color.FromArgb(0, 255, 0),
+        Color.FromArgb(0, 0, 255), Color.FromArgb(0, 255, 255), Color.FromArgb(139, 0, 255),
+    ];
+
     /// <summary>Music is driven by this app: the controller shows the static zones and we vary the brightness.</summary>
     public bool IsMusic => Id == MusicId;
 
-    public byte FirmwareId => IsMusic ? StaticId : Id;
+    /// <summary>The colors a palette effect starts with.</summary>
+    public IReadOnlyList<Color> DefaultColors { get; init; } = DefaultPalette;
 
-    public static readonly KeyboardEffect[] All =
+    public static readonly LightingEffect[] Keyboard =
     [
         new("static", "Static (4 zones)", StaticId, EffectColors.Zones, HasSpeed: false),
         new("breathing", "Breathing", 2, EffectColors.Palette, HasSpeed: true, Hint: "Fades in and out, one color at a time."),
@@ -363,7 +430,29 @@ internal sealed record KeyboardEffect(string Key, string DisplayName, byte Id, E
             Hint: "Pulses with the sound this PC plays. Brightness sets the peak; speed sets how fast it falls back."),
     ];
 
-    public static KeyboardEffect Find(string? key) => All.FirstOrDefault(e => e.Key == key) ?? All[0];
+    // The firmware effects HIDLightbar.RunEffct handles for the light bar (Wave is its "Colorwave", 32).
+    public static readonly LightingEffect[] LightBar =
+    [
+        new("static", "Static color", StaticId, EffectColors.Palette, HasSpeed: false, MaxColors: 1)
+        {
+            DefaultColors = [Color.FromArgb(0, 255, 255)],
+        },
+        new("breathing", "Breathing", 2, EffectColors.Palette, HasSpeed: true, Hint: "Fades in and out, one color at a time."),
+        new("wave", "Wave", 32, EffectColors.Palette, HasSpeed: true, HasDirection: true, Hint: "The colors flow along the bar."),
+        new("rainbow", "Rainbow", RainbowId, EffectColors.None, HasSpeed: true),
+        new("flash", "Flash", 18, EffectColors.Palette, HasSpeed: true, Hint: "Flashes on and off, one color at a time."),
+        new("mix", "Mix", 19, EffectColors.Palette, HasSpeed: true),
+        new("thinking", "Thinking", 33, EffectColors.Palette, HasSpeed: true, MaxColors: 9)
+        {
+            // The palette Control Center saved for it (HKLM\SOFTWARE\OEM\GamingCenter2\RGBKeyboard\MEZone_Lighbar).
+            DefaultColors =
+            [
+                Color.FromArgb(255, 59, 0), Color.FromArgb(255, 100, 0), Color.FromArgb(255, 158, 0), Color.FromArgb(255, 190, 0),
+                Color.FromArgb(255, 155, 0), Color.FromArgb(255, 118, 0), Color.FromArgb(255, 77, 0), Color.FromArgb(0, 0, 255),
+                Color.FromArgb(136, 0, 255),
+            ],
+        },
+    ];
 
     public override string ToString() => DisplayName;
 }

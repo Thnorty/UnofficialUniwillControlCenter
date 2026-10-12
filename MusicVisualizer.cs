@@ -15,7 +15,7 @@ internal sealed class MusicVisualizer : IDisposable
     readonly Lock gate = new();
     readonly AutoResetEvent wake = new(false);
     readonly Thread thread;
-    FourZoneKeyboard? keyboard; // null while paused
+    IteLightingDevice? keyboard; // null while paused
     byte peakLight;
     int speed;
     volatile bool stopping;
@@ -27,7 +27,7 @@ internal sealed class MusicVisualizer : IDisposable
     }
 
     /// <summary>Starts or updates the effect. <paramref name="peakLight"/> is the firmware brightness (0-50) at full volume.</summary>
-    public void Play(FourZoneKeyboard keyboard, byte peakLight, int speed)
+    public void Play(IteLightingDevice keyboard, byte peakLight, int speed)
     {
         lock (gate)
         {

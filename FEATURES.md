@@ -1,8 +1,9 @@
 # Keyboard RGB — feature overview
 
-A replacement for the keyboard-lighting part of Control Center (v4.8.47.13, installed as Control Center 3
-4.9.47.11) on the Monster Tulpar T5 V21.4. This is a Uniwill/Tongfang platform with an ITE 8291 four-zone keyboard
-controller (USB 048D:CE00, firmware 11.04).
+A replacement for the lighting part of Control Center (v4.8.47.13, installed as Control Center 3 4.9.47.11) on the
+Monster Tulpar T5 V21.4. This is a Uniwill/Tongfang platform with two ITE lighting controllers:
+- the four-zone keyboard (ITE 8291, USB 048D:CE00, firmware 11.04);
+- the light bar on the front edge (USB 048D:6005, firmware 15.04, Control Center's `MEZone_Lighbar` type).
 
 It talks to the keyboard controller directly over HID, and to the embedded controller through the BIOS WMI interface.
 It does not need Control Center, its GCUBridge/GCUService service or its MQTT broker. It needs administrator rights;
@@ -23,7 +24,16 @@ These work the way Control Center does them. The commands come from Control Cent
 - **White balance:** the same green and blue scaling Control Center applies, so colors look the same.
 - **Saved in the controller:** the final lighting is saved to the controller when the app exits, so it stays without
   the app running.
-- **Idle timer:** switches the backlight off after a chosen time without keyboard or mouse input (Never,
+### Light bar
+- **On/off switch**, and the light bar's Fn toggle key (hotkey code 175), with a pop-up.
+- **Effects:** the firmware effects Control Center's light bar driver handles: Static color, Breathing, Wave
+  (Control Center's "Colorwave"), Rainbow, Flash, Mix and Thinking. Still to be confirmed on the hardware.
+- **Speed, wave direction and brightness**, as on the keyboard.
+- **Color correction:** the light bar's own correction (`WKDColor.cheatRGB_HIDLightbar`).
+- **First run:** starts from what the light bar was showing (Control Center left it off, on Thinking).
+
+### Shared
+- **Idle timer:** switches the backlight and the light bar off after a chosen time without keyboard or mouse input (Never,
   15 s … 1 h), with the same fade-out, and back on with the next input.
 
 ### Fn keys and pop-ups
@@ -40,8 +50,8 @@ These work the way Control Center does them. The commands come from Control Cent
 ## Added beyond Control Center
 
 - **No Control Center needed:** no service, UWP app or broker. It is a single small exe.
-- **Fine brightness:** a 0–100% slider covering the controller's full 0–50 range. Control Center only uses five
-  levels.
+- **Fine brightness:** a 0–100% slider covering the controllers' full 0–50 range, for the keyboard and the light
+  bar. Control Center only uses five levels.
 - **Smooth brightness:** every brightness change fades (about 0.18 s) instead of jumping: the slider, the Fn keys,
   and coming back from the idle timer.
 - **Fn keys step by 20%:** 10 of 50 per press. The cycle key wraps to off after full brightness.
@@ -71,7 +81,10 @@ These work the way Control Center does them. The commands come from Control Cent
   the controller's "welcome" slots. Left out on purpose because it writes firmware variables.
 - **Separate brightness on charger and battery:** Control Center's service keeps one brightness for each and
   switches when the charger is plugged in or out. This app has one brightness.
-- **Aurora:** Control Center's Aurora switch is not implemented.
+- **Aurora:** not the light bar. Control Center's Aurora switch hands all lighting over to a separate third-party
+  RGB program called Aurora, which isn't installed here. Not implemented.
+- **Light bar Music, Star Spark and Star Hitting:** Control Center drives these in software, one LED at a time
+  (user mode, command 12h). Not implemented yet.
 - **Night Light:** removed. It had no visible effect on this laptop, and Control Center doesn't offer it for this
   model.
 - **Fn keys while the app is closed:** they still need several presses. The embedded controller counts from a hidden

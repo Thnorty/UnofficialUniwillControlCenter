@@ -18,6 +18,7 @@ internal sealed class FirmwareHotkeys : IDisposable
     public const int KeyboardLightDown = 177;
     public const int KeyboardLightUp = 178;
     public const int KeyboardLightCycle = 185;
+    public const int LightBarToggle = 175;  // HIDLightbar.SetBrinessByScanCode
     public const int WinKeyLocked = 64;    // OSD_WINKEY_LOCK
     public const int WinKeyUnlocked = 65;  // OSD_WINKEY_UNLOCK
 
