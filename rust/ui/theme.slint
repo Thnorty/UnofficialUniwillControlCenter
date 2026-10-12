@@ -1,0 +1,55 @@
+// Windows 11's colors (the WinUI 3 "Fluent" design tokens), for dark and light mode.
+export global Theme {
+    in-out property <bool> dark: true;
+    // The accent fill Windows uses for controls: a light shade of the accent in dark mode, a dark one in light mode.
+    in-out property <color> accent: dark ? #4cc2ff : #005fb8;
+    in-out property <string> icon-font: "Segoe Fluent Icons";
+
+    out property <color> window: dark ? #202020 : #f3f3f3;
+    out property <color> nav-pane: dark ? #1c1c1c : #eeeeee;
+    out property <color> card: dark ? #2b2b2b : #fbfbfb;
+    out property <color> card-hover: dark ? #323232 : #f6f6f6;
+    out property <color> card-stroke: dark ? #1d1d1d : #e5e5e5;
+    out property <color> divider: dark ? #ffffff14 : #0000000f;
+    out property <color> text: dark ? #ffffff : #1b1b1b;
+    out property <color> text-secondary: dark ? #c5c5c5 : #5d5d5d;
+    out property <color> text-tertiary: dark ? #8b8b8b : #8a8a8a;
+    out property <color> subtle-hover: dark ? #ffffff0f : #0000000a;
+    out property <color> subtle-pressed: dark ? #ffffff0a : #00000006;
+    out property <color> subtle-selected: dark ? #ffffff12 : #0000000c;
+    out property <color> control: dark ? #ffffff0f : #ffffffb3;
+    out property <color> control-hover: dark ? #ffffff15 : #f9f9f980;
+    out property <color> control-stroke: dark ? #ffffff17 : #0000001a;
+    out property <color> on-accent: dark ? #000000 : #ffffff;
+    out property <color> critical-background: dark ? #442726 : #fde7e9;
+    out property <color> critical: dark ? #ff99a4 : #c42b1c;
+    out property <color> success: dark ? #6ccb5f : #0f7b0f;
+    // The product shots of the keyboard and light bar sit on a dark stage in both modes.
+    out property <color> stage-top: dark ? #151518 : #26262b;
+    out property <color> stage-bottom: dark ? #0b0b0d : #121215;
+
+    out property <string> font: "Segoe UI Variable Text";
+    out property <string> display-font: "Segoe UI Variable Display";
+}
+
+export global Glyphs {
+    out property <string> keyboard: "\u{E765}";
+    out property <string> light: "\u{EA80}";
+    out property <string> timer: "\u{E916}";
+    out property <string> settings: "\u{E713}";
+    out property <string> add: "\u{E710}";
+    out property <string> close: "\u{E711}";
+    out property <string> check: "\u{E73E}";
+    out property <string> error: "\u{EA39}";
+    out property <string> info: "\u{E946}";
+    out property <string> touchpad: "\u{EFA5}";
+    out property <string> lock: "\u{E72E}";
+    out property <string> power: "\u{E7E8}";
+    out property <string> link: "\u{E71B}";
+    out property <string> brightness: "\u{E706}";
+    out property <string> speed: "\u{EC4A}";
+    out property <string> idle: "\u{E708}";
+    out property <string> reset: "\u{E72C}";
+    out property <string> color: "\u{E790}";
+    out property <string> keys: "\u{E92E}";
+}

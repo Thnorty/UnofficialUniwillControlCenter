@@ -1,0 +1,87 @@
+//! Last-used settings, kept in %APPDATA% because the controllers can't report colors back. The file is the same one
+//! the earlier C# version writes, so switching between them keeps everything.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
+use crate::color::Rgb;
+use crate::device::MAX_LIGHT;
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct Settings {
+    pub keyboard: Option<LightingSettings>,
+    /// None until the app has seen the light bar, so the first run can pick up its current state.
+    pub light_bar: Option<LightingSettings>,
+    pub idle_timeout_seconds: u32,
+    /// The light bar flashes when these change.
+    pub flash_caps_lock: bool,
+    pub flash_num_lock: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings { keyboard: None, light_bar: None, idle_timeout_seconds: 0, flash_caps_lock: true, flash_num_lock: true }
+    }
+}
+
+/// The lighting of one device: the keyboard or the light bar.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct LightingSettings {
+    pub on: bool,
+    pub effect: String,
+    /// Static and Music colors of the keyboard's four zones (ARGB).
+    pub zone_colors: Vec<i32>,
+    /// Colors of each palette effect, by effect key.
+    pub palettes: HashMap<String, Vec<i32>>,
+    pub wave_direction: u8,
+    /// Firmware brightness, 0-50.
+    pub light: u8,
+    pub speed: u8,
+    /// The light bar shows the keyboard's effect, colors and speed.
+    pub linked: bool,
+}
+
+impl Default for LightingSettings {
+    fn default() -> Self {
+        let red = Rgb::new(255, 0, 0).to_argb();
+        LightingSettings {
+            on: true,
+            effect: "static".into(),
+            zone_colors: vec![red; 4],
+            palettes: HashMap::new(),
+            wave_direction: 1,
+            light: MAX_LIGHT,
+            speed: 2,
+            linked: false,
+        }
+    }
+}
+
+fn path() -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("MonsterKeyboardRGB").join("settings.json"))
+}
+
+impl Settings {
+    pub fn load() -> Settings {
+        let mut settings: Settings = path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|text| serde_json::from_str(text.trim_start_matches('\u{FEFF}')).ok())
+            .unwrap_or_default();
+        settings.keyboard.get_or_insert_with(LightingSettings::default);
+        settings
+    }
+
+    pub fn save(&self) {
+        let Some(path) = path() else { return };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(text) = serde_json::to_string(self) {
+            let _ = std::fs::write(path, text);
+        }
+    }
+}

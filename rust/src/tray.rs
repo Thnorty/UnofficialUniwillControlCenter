@@ -1,0 +1,348 @@
+//! The tray icon and a hidden window for system messages: the tray's menu and clicks, notifications, resume from
+//! sleep, theme changes, and a second launch asking this one to show itself.
+
+use std::cell::RefCell;
+
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::Graphics::Gdi::{CreateBitmap, CreateDIBSection, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, DeleteObject, HGDIOBJ};
+use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
+use windows::Win32::UI::Shell::{
+    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
+    Shell_NotifyIconW,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu, GetCursorPos, HICON, HMENU,
+    ICONINFO, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, PostMessageW, RegisterClassW, RegisterWindowMessageW,
+    SetForegroundWindow, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WINDOW_EX_STYLE, WM_APP, WM_CONTEXTMENU,
+    WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_POWERBROADCAST, WM_SETTINGCHANGE, WNDCLASSW, WS_POPUP,
+};
+use windows::core::{HSTRING, PCSTR, PCWSTR, w};
+
+use crate::color::Rgb;
+
+const CALLBACK: u32 = WM_APP + 1;
+const NIN_SELECT: u32 = 0x400; // WM_USER: a click on the icon (NOTIFYICON_VERSION_4)
+const NIN_KEYSELECT: u32 = 0x401;
+const PBT_APMRESUMEAUTOMATIC: usize = 0x12;
+
+pub enum MenuItem {
+    Item { id: u32, text: String, checked: bool, enabled: bool },
+    Submenu { text: String, enabled: bool, items: Vec<MenuItem> },
+    Separator,
+}
+
+impl MenuItem {
+    pub fn item(id: u32, text: impl Into<String>) -> MenuItem {
+        MenuItem::Item { id, text: text.into(), checked: false, enabled: true }
+    }
+
+    pub fn check(id: u32, text: impl Into<String>, checked: bool, enabled: bool) -> MenuItem {
+        MenuItem::Item { id, text: text.into(), checked, enabled }
+    }
+}
+
+pub enum TrayEvent {
+    /// Open the window: a click on the icon, or a second launch.
+    Open,
+    Command(u32),
+    Resumed,
+    ThemeChanged,
+}
+
+struct Handlers {
+    menu: Box<dyn Fn() -> Vec<MenuItem>>,
+    event: Box<dyn Fn(TrayEvent)>,
+}
+
+thread_local! {
+    static HANDLERS: RefCell<Option<Handlers>> = const { RefCell::new(None) };
+    static MESSAGES: RefCell<(u32, u32)> = const { RefCell::new((0, 0)) }; // TaskbarCreated, the show message
+}
+
+pub struct Tray {
+    hwnd: HWND,
+    icon: HICON,
+    tip: String,
+}
+
+/// The message a second launch broadcasts so the running instance shows itself (the same as the C# version's).
+pub fn show_message() -> u32 {
+    unsafe { RegisterWindowMessageW(w!("MonsterKeyboardRGB.Show")) }
+}
+
+/// Asks a running instance to show its window.
+pub fn signal_running_instance() {
+    unsafe {
+        let _ = PostMessageW(Some(HWND(0xFFFF as _)), show_message(), WPARAM(0), LPARAM(0)); // HWND_BROADCAST
+    }
+}
+
+impl Tray {
+    pub fn create(tip: &str, menu: impl Fn() -> Vec<MenuItem> + 'static, event: impl Fn(TrayEvent) + 'static) -> windows::core::Result<Tray> {
+        HANDLERS.with(|h| *h.borrow_mut() = Some(Handlers { menu: Box::new(menu), event: Box::new(event) }));
+        unsafe {
+            MESSAGES.with(|m| *m.borrow_mut() = (RegisterWindowMessageW(w!("TaskbarCreated")), show_message()));
+            allow_dark_menus();
+            let instance = GetModuleHandleW(None)?;
+            let class = w!("KeyboardRgbTray");
+            let wc = WNDCLASSW { lpfnWndProc: Some(window_proc), hInstance: instance.into(), lpszClassName: class, ..Default::default() };
+            RegisterClassW(&wc);
+            // A hidden top-level window rather than a message-only one, so it gets broadcasts.
+            let hwnd = CreateWindowExW(WINDOW_EX_STYLE(0), class, w!("Keyboard RGB tray"), WS_POPUP, 0, 0, 0, 0, None, None, Some(instance.into()), None)?;
+            let tray = Tray { hwnd, icon: HICON::default(), tip: tip.to_string() };
+            Ok(tray)
+        }
+    }
+
+    fn data(&self) -> NOTIFYICONDATAW {
+        let mut data = NOTIFYICONDATAW {
+            cbSize: size_of::<NOTIFYICONDATAW>() as u32,
+            hWnd: self.hwnd,
+            uID: 1,
+            uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
+            uCallbackMessage: CALLBACK,
+            hIcon: self.icon,
+            ..Default::default()
+        };
+        copy_wide(&mut data.szTip, &self.tip);
+        data
+    }
+
+    fn add(&self) {
+        unsafe {
+            let mut data = self.data();
+            let _ = Shell_NotifyIconW(NIM_ADD, &data);
+            data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+            let _ = Shell_NotifyIconW(NIM_SETVERSION, &data);
+        }
+    }
+
+    /// Shows the icon, or changes it.
+    pub fn set_icon(&mut self, icon: HICON) {
+        let old = std::mem::replace(&mut self.icon, icon);
+        unsafe {
+            if old.is_invalid() {
+                self.add();
+            } else {
+                let _ = Shell_NotifyIconW(NIM_MODIFY, &self.data());
+                let _ = DestroyIcon(old);
+            }
+        }
+    }
+
+    /// Re-adds the icon after Explorer restarted.
+    pub fn restore(&self) {
+        if !self.icon.is_invalid() {
+            self.add();
+        }
+    }
+
+    /// A Windows notification from the tray icon.
+    pub fn notify(&self, title: &str, text: &str) {
+        let mut data = self.data();
+        data.uFlags = NIF_INFO;
+        data.dwInfoFlags = NIIF_INFO;
+        copy_wide(&mut data.szInfoTitle, title);
+        copy_wide(&mut data.szInfo, text);
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_MODIFY, &data);
+        }
+    }
+}
+
+impl Drop for Tray {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = Shell_NotifyIconW(NIM_DELETE, &self.data());
+            if !self.icon.is_invalid() {
+                let _ = DestroyIcon(self.icon);
+            }
+        }
+    }
+}
+
+fn copy_wide(destination: &mut [u16], text: &str) {
+    let wide: Vec<u16> = text.encode_utf16().take(destination.len() - 1).collect();
+    destination[..wide.len()].copy_from_slice(&wide);
+    destination[wide.len()] = 0;
+}
+
+/// Lets popup menus follow the dark theme (uxtheme's SetPreferredAppMode, which Explorer and Settings use too).
+unsafe fn allow_dark_menus() {
+    unsafe {
+        let Ok(uxtheme) = LoadLibraryW(w!("uxtheme.dll")) else { return };
+        if let Some(set_preferred_app_mode) = GetProcAddress(uxtheme, PCSTR(135 as *const u8)) {
+            let set: unsafe extern "system" fn(i32) -> i32 = std::mem::transmute(set_preferred_app_mode);
+            set(1); // AllowDark: follow the system setting
+        }
+        if let Some(flush) = GetProcAddress(uxtheme, PCSTR(136 as *const u8)) {
+            let flush: unsafe extern "system" fn() = std::mem::transmute(flush);
+            flush();
+        }
+    }
+}
+
+fn build_menu(items: &[MenuItem]) -> HMENU {
+    unsafe {
+        let menu = CreatePopupMenu().unwrap_or_default();
+        for item in items {
+            match item {
+                MenuItem::Separator => {
+                    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                }
+                MenuItem::Item { id, text, checked, enabled } => {
+                    let mut flags = MF_STRING;
+                    if *checked {
+                        flags |= MF_CHECKED;
+                    }
+                    if !*enabled {
+                        flags |= MF_GRAYED;
+                    }
+                    let _ = AppendMenuW(menu, flags, *id as usize, &HSTRING::from(text.as_str()));
+                }
+                MenuItem::Submenu { text, enabled, items } => {
+                    let submenu = build_menu(items);
+                    let mut flags = MF_STRING | MF_POPUP;
+                    if !*enabled {
+                        flags |= MF_GRAYED;
+                    }
+                    let _ = AppendMenuW(menu, flags, submenu.0 as usize, &HSTRING::from(text.as_str()));
+                }
+            }
+        }
+        menu
+    }
+}
+
+fn emit(event: TrayEvent) {
+    // Take the handlers out while calling them, so a handler can't re-enter.
+    let handlers = HANDLERS.with(|h| h.borrow_mut().take());
+    if let Some(handlers) = handlers {
+        (handlers.event)(event);
+        HANDLERS.with(|h| {
+            let mut slot = h.borrow_mut();
+            if slot.is_none() {
+                *slot = Some(handlers);
+            }
+        });
+    }
+}
+
+fn show_menu(hwnd: HWND) {
+    let items = HANDLERS.with(|h| h.borrow().as_ref().map(|handlers| (handlers.menu)()));
+    let Some(items) = items else { return };
+    unsafe {
+        let menu = build_menu(&items);
+        let mut point = POINT::default();
+        let _ = GetCursorPos(&mut point);
+        // The window must be in front, or the menu doesn't close when clicking elsewhere.
+        let _ = SetForegroundWindow(hwnd);
+        let command = TrackPopupMenuEx(menu, (TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN).0, point.x, point.y, hwnd, None);
+        let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
+        let _ = DestroyMenu(menu);
+        if command.0 != 0 {
+            emit(TrayEvent::Command(command.0 as u32));
+        }
+    }
+}
+
+unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    let (taskbar_created, show) = MESSAGES.with(|m| *m.borrow());
+    match message {
+        CALLBACK => {
+            match (lparam.0 as u32) & 0xFFFF {
+                NIN_SELECT | NIN_KEYSELECT | WM_LBUTTONUP | WM_LBUTTONDBLCLK => emit(TrayEvent::Open),
+                WM_CONTEXTMENU => show_menu(hwnd),
+                _ => {}
+            }
+            LRESULT(0)
+        }
+        WM_POWERBROADCAST => {
+            if wparam.0 == PBT_APMRESUMEAUTOMATIC {
+                emit(TrayEvent::Resumed);
+            }
+            LRESULT(1)
+        }
+        WM_SETTINGCHANGE => {
+            let area = if lparam.0 != 0 { unsafe { PCWSTR(lparam.0 as *const u16).to_string().unwrap_or_default() } } else { String::new() };
+            if area == "ImmersiveColorSet" {
+                emit(TrayEvent::ThemeChanged);
+            }
+            unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+        }
+        m if m != 0 && m == show => {
+            emit(TrayEvent::Open);
+            LRESULT(0)
+        }
+        m if m != 0 && m == taskbar_created => {
+            emit(TrayEvent::ThemeChanged); // the app re-adds the icon (with the current colors) when this arrives
+            LRESULT(0)
+        }
+        _ => unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
+    }
+}
+
+/// Draws the tray icon: the keyboard as four glowing zones in the current colors, on a dark key plate.
+pub fn zone_pixels(colors: &[Rgb], size: usize) -> Vec<[u8; 4]> {
+    let mut pixels = vec![[0u8; 4]; size * size]; // RGBA
+    let s = size as f32 / 32.0;
+    let plate = (1.0 * s, 6.0 * s, 31.0 * s, 26.0 * s);
+    let radius = 4.0 * s;
+    for y in 0..size {
+        for x in 0..size {
+            let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+            // Coverage of the rounded plate, antialiased over one pixel.
+            let dx = (plate.0 + radius - px).max(px - (plate.2 - radius)).max(0.0);
+            let dy = (plate.1 + radius - py).max(py - (plate.3 - radius)).max(0.0);
+            let outside = (dx * dx + dy * dy).sqrt() - radius;
+            let inside_box = px > plate.0 - 1.0 && px < plate.2 + 1.0 && py > plate.1 - 1.0 && py < plate.3 + 1.0;
+            let coverage = if inside_box { (0.5 - outside).clamp(0.0, 1.0) } else { 0.0 };
+            if coverage <= 0.0 {
+                continue;
+            }
+            let mut color = Rgb::new(32, 32, 36);
+            // Four zones of keys inside the plate.
+            let inner = (plate.0 + 2.5 * s, plate.1 + 3.0 * s, plate.2 - 2.5 * s, plate.3 - 3.0 * s);
+            if px >= inner.0 && px < inner.2 && py >= inner.1 && py < inner.3 {
+                let zone_width = (inner.2 - inner.0) / 4.0;
+                let zone = (((px - inner.0) / zone_width) as usize).min(3);
+                let within = px - inner.0 - zone as f32 * zone_width;
+                if within >= 0.6 * s && within <= zone_width - 0.6 * s {
+                    let c = colors.get(zone % colors.len().max(1)).copied().unwrap_or(Rgb::WHITE);
+                    color = if c.is_black() { Rgb::new(60, 60, 66) } else { c };
+                }
+            }
+            pixels[y * size + x] = [color.r, color.g, color.b, (coverage * 255.0) as u8];
+        }
+    }
+    pixels
+}
+
+/// A Windows icon from RGBA pixels.
+pub fn make_icon(pixels: &[[u8; 4]], size: usize) -> HICON {
+    unsafe {
+        let info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: size as i32,
+                biHeight: -(size as i32),
+                biPlanes: 1,
+                biBitCount: 32,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut bits = std::ptr::null_mut();
+        let Ok(color) = CreateDIBSection(None, &info, DIB_RGB_COLORS, &mut bits, None, 0) else { return HICON::default() };
+        let out = std::slice::from_raw_parts_mut(bits as *mut [u8; 4], size * size);
+        for (o, p) in out.iter_mut().zip(pixels) {
+            *o = [p[2], p[1], p[0], p[3]]; // BGRA
+        }
+        let mask = CreateBitmap(size as i32, size as i32, 1, 1, None);
+        let icon_info = ICONINFO { fIcon: true.into(), xHotspot: 0, yHotspot: 0, hbmMask: mask, hbmColor: color };
+        let icon = CreateIconIndirect(&icon_info).unwrap_or_default();
+        let _ = DeleteObject(HGDIOBJ(color.0));
+        let _ = DeleteObject(HGDIOBJ(mask.0));
+        icon
+    }
+}

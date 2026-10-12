@@ -1,0 +1,175 @@
+import { LineEdit } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+import { Caption, FluentButton, Swatch } from "controls.slint";
+
+/// A color picker like Windows 11's: a saturation/brightness field, a hue slider, the hex value and quick colors.
+/// Every change is reported at once so the lights follow while dragging.
+export component ColorPicker inherits Rectangle {
+    in property <[color]> presets;
+    // The color it opens with (the popup is created fresh each time it shows).
+    in property <color> initial;
+    in-out property <float> hue;
+    in-out property <float> saturation: 1;
+    in-out property <float> brightness: 1;
+    property <color> current: hsv(root.hue, root.saturation, root.brightness);
+    callback edited(color);
+    callback done();
+    pure callback format-hex(color) -> string;
+    pure callback parse-hex(string) -> color;
+
+    public function load(c: color) {
+        let hsv = c.to-hsv();
+        // Keep the hue for grays, where it's undefined.
+        if (hsv.saturation > 0.001 && hsv.value > 0.001) {
+            root.hue = hsv.hue;
+        }
+        root.saturation = hsv.saturation;
+        root.brightness = hsv.value;
+        hex.text = root.format-hex(c);
+    }
+
+    init => {
+        root.load(root.initial);
+    }
+
+    function changed() {
+        hex.text = root.format-hex(root.current);
+        root.edited(root.current);
+    }
+
+    width: 296px;
+    height: layout.preferred-height;
+    background: Theme.dark ? #2c2c2c : #f9f9f9;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.dark ? #ffffff1a : #0000001a;
+    drop-shadow-blur: 32px;
+    drop-shadow-offset-y: 8px;
+    drop-shadow-color: #00000060;
+
+    layout := VerticalLayout {
+        padding: 16px;
+        spacing: 14px;
+        field := Rectangle {
+            height: 168px;
+            border-radius: 6px;
+            clip: true;
+            background: hsv(root.hue, 1, 1);
+            Rectangle {
+                background: @linear-gradient(90deg, #ffffff 0%, #ffffff00 100%);
+            }
+            Rectangle {
+                background: @linear-gradient(0deg, #000000 0%, #00000000 100%);
+            }
+            Rectangle {
+                x: root.saturation * parent.width - 8px;
+                y: (1 - root.brightness) * parent.height - 8px;
+                width: 16px;
+                height: 16px;
+                border-radius: 8px;
+                border-width: 2px;
+                border-color: #ffffff;
+                background: root.current;
+                drop-shadow-blur: 3px;
+                drop-shadow-color: #00000080;
+            }
+            TouchArea {
+                mouse-cursor: crosshair;
+                function pick() {
+                    root.saturation = Math.clamp(self.mouse-x / parent.width, 0, 1);
+                    root.brightness = 1 - Math.clamp(self.mouse-y / parent.height, 0, 1);
+                    root.changed();
+                }
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down) {
+                        self.pick();
+                    }
+                }
+                moved => {
+                    if (self.pressed) {
+                        self.pick();
+                    }
+                }
+            }
+        }
+        hue-bar := Rectangle {
+            height: 14px;
+            border-radius: 7px;
+            background: @linear-gradient(90deg, #ff0000 0%, #ffff00 16.67%, #00ff00 33.33%, #00ffff 50%, #0000ff 66.67%, #ff00ff 83.33%, #ff0000 100%);
+            Rectangle {
+                x: root.hue / 360 * (parent.width - 14px);
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                border-width: 2px;
+                border-color: #ffffff;
+                background: hsv(root.hue, 1, 1);
+                drop-shadow-blur: 3px;
+                drop-shadow-color: #00000080;
+            }
+            TouchArea {
+                mouse-cursor: pointer;
+                function pick() {
+                    root.hue = Math.clamp((self.mouse-x - 7px) / (parent.width - 14px), 0, 1) * 359.9;
+                    root.changed();
+                }
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down) {
+                        self.pick();
+                    }
+                }
+                moved => {
+                    if (self.pressed) {
+                        self.pick();
+                    }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            Rectangle {
+                width: 40px;
+                height: 32px;
+                border-radius: 4px;
+                background: root.current;
+                border-width: 1px;
+                border-color: Theme.control-stroke;
+            }
+            hex := LineEdit {
+                horizontal-stretch: 1;
+                placeholder-text: "#RRGGBB";
+                accepted(text) => {
+                    let c = root.parse-hex(text);
+                    if (c.to-hsv().alpha > 0.5) {
+                        root.load(c);
+                        root.edited(c);
+                    }
+                }
+            }
+        }
+        Caption {
+            text: "Quick colors";
+        }
+        HorizontalLayout {
+            alignment: space-between;
+            for c in root.presets: Swatch {
+                width: 22px;
+                height: 22px;
+                round: true;
+                fill: c;
+                clicked => {
+                    root.load(c);
+                    root.edited(c);
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: end;
+            FluentButton {
+                text: "Done";
+                accent: true;
+                clicked => { root.done(); }
+            }
+        }
+    }
+}

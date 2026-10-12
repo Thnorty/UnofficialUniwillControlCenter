@@ -1,0 +1,330 @@
+import { ScrollView, Palette } from "std-widgets.slint";
+import { Theme, Glyphs } from "theme.slint";
+import { Glyph, InfoBar } from "controls.slint";
+import { KeyCap } from "preview.slint";
+import { ColorPicker } from "picker.slint";
+import { DeviceView, TileGroup, LightingPage, AlertsPage, SettingsPage } from "pages.slint";
+
+export { Theme, KeyCap, DeviceView, TileGroup }
+
+component NavItem inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> selected;
+    callback clicked;
+    height: 40px;
+    border-radius: 4px;
+    background: root.selected ? Theme.subtle-selected : touch.pressed ? Theme.subtle-pressed : touch.has-hover ? Theme.subtle-hover : transparent;
+    animate background { duration: 100ms; }
+    // The accent pill of the selected page.
+    Rectangle {
+        x: 0;
+        width: 3px;
+        height: root.selected ? (touch.pressed ? 10px : 16px) : 0px;
+        y: (parent.height - self.height) / 2;
+        border-radius: 1.5px;
+        background: Theme.accent;
+        animate height { duration: 180ms; easing: cubic-bezier(0.0, 0.0, 0.0, 1.0); }
+    }
+    HorizontalLayout {
+        padding-left: 16px;
+        spacing: 16px;
+        Glyph {
+            text: root.icon;
+            width: 16px;
+        }
+        Text {
+            text: root.label;
+            vertical-alignment: center;
+            color: Theme.text;
+        }
+    }
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "Keyboard RGB";
+    icon: @image-url("../res/app.png");
+    preferred-width: 1100px;
+    preferred-height: 800px;
+    min-width: 880px;
+    min-height: 600px;
+    background: Theme.window;
+    default-font-family: Theme.font;
+    default-font-size: 14px;
+
+    in property <bool> dark-mode: true;
+    in-out property <int> page: 0;
+
+    init => {
+        Palette.color-scheme = root.dark-mode ? ColorScheme.dark : ColorScheme.light;
+    }
+    changed dark-mode => {
+        Palette.color-scheme = root.dark-mode ? ColorScheme.dark : ColorScheme.light;
+    }
+    in property <bool> has-light-bar;
+    in property <string> status-text;
+    in property <bool> status-error;
+    in property <bool> show-retry;
+    in property <[color]> presets;
+
+    // The keyboard.
+    in property <DeviceView> kb-view;
+    in property <[string]> kb-tiles;
+    in property <[TileGroup]> kb-groups;
+    in property <[color]> kb-tile-leds;
+    in property <[color]> kb-zones;
+    in property <[color]> kb-palette;
+    in property <[color]> kb-glow;
+    in property <[KeyCap]> keys;
+    in-out property <float> kb-light;
+    in-out property <float> kb-speed;
+
+    // The light bar.
+    in property <DeviceView> lb-view;
+    in property <[string]> lb-tiles;
+    in property <[TileGroup]> lb-groups;
+    in property <[color]> lb-tile-leds;
+    in property <[color]> lb-palette;
+    in property <[color]> lb-leds;
+    in-out property <float> lb-light;
+    in-out property <float> lb-speed;
+
+    // Timer & alerts.
+    in property <bool> timer-running;
+    in property <string> timer-left;
+    in property <float> timer-progress;
+    in-out property <int> timer-minutes: 25;
+    in property <bool> flash-caps;
+    in property <bool> flash-num;
+
+    // Settings.
+    in property <[string]> idle-options;
+    in-out property <int> idle-index;
+    in property <int> touchpad-state;
+    in property <bool> winkey-available;
+    in property <bool> winkey-locked;
+    in property <bool> start-with-windows;
+    in property <string> about;
+    in property <string> fn-keys;
+
+    // device: 0 = keyboard, 1 = light bar
+    callback select-effect(int, int);
+    callback light-changed(int, float);
+    callback speed-changed(int, float);
+    callback direction-changed(int, int);
+    callback set-on(bool);
+    callback set-linked(bool);
+    // device, target (0 = zone, 1 = palette color, 2 = all zones), index, color
+    callback color-edited(int, int, int, color);
+    // Adds a color to a palette and returns its index.
+    callback add-color(int) -> int;
+    callback remove-color(int, int);
+    callback reset-palette(int);
+    callback start-timer(int);
+    callback cancel-timer();
+    callback set-flash-caps(bool);
+    callback set-flash-num(bool);
+    callback set-idle(int);
+    callback toggle-touchpad();
+    callback toggle-winkey();
+    callback set-start-with-windows(bool);
+    callback retry();
+    pure callback format-hex(color) -> string;
+    pure callback parse-hex(string) -> color;
+
+    property <int> picker-device;
+    property <int> picker-target;
+    property <int> picker-index;
+    property <length> picker-x;
+    property <length> picker-y;
+    property <color> picker-color;
+
+    function open-picker(device: int, target: int, index: int, c: color, x: length, y: length) {
+        root.picker-device = device;
+        root.picker-target = target;
+        root.picker-index = index;
+        root.picker-x = x;
+        root.picker-y = y;
+        root.picker-color = c;
+        picker-popup.show();
+    }
+
+    HorizontalLayout {
+        // The navigation pane.
+        VerticalLayout {
+            width: 260px;
+            padding: 6px;
+            padding-top: 14px;
+            spacing: 4px;
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-bottom: 18px;
+                spacing: 12px;
+                Image {
+                    source: @image-url("../res/app.png");
+                    width: 20px;
+                    height: 20px;
+                }
+                Text {
+                    text: "Keyboard RGB";
+                    font-size: 12px;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+            }
+            NavItem {
+                icon: Glyphs.keyboard;
+                label: "Keyboard";
+                selected: root.page == 0;
+                clicked => { root.page = 0; }
+            }
+            if root.has-light-bar: NavItem {
+                icon: Glyphs.light;
+                label: "Light bar";
+                selected: root.page == 1;
+                clicked => { root.page = 1; }
+            }
+            NavItem {
+                icon: Glyphs.timer;
+                label: "Timer & alerts";
+                selected: root.page == 2;
+                clicked => { root.page = 2; }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+            }
+            NavItem {
+                icon: Glyphs.settings;
+                label: "Settings";
+                selected: root.page == 3;
+                clicked => { root.page = 3; }
+            }
+        }
+
+        // The content, on a layer with a rounded corner like Windows 11 apps.
+        Rectangle {
+            horizontal-stretch: 1;
+            background: Theme.dark ? #272727 : #f9f9f9;
+            border-top-left-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.card-stroke;
+            clip: true;
+            scroll := ScrollView {
+                property <length> side: Math.max(36px, (self.visible-width - 1000px) / 2);
+                content-width: self.visible-width;
+                content-height: content.preferred-height;
+                content := VerticalLayout {
+                    width: scroll.visible-width;
+                    padding-left: scroll.side;
+                    padding-right: scroll.side;
+                    padding-top: 28px;
+                    padding-bottom: 36px;
+                    spacing: 16px;
+                    if root.status-text != "": InfoBar {
+                        message: root.status-text;
+                        critical: root.status-error;
+                        action: root.show-retry ? "Retry" : "";
+                        action-clicked => { root.retry(); }
+                    }
+                    if root.page == 0: LightingPage {
+                        is-light-bar: false;
+                        view: root.kb-view;
+                        tiles: root.kb-tiles;
+                        groups: root.kb-groups;
+                        tile-leds: root.kb-tile-leds;
+                        zones: root.kb-zones;
+                        palette: root.kb-palette;
+                        presets: root.presets;
+                        preview: root.kb-glow;
+                        keys: root.keys;
+                        light <=> root.kb-light;
+                        speed <=> root.kb-speed;
+                        select-effect(i) => { root.select-effect(0, i); }
+                        light-changed(v) => { root.light-changed(0, v); }
+                        speed-changed(v) => { root.speed-changed(0, v); }
+                        direction-changed(i) => { root.direction-changed(0, i); }
+                        edit-color(target, index, c, x, y) => { root.open-picker(0, target, index, c, x, y); }
+                        add-color => {
+                            let index = root.add-color(0);
+                            root.open-picker(0, 1, index, root.kb-palette[index], 240px, 360px);
+                        }
+                        remove-color(i) => { root.remove-color(0, i); }
+                        reset-palette => { root.reset-palette(0); }
+                        set-all-zones(c) => { root.color-edited(0, 2, 0, c); }
+                    }
+                    if root.page == 1: LightingPage {
+                        is-light-bar: true;
+                        view: root.lb-view;
+                        tiles: root.lb-tiles;
+                        groups: root.lb-groups;
+                        tile-leds: root.lb-tile-leds;
+                        palette: root.lb-palette;
+                        presets: root.presets;
+                        preview: root.lb-leds;
+                        light <=> root.lb-light;
+                        speed <=> root.lb-speed;
+                        select-effect(i) => { root.select-effect(1, i); }
+                        light-changed(v) => { root.light-changed(1, v); }
+                        speed-changed(v) => { root.speed-changed(1, v); }
+                        direction-changed(i) => { root.direction-changed(1, i); }
+                        set-on(on) => { root.set-on(on); }
+                        set-linked(on) => { root.set-linked(on); }
+                        edit-color(target, index, c, x, y) => { root.open-picker(1, target, index, c, x, y); }
+                        add-color => {
+                            let index = root.add-color(1);
+                            root.open-picker(1, 1, index, root.lb-palette[index], 240px, 400px);
+                        }
+                        remove-color(i) => { root.remove-color(1, i); }
+                        reset-palette => { root.reset-palette(1); }
+                    }
+                    if root.page == 2: AlertsPage {
+                        has-light-bar: root.has-light-bar;
+                        timer-running: root.timer-running;
+                        timer-left: root.timer-left;
+                        timer-progress: root.timer-progress;
+                        timer-minutes <=> root.timer-minutes;
+                        flash-caps: root.flash-caps;
+                        flash-num: root.flash-num;
+                        start-timer(m) => { root.start-timer(m); }
+                        cancel-timer => { root.cancel-timer(); }
+                        set-flash-caps(on) => { root.set-flash-caps(on); }
+                        set-flash-num(on) => { root.set-flash-num(on); }
+                    }
+                    if root.page == 3: SettingsPage {
+                        idle-options: root.idle-options;
+                        idle-index <=> root.idle-index;
+                        touchpad-state: root.touchpad-state;
+                        winkey-available: root.winkey-available;
+                        winkey-locked: root.winkey-locked;
+                        start-with-windows: root.start-with-windows;
+                        about: root.about;
+                        fn-keys: root.fn-keys;
+                        set-idle(i) => { root.set-idle(i); }
+                        toggle-touchpad => { root.toggle-touchpad(); }
+                        toggle-winkey => { root.toggle-winkey(); }
+                        set-start-with-windows(on) => { root.set-start-with-windows(on); }
+                    }
+                }
+            }
+        }
+    }
+
+    picker-popup := PopupWindow {
+        x: Math.clamp(root.picker-x, 8px, root.width - 304px);
+        y: Math.clamp(root.picker-y, 8px, Math.max(8px, root.height - picker.height - 8px));
+        width: picker.width;
+        height: picker.height;
+        close-policy: close-on-click-outside;
+        picker := ColorPicker {
+            initial: root.picker-color;
+            presets: root.presets;
+            format-hex(c) => { return root.format-hex(c); }
+            parse-hex(text) => { return root.parse-hex(text); }
+            edited(c) => { root.color-edited(root.picker-device, root.picker-target, root.picker-index, c); }
+            done => { picker-popup.close(); }
+        }
+    }
+}

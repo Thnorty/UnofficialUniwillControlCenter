@@ -3,3 +3,5 @@ obj/
 publish/
 *.user
 *.log
+rust/target/
+rust/target-demo/

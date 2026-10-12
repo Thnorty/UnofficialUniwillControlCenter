@@ -1,0 +1,652 @@
+import { ComboBox } from "std-widgets.slint";
+import { Theme, Glyphs } from "theme.slint";
+import { BodyStrong, Caption, Card, FluentButton, FluentSlider, Glyph, LinkButton, SectionHeader, Segmented, SettingRow, Swatch, Title, ToggleSwitch } from "controls.slint";
+import { EffectTile, KeyboardPreview, KeyCap, LightBarPreview } from "preview.slint";
+
+/// What a lighting page shows; set from Rust whenever something changes.
+export struct DeviceView {
+    on: bool,
+    linked: bool,
+    effect: int,
+    effect-name: string,
+    hint: string,
+    // 0: no colors, 1: the keyboard's four zones, 2: a palette
+    colors-kind: int,
+    max-colors: int,
+    has-speed: bool,
+    has-direction: bool,
+    direction: int,
+    music: bool,
+}
+
+/// A run of effect tiles under one heading.
+export struct TileGroup {
+    title: string,
+    first: int,
+    count: int,
+}
+
+component TileGrid inherits Rectangle {
+    in property <[string]> names;
+    in property <[color]> leds;
+    in property <int> first;
+    in property <int> count;
+    in property <int> selected;
+    callback clicked(int);
+    property <length> gap: 8px;
+    property <int> columns: Math.max(1, Math.floor((self.width + self.gap) / (128px + self.gap)));
+    property <length> tile-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
+    preferred-height: Math.ceil(self.count / self.columns) * (92px + self.gap) - self.gap;
+    min-height: self.preferred-height;
+    for i in root.count: EffectTile {
+        x: Math.mod(i, root.columns) * (root.tile-width + root.gap);
+        y: Math.floor(i / root.columns) * (92px + root.gap);
+        width: root.tile-width;
+        name: root.names[root.first + i];
+        selected: root.first + i == root.selected;
+        leds: root.leds;
+        base: (root.first + i) * 8;
+        clicked => { root.clicked(root.first + i); }
+    }
+}
+
+/// The lighting of one device: a live preview, the effect, its colors, brightness and speed.
+export component LightingPage inherits VerticalLayout {
+    in property <bool> is-light-bar;
+    in property <DeviceView> view;
+    in property <[string]> tiles;
+    in property <[TileGroup]> groups;
+    in property <[color]> tile-leds;
+    in property <[color]> zones;
+    in property <[color]> palette;
+    in property <[color]> presets;
+    in property <[color]> preview;
+    in property <[KeyCap]> keys;
+    in-out property <float> light;
+    in-out property <float> speed;
+    callback select-effect(int);
+    callback light-changed(float);
+    callback speed-changed(float);
+    callback direction-changed(int);
+    callback set-on(bool);
+    callback set-linked(bool);
+    // target: 0 = a zone, 1 = a palette color, 2 = all zones; then where the picker should open
+    callback edit-color(int, int, color, length, length);
+    callback add-color();
+    callback remove-color(int);
+    callback reset-palette();
+    callback set-all-zones(color);
+
+    property <[string]> speed-names: ["Slowest", "Slow", "Medium", "Fast", "Fastest"];
+    property <bool> show-effect: !root.is-light-bar || !root.view.linked;
+
+    spacing: 8px;
+
+    // Title and a summary of what's showing.
+    VerticalLayout {
+        padding-bottom: 12px;
+        spacing: 4px;
+        Title {
+            text: root.is-light-bar ? "Light bar" : "Keyboard";
+        }
+        Caption {
+            text: !root.view.on ? "Off" : root.view.linked ? "Same as the keyboard · " + Math.round(root.light * 2) + "% brightness" : root.view.effect-name + " · " + Math.round(root.light * 2) + "% brightness";
+        }
+    }
+
+    // The live preview.
+    if !root.is-light-bar: KeyboardPreview {
+        height: 250px;
+        keys: root.keys;
+        glow: root.preview;
+    }
+    if root.is-light-bar: LightBarPreview {
+        height: 200px;
+        leds: root.preview;
+    }
+
+    if root.is-light-bar: VerticalLayout {
+        padding-top: 12px;
+        spacing: 4px;
+        SettingRow {
+            icon: Glyphs.power;
+            title: "Light bar";
+            description: "The strip of light along the front edge. The Fn shortcut for the light bar turns it on and off too.";
+            ToggleSwitch {
+                checked: root.view.on;
+                toggled(on) => { root.set-on(on); }
+            }
+        }
+        SettingRow {
+            icon: Glyphs.link;
+            title: "Same as keyboard";
+            description: "Show the keyboard's effect, colors and speed, keeping this brightness. The keyboard's four zones become four sections of the bar.";
+            ToggleSwitch {
+                checked: root.view.linked;
+                enabled: root.view.on;
+                toggled(on) => { root.set-linked(on); }
+            }
+        }
+    }
+
+    if root.show-effect: VerticalLayout {
+        padding-top: 20px;
+        spacing: 8px;
+        opacity: root.view.on ? 1 : 0.5;
+        SectionHeader {
+            text: "Effect";
+        }
+        Card {
+            VerticalLayout {
+                padding: 16px;
+                spacing: 10px;
+                for group in root.groups: VerticalLayout {
+                    spacing: 8px;
+                    padding-bottom: 6px;
+                    Caption {
+                        text: group.title;
+                        font-weight: 600;
+                    }
+                    TileGrid {
+                        names: root.tiles;
+                        leds: root.tile-leds;
+                        first: group.first;
+                        count: group.count;
+                        selected: root.view.effect;
+                        clicked(i) => { root.select-effect(i); }
+                    }
+                }
+                Rectangle {
+                    height: 1px;
+                    background: Theme.divider;
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Glyph {
+                        text: Glyphs.info;
+                        color: Theme.text-secondary;
+                        width: 16px;
+                        vertical-alignment: top;
+                        font-size: 14px;
+                    }
+                    Caption {
+                        text: root.view.hint;
+                        horizontal-stretch: 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // The keyboard's four zones.
+    if root.show-effect && root.view.colors-kind == 1: VerticalLayout {
+        padding-top: 20px;
+        spacing: 8px;
+        opacity: root.view.on ? 1 : 0.5;
+        SectionHeader {
+            text: "Zone colors";
+        }
+        Card {
+            VerticalLayout {
+                padding: 16px;
+                spacing: 16px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    for c[i] in root.zones: VerticalLayout {
+                        spacing: 6px;
+                        horizontal-stretch: 1;
+                        zone := Swatch {
+                            height: 56px;
+                            fill: c;
+                            clicked => {
+                                root.edit-color(0, i, c, self.absolute-position.x, self.absolute-position.y + self.height + 4px);
+                            }
+                        }
+                        Caption {
+                            text: i == 3 ? "Zone 4 · numpad" : "Zone " + (i + 1);
+                            horizontal-alignment: center;
+                            // Equal columns, whatever the label length.
+                            preferred-width: 0px;
+                            min-width: 0px;
+                            wrap: no-wrap;
+                            overflow: elide;
+                        }
+                    }
+                    VerticalLayout {
+                        spacing: 6px;
+                        all := FluentButton {
+                            height: 56px;
+                            text: "Set all…";
+                            clicked => {
+                                root.edit-color(2, 0, root.zones[0], self.absolute-position.x - 200px, self.absolute-position.y + self.height + 4px);
+                            }
+                        }
+                        Caption {
+                            text: " ";
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    Caption {
+                        text: "Quick colors for all zones";
+                        vertical-alignment: center;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        for c in root.presets: Swatch {
+                            width: 26px;
+                            height: 26px;
+                            round: true;
+                            fill: c;
+                            clicked => { root.set-all-zones(c); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // A palette the effect cycles through.
+    if root.show-effect && root.view.colors-kind == 2: VerticalLayout {
+        padding-top: 20px;
+        spacing: 8px;
+        opacity: root.view.on ? 1 : 0.5;
+        SectionHeader {
+            text: root.view.max-colors == 1 ? "Color" : "Colors";
+        }
+        Card {
+            VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+                    for c[i] in root.palette: Rectangle {
+                        width: 48px;
+                        height: 48px;
+                        swatch := Swatch {
+                            fill: c;
+                            clicked => {
+                                root.edit-color(1, i, c, self.absolute-position.x, self.absolute-position.y + self.height + 4px);
+                            }
+                            right-clicked => { root.remove-color(i); }
+                        }
+                        // A small remove button on hover, when there's more than one color.
+                        if (swatch.hovered || remove.has-hover) && root.palette.length > 1: Rectangle {
+                            x: parent.width - 14px;
+                            y: -6px;
+                            width: 20px;
+                            height: 20px;
+                            border-radius: 10px;
+                            background: Theme.dark ? #3a3a3a : #ffffff;
+                            border-width: 1px;
+                            border-color: Theme.control-stroke;
+                            Glyph {
+                                text: Glyphs.close;
+                                font-size: 9px;
+                            }
+                        }
+                        remove := TouchArea {
+                            x: parent.width - 14px;
+                            y: -6px;
+                            width: 20px;
+                            height: 20px;
+                            enabled: root.palette.length > 1;
+                            mouse-cursor: pointer;
+                            clicked => { root.remove-color(i); }
+                        }
+                    }
+                    if root.palette.length < root.view.max-colors: Rectangle {
+                        width: 48px;
+                        height: 48px;
+                        border-radius: 6px;
+                        border-width: 1px;
+                        border-color: Theme.control-stroke;
+                        background: add-touch.has-hover ? Theme.subtle-hover : transparent;
+                        Glyph {
+                            text: Glyphs.add;
+                        }
+                        add-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.add-color(); }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 16px;
+                    Caption {
+                        text: root.view.max-colors == 1 ? "Click the color to change it." : "Click a color to change it. Up to " + root.view.max-colors + " colors; the effect goes through them in order.";
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                    }
+                    if root.view.max-colors > 1: LinkButton {
+                        text: "Reset to default colors";
+                        vertical-alignment: center;
+                        clicked => { root.reset-palette(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // Brightness, speed and direction.
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "Adjust";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.brightness;
+            title: root.view.music && !root.is-light-bar ? "Peak brightness" : "Brightness";
+            description: root.is-light-bar ? "" : "The Fn keys change it in 20% steps.";
+            HorizontalLayout {
+                spacing: 12px;
+                width: 300px;
+                FluentSlider {
+                    minimum: 0;
+                    maximum: 50;
+                    step: 1;
+                    value <=> root.light;
+                    changed(v) => { root.light-changed(v); }
+                }
+                Text {
+                    text: root.light == 0 ? "Off" : Math.round(root.light * 2) + "%";
+                    width: 40px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    color: Theme.text-secondary;
+                }
+            }
+        }
+        if root.show-effect && root.view.has-speed: SettingRow {
+            icon: Glyphs.speed;
+            title: "Speed";
+            HorizontalLayout {
+                spacing: 12px;
+                width: 300px;
+                FluentSlider {
+                    minimum: 0;
+                    maximum: 4;
+                    step: 1;
+                    value <=> root.speed;
+                    changed(v) => { root.speed-changed(v); }
+                }
+                Text {
+                    text: root.speed-names[Math.round(root.speed)];
+                    width: 56px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    color: Theme.text-secondary;
+                }
+            }
+        }
+        if root.show-effect && root.view.has-direction: SettingRow {
+            icon: Glyphs.reset;
+            title: "Direction";
+            Segmented {
+                options: ["Left → right", "Right → left"];
+                selected: root.view.direction;
+                changed(i) => { root.direction-changed(i); }
+            }
+        }
+    }
+}
+
+/// The timer and the light bar's lock-key flashes.
+export component AlertsPage inherits VerticalLayout {
+    in property <bool> has-light-bar;
+    in property <bool> timer-running;
+    in property <string> timer-left;
+    in property <float> timer-progress;
+    in-out property <int> timer-minutes: 25;
+    in property <bool> flash-caps;
+    in property <bool> flash-num;
+    callback start-timer(int);
+    callback cancel-timer();
+    callback set-flash-caps(bool);
+    callback set-flash-num(bool);
+    property <[int]> lengths: [5, 10, 15, 25, 30, 45, 60];
+
+    spacing: 8px;
+    VerticalLayout {
+        padding-bottom: 12px;
+        Title {
+            text: "Timer & alerts";
+        }
+    }
+
+    SectionHeader {
+        text: "Timer";
+    }
+    Card {
+        VerticalLayout {
+            padding: 20px;
+            spacing: 16px;
+            HorizontalLayout {
+                spacing: 20px;
+                // A ring of the time left.
+                Rectangle {
+                    width: 120px;
+                    height: 120px;
+                    Rectangle {
+                        border-radius: self.width / 2;
+                        border-width: 6px;
+                        border-color: Theme.subtle-selected;
+                    }
+                    Path {
+                        width: 120px;
+                        height: 120px;
+                        viewbox-width: 120;
+                        viewbox-height: 120;
+                        stroke: root.timer-running ? Theme.accent : transparent;
+                        stroke-width: 6px;
+                        // An arc from the top, clockwise, for the time left.
+                        property <float> angle: Math.max(0.0001, Math.min(0.9999, root.timer-progress)) * 360;
+                        property <float> end-x: 60 + 57 * Math.sin(self.angle * 1deg);
+                        property <float> end-y: 60 - 57 * Math.cos(self.angle * 1deg);
+                        commands: "M 60 3 A 57 57 0 " + (self.angle > 180 ? "1" : "0") + " 1 " + self.end-x + " " + self.end-y;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: root.timer-running ? root.timer-left : root.timer-minutes + ":00";
+                            font-family: Theme.display-font;
+                            font-size: 26px;
+                            font-weight: 600;
+                            color: Theme.text;
+                            horizontal-alignment: center;
+                        }
+                        Caption {
+                            text: root.timer-running ? "left" : "minutes";
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 10px;
+                    horizontal-stretch: 1;
+                    BodyStrong {
+                        text: root.timer-running ? "The timer is running" : "Set a reminder";
+                    }
+                    Caption {
+                        text: "A countdown that keeps running in the background, also with this window closed (it's in the tray icon's menu too). When the time is up, "
+                            + (root.has-light-bar ? "the light bar blinks orange, " : "") + "a pop-up shows on the screen and Windows sends a notification. Handy as a break, study or cooking reminder.";
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                for minutes in root.lengths: Rectangle {
+                    height: 32px;
+                    width: 64px;
+                    border-radius: 16px;
+                    property <bool> chosen: minutes == root.timer-minutes;
+                    background: self.chosen ? Theme.accent : chip.has-hover ? Theme.control-hover : Theme.control;
+                    border-width: 1px;
+                    border-color: self.chosen ? Theme.accent : Theme.control-stroke;
+                    opacity: root.timer-running ? 0.5 : 1;
+                    Text {
+                        text: minutes + " min";
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        color: parent.chosen ? Theme.on-accent : Theme.text;
+                    }
+                    chip := TouchArea {
+                        enabled: !root.timer-running;
+                        mouse-cursor: pointer;
+                        clicked => { root.timer-minutes = minutes; }
+                    }
+                }
+            }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 8px;
+                if !root.timer-running: FluentButton {
+                    text: "Start " + root.timer-minutes + " minute timer";
+                    accent: true;
+                    icon: Glyphs.timer;
+                    clicked => { root.start-timer(root.timer-minutes); }
+                }
+                if root.timer-running: FluentButton {
+                    text: "Cancel timer";
+                    icon: Glyphs.close;
+                    clicked => { root.cancel-timer(); }
+                }
+            }
+        }
+    }
+
+    if root.has-light-bar: VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "Light bar flashes";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.keys;
+            title: "Caps Lock";
+            description: "White light opens from the middle of the bar when Caps Lock turns on, and closes to the middle when it turns off. Over effects drawn by this app it's drawn on top; other effects come back right after.";
+            ToggleSwitch {
+                checked: root.flash-caps;
+                toggled(on) => { root.set-flash-caps(on); }
+            }
+        }
+        SettingRow {
+            icon: Glyphs.keys;
+            title: "Num Lock";
+            description: "The same in blue, for Num Lock.";
+            ToggleSwitch {
+                checked: root.flash-num;
+                toggled(on) => { root.set-flash-num(on); }
+            }
+        }
+    }
+}
+
+/// Idle, touchpad, Windows key, startup and the connection.
+export component SettingsPage inherits VerticalLayout {
+    in property <[string]> idle-options;
+    in-out property <int> idle-index;
+    // 0: unknown, 1: on, 2: off
+    in property <int> touchpad-state;
+    in property <bool> winkey-available;
+    in property <bool> winkey-locked;
+    in property <bool> start-with-windows;
+    in property <string> about;
+    in property <string> fn-keys;
+    callback set-idle(int);
+    callback toggle-touchpad();
+    callback toggle-winkey();
+    callback set-start-with-windows(bool);
+
+    spacing: 4px;
+    VerticalLayout {
+        padding-bottom: 20px;
+        Title {
+            text: "Settings";
+        }
+    }
+
+    SectionHeader {
+        text: "Lights";
+        height: 28px;
+        vertical-alignment: top;
+    }
+    SettingRow {
+        icon: Glyphs.idle;
+        title: "Turn off when idle";
+        description: "Fades the keyboard and the light bar out after this long without keyboard or mouse input, and back in with the next one.";
+        ComboBox {
+            width: 180px;
+            model: root.idle-options;
+            current-index <=> root.idle-index;
+            selected => { root.set-idle(self.current-index); }
+        }
+    }
+
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "Devices";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.touchpad;
+            title: "Touchpad";
+            description: root.touchpad-state == 0 ? "Turns the touchpad on or off, like its Fn shortcut." : "Follows the touchpad's Fn shortcut too.";
+            if root.touchpad-state != 0: ToggleSwitch {
+                checked: root.touchpad-state == 1;
+                toggled => { root.toggle-touchpad(); }
+            }
+            if root.touchpad-state == 0: FluentButton {
+                text: "Turn on or off";
+                clicked => { root.toggle-touchpad(); }
+            }
+        }
+        SettingRow {
+            icon: Glyphs.lock;
+            title: "Lock the Windows key";
+            description: root.winkey-available ? "Stops the Windows key from opening Start, for games. Fn+Windows does the same." : "Needs the Fn keys to be handled by this app (see below).";
+            ToggleSwitch {
+                checked: root.winkey-locked;
+                enabled: root.winkey-available;
+                toggled => { root.toggle-winkey(); }
+            }
+        }
+    }
+
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "App";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.power;
+            title: "Start with Windows";
+            description: "Starts in the tray when you sign in, with administrator rights through Task Scheduler (no prompt).";
+            ToggleSwitch {
+                checked: root.start-with-windows;
+                toggled(on) => { root.set-start-with-windows(on); }
+            }
+        }
+        SettingRow {
+            icon: Glyphs.info;
+            title: "Keyboard RGB 2.0";
+            description: root.about + "\n" + root.fn-keys;
+        }
+    }
+}

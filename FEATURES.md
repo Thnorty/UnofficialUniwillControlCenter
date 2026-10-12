@@ -149,3 +149,10 @@ dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile
 The output is `publish\MonsterKeyboardRGB.exe`, which needs the .NET 10 Desktop Runtime. Settings are kept in
 `%APPDATA%\MonsterKeyboardRGB\settings.json`. Scripts that were used to test the embedded controller behavior are
 in `tools\`.
+
+## Rust version (2.0)
+
+`rust\` holds a Rust rewrite with the same features, the same settings file, startup task and single-instance lock,
+and a new interface: a Windows 11 Settings-style window (Slint, drawn with Skia) with live previews of the keyboard
+and the light bar, animated effect tiles and a color picker, and pop-ups drawn like the Windows 11 volume and
+brightness flyout. Build it with `cargo build --release` in `rust\`; see `rust\README.md`.

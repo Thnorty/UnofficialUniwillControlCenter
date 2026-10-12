@@ -1,0 +1,236 @@
+import { Theme } from "theme.slint";
+
+/// One key of the keyboard drawing, in key widths, with the zone that lights it.
+export struct KeyCap {
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    zone: int,
+    label: string,
+}
+
+/// The Tulpar's keyboard, its legends and underglow lit in the four zone colors as the keyboard shows them now.
+export component KeyboardPreview inherits Rectangle {
+    in property <[KeyCap]> keys;
+    in property <[color]> glow; // the four zones, already at the brightness shown
+    in property <bool> lit: true;
+    // The layout is 19.25 keys wide and 5.6 tall (a short function row on top).
+    property <length> unit: Math.min((self.width - 72px) / 19.25, (self.height - 56px) / 5.6);
+    property <length> board-width: self.unit * 19.25;
+    property <length> board-height: self.unit * 5.6;
+    property <length> left: (self.width - self.board-width) / 2;
+    property <length> top: (self.height - self.board-height) / 2;
+    border-radius: 8px;
+    clip: true;
+    background: @linear-gradient(180deg, Theme.stage-top 0%, Theme.stage-bottom 100%);
+
+    // The light spilling out from under each zone.
+    for c[i] in root.glow: Rectangle {
+        x: root.left + (i < 3 ? i * 5 : 15.25) * root.unit + root.unit * 0.6;
+        width: (i < 3 ? 5 : 4) * root.unit - root.unit * 1.2;
+        y: root.top + root.unit * 0.6;
+        height: root.board-height - root.unit * 1.2;
+        border-radius: root.unit;
+        background: c.transparentize(0.86);
+        drop-shadow-blur: root.unit * 1.6;
+        drop-shadow-color: c.transparentize(0.45);
+    }
+    // The keyboard deck.
+    Rectangle {
+        x: root.left - 12px;
+        y: root.top - 12px;
+        width: root.board-width + 24px;
+        height: root.board-height + 24px;
+        border-radius: 12px;
+        background: #0d0d10c0;
+        border-width: 1px;
+        border-color: #ffffff10;
+    }
+    for k in root.keys: Rectangle {
+        x: root.left + k.x * root.unit;
+        y: root.top + k.y * root.unit;
+        width: k.w * root.unit;
+        height: k.h * root.unit;
+        // Light bleeding around the key's edges.
+        Rectangle {
+            x: 1px;
+            y: 1px;
+            width: parent.width - 2px;
+            height: parent.height - 2px;
+            border-radius: 4px;
+            background: root.glow[k.zone].transparentize(0.55);
+        }
+        Rectangle {
+            x: 2.5px;
+            y: 2.5px;
+            width: parent.width - 5px;
+            height: parent.height - 5px;
+            border-radius: 3px;
+            background: @linear-gradient(180deg, #1d1d22 0%, #141417 100%);
+            border-width: 1px;
+            border-color: #ffffff0d;
+            // The unlit legend, then the lit one over it.
+            Text {
+                text: k.label;
+                font-size: Math.max(7px, root.unit * (k.label.character-count > 2 ? 0.2 : 0.3));
+                font-weight: 600;
+                color: #34343a;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            Text {
+                text: k.label;
+                font-size: Math.max(7px, root.unit * (k.label.character-count > 2 ? 0.2 : 0.3));
+                font-weight: 600;
+                color: root.glow[k.zone];
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+/// The laptop's front edge with the light bar's 23 LEDs, as the light bar shows them now.
+export component LightBarPreview inherits Rectangle {
+    in property <[color]> leds;
+    property <length> bar-width: Math.min(self.width - 168px, 720px);
+    property <length> bar-left: (self.width - self.bar-width) / 2;
+    property <length> pitch: self.bar-width / 23;
+    // The laptop's base: its top (the palm rest, in perspective) and its front face, which holds the light bar.
+    property <length> deck-y: 26px;
+    property <length> face-y: 74px;
+    property <length> face-height: 30px;
+    property <length> face-left: self.bar-left - 48px;
+    property <length> face-width: self.bar-width + 96px;
+    property <length> desk-y: self.face-y + self.face-height;
+    border-radius: 8px;
+    clip: true;
+    background: @linear-gradient(180deg, Theme.stage-top 0%, Theme.stage-bottom 100%);
+
+    // The light the bar throws on the desk: a soft pool under each LED, blending into its neighbours.
+    for c[i] in root.leds: Rectangle {
+        property <length> center: root.bar-left + (i + 0.5) * root.pitch;
+        property <length> radius: Math.max(root.pitch * 3, 48px);
+        x: self.center - self.radius;
+        y: root.desk-y;
+        width: self.radius * 2;
+        height: Math.min(self.radius, root.height - root.desk-y);
+        background: @radial-gradient(circle self.radius at self.radius 0px,
+            c.transparentize(0.62) 0%, c.transparentize(0.86) 45%, c.transparentize(1) 100%);
+    }
+    Path {
+        width: root.width;
+        height: root.height;
+        viewbox-width: root.width / 1px;
+        viewbox-height: root.height / 1px;
+        commands: "M " + (root.face-left + 6px) / 1px + " " + root.face-y / 1px
+            + " L " + (root.face-left + root.face-width - 6px) / 1px + " " + root.face-y / 1px
+            + " L " + (root.face-left + root.face-width - 64px) / 1px + " " + root.deck-y / 1px
+            + " L " + (root.face-left + 64px) / 1px + " " + root.deck-y / 1px + " Z";
+        fill: @linear-gradient(180deg, #1c1c21 0%, #2a2a30 100%);
+        stroke: #ffffff10;
+        stroke-width: 1px;
+    }
+    // The touchpad, in the same perspective.
+    Path {
+        width: root.width;
+        height: root.height;
+        viewbox-width: root.width / 1px;
+        viewbox-height: root.height / 1px;
+        commands: "M " + (root.width / 2 - 104px) / 1px + " " + (root.face-y - 8px) / 1px
+            + " L " + (root.width / 2 + 104px) / 1px + " " + (root.face-y - 8px) / 1px
+            + " L " + (root.width / 2 + 92px) / 1px + " " + (root.deck-y + 14px) / 1px
+            + " L " + (root.width / 2 - 92px) / 1px + " " + (root.deck-y + 14px) / 1px + " Z";
+        fill: #ffffff07;
+        stroke: #ffffff14;
+        stroke-width: 1px;
+    }
+    Rectangle {
+        x: root.face-left;
+        width: root.face-width;
+        y: root.face-y;
+        height: root.face-height;
+        border-radius: 5px;
+        background: @linear-gradient(180deg, #303036 0%, #1d1d22 30%, #131316 100%);
+        border-width: 1px;
+        border-color: #ffffff10;
+    }
+    // The LEDs, glowing.
+    for c[i] in root.leds: Rectangle {
+        x: root.bar-left + i * root.pitch + 1px;
+        width: root.pitch - 2px;
+        y: root.face-y + root.face-height - 10px;
+        height: 5px;
+        border-radius: 2.5px;
+        background: c;
+        drop-shadow-blur: 10px;
+        drop-shadow-color: c;
+    }
+}
+
+/// An effect to choose, with a little animated strip showing what it does.
+export component EffectTile inherits Rectangle {
+    in property <string> name;
+    in property <bool> selected;
+    in property <[color]> leds;
+    in property <int> base; // where this tile's 8 LEDs start in `leds`
+    callback clicked;
+    height: 92px;
+    border-radius: 8px;
+    background: touch.pressed ? Theme.subtle-pressed : touch.has-hover ? Theme.card-hover : Theme.control;
+    border-width: root.selected ? 2px : 1px;
+    border-color: root.selected ? Theme.accent : Theme.control-stroke;
+    animate background { duration: 100ms; }
+    Rectangle {
+        x: 10px;
+        y: 10px;
+        width: parent.width - 20px;
+        height: 40px;
+        border-radius: 5px;
+        background: #0e0e11;
+        clip: true;
+        for k in 8: Rectangle {
+            x: 6px + k * (parent.width - 12px) / 8 + 1.5px;
+            y: 14px;
+            width: (parent.width - 12px) / 8 - 3px;
+            height: 12px;
+            border-radius: 3px;
+            background: root.leds[root.base + k];
+            drop-shadow-blur: 8px;
+            drop-shadow-color: root.leds[root.base + k];
+        }
+    }
+    Text {
+        x: 8px;
+        y: 58px;
+        width: parent.width - 16px;
+        height: 24px;
+        text: root.name;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+        color: Theme.text;
+        font-weight: root.selected ? 600 : 400;
+    }
+    if root.selected: Rectangle {
+        x: parent.width - 22px;
+        y: 6px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: Theme.accent;
+        Text {
+            text: "\u{E73E}";
+            font-family: Theme.icon-font;
+            font-size: 10px;
+            color: Theme.on-accent;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
