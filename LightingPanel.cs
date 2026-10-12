@@ -20,6 +20,7 @@ internal sealed class LightingPanel : UserControl
     const int FadeMilliseconds = 180;
 
     readonly MusicVisualizer music;
+    readonly IReadOnlyList<LightingEffect> effects;
     readonly Color[] zoneColors = new Color[4];
     readonly Dictionary<string, List<Color>> palettes = [];
     readonly Button[] zoneButtons = new Button[4];
@@ -42,10 +43,15 @@ internal sealed class LightingPanel : UserControl
     readonly Label paletteHeading = UiText.Heading("");
     readonly Panel palettePanel = new() { AutoSize = true };
     readonly TableLayoutPanel settingsLayout = new() { ColumnCount = 1, AutoSize = true, Margin = Padding.Empty };
+    // The effect, colors and speed; hidden while the panel follows another one.
+    readonly TableLayoutPanel effectSection = new() { ColumnCount = 1, AutoSize = true, Margin = Padding.Empty };
+    readonly CheckBox linkSwitch = new() { AutoSize = true, Margin = new Padding(0, 0, 0, 10) };
+    readonly Label linkHint = new() { AutoSize = true, ForeColor = SystemColors.GrayText, MaximumSize = new Size(420, 0), Margin = new Padding(0, 0, 0, 10) };
     readonly ToolTip toolTip = new();
     readonly System.Windows.Forms.Timer sendDebounce = new() { Interval = 80 };
 
     IteLightingDevice? device;
+    LightingPanel? linkSource;
     bool suppressSend;
     int fadeGeneration;
     byte shownLight; // the brightness the device is showing, including partway through a fade
@@ -54,6 +60,7 @@ internal sealed class LightingPanel : UserControl
     public LightingPanel(IReadOnlyList<LightingEffect> effects, LightingSettings settings, string? powerLabel, MusicVisualizer music)
     {
         this.music = music;
+        this.effects = effects;
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
@@ -69,8 +76,11 @@ internal sealed class LightingPanel : UserControl
         effectTable.Controls.Add(effectBox, 1, 0);
         effectTable.Controls.Add(directionLabel, 0, 1);
         effectTable.Controls.Add(directionBox, 1, 1);
-        settingsLayout.Controls.Add(effectTable);
-        settingsLayout.Controls.Add(effectHint);
+        settingsLayout.Controls.Add(linkSwitch);
+        settingsLayout.Controls.Add(linkHint);
+        settingsLayout.Controls.Add(effectSection);
+        effectSection.Controls.Add(effectTable);
+        effectSection.Controls.Add(effectHint);
 
         // Zone colors: the keyboard's Static and Music.
         var zoneLayout = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
@@ -103,23 +113,25 @@ internal sealed class LightingPanel : UserControl
         }
         zoneLayout.Controls.Add(presets);
         zonePanel.Controls.Add(zoneLayout);
-        settingsLayout.Controls.Add(zonePanel);
+        effectSection.Controls.Add(zonePanel);
 
         // Color palette: effects that cycle through colors.
         var paletteLayout = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
         paletteLayout.Controls.Add(paletteHeading);
         paletteLayout.Controls.Add(paletteRow);
         palettePanel.Controls.Add(paletteLayout);
-        settingsLayout.Controls.Add(palettePanel);
+        effectSection.Controls.Add(palettePanel);
 
-        var sliders = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Margin = Padding.Empty };
-        sliders.Controls.Add(UiText.RowLabel("Brightness"), 0, 0);
-        sliders.Controls.Add(brightness, 1, 0);
-        sliders.Controls.Add(brightnessValue, 2, 0);
-        sliders.Controls.Add(UiText.RowLabel("Speed"), 0, 1);
-        sliders.Controls.Add(speed, 1, 1);
-        sliders.Controls.Add(speedValue, 2, 1);
-        settingsLayout.Controls.Add(sliders);
+        var speedRow = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Margin = Padding.Empty };
+        speedRow.Controls.Add(UiText.RowLabel("Speed"), 0, 0);
+        speedRow.Controls.Add(speed, 1, 0);
+        speedRow.Controls.Add(speedValue, 2, 0);
+        effectSection.Controls.Add(speedRow);
+        var brightnessRow = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Margin = Padding.Empty };
+        brightnessRow.Controls.Add(UiText.RowLabel("Brightness"), 0, 0);
+        brightnessRow.Controls.Add(brightness, 1, 0);
+        brightnessRow.Controls.Add(brightnessValue, 2, 0);
+        settingsLayout.Controls.Add(brightnessRow);
         layout.Controls.Add(settingsLayout);
         Controls.Add(layout);
 
@@ -138,6 +150,8 @@ internal sealed class LightingPanel : UserControl
         directionBox.SelectedIndex = Math.Max(0, Array.FindIndex(WaveDirections, d => d.Value == settings.WaveDirection));
         brightness.Value = Math.Clamp(settings.Light, 0, IteLightingDevice.MaxLight);
         speed.Value = Math.Clamp(settings.Speed, 0, 4);
+        linkSwitch.Visible = linkHint.Visible = false;
+        linkSwitch.Checked = settings.Linked;
 
         powerSwitch.CheckedChanged += (_, _) => { settingsLayout.Enabled = powerSwitch.Checked; QueueSend(); };
         effectBox.SelectedIndexChanged += (_, _) => { UpdateEffectControls(); QueueSend(); };
@@ -145,6 +159,7 @@ internal sealed class LightingPanel : UserControl
         brightness.ValueChanged += (_, _) => { UpdateLabels(); if (!suppressSend) FadeTo(Light); };
         speed.ValueChanged += (_, _) => { UpdateLabels(); QueueSend(); };
         sendDebounce.Tick += (_, _) => { sendDebounce.Stop(); Apply(saveToFirmware: false); };
+        linkSwitch.CheckedChanged += (_, _) => { UpdateLinkControls(); QueueSend(); };
 
         settingsLayout.Enabled = powerSwitch.Checked;
         RefreshZoneButtons();
@@ -160,6 +175,19 @@ internal sealed class LightingPanel : UserControl
 
     /// <summary>The colors shown changed (for the window icon).</summary>
     public event Action? ColorsChanged;
+
+    /// <summary>A new effect, colors or speed was sent (not just a brightness change).</summary>
+    public event Action? EffectApplied;
+
+    public IReadOnlyList<LightingEffect> Effects => effects;
+
+    /// <summary>Whether this panel shows another panel's effect, colors and speed (see <see cref="AllowLink"/>).</summary>
+    [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+    public bool Linked
+    {
+        get => linkSource is not null && linkSwitch.Checked;
+        set => linkSwitch.Checked = value;
+    }
 
     public IteLightingDevice? Device => device;
 
@@ -220,6 +248,32 @@ internal sealed class LightingPanel : UserControl
     /// <summary>Turns the device on or off with its power switch.</summary>
     public void TogglePower() => powerSwitch.Checked = !powerSwitch.Checked;
 
+    public void SetPower(bool on) => powerSwitch.Checked = on;
+
+    public void SelectEffect(LightingEffect effect) => effectBox.SelectedItem = effect;
+
+    /// <summary>
+    /// Offers a switch to follow <paramref name="source"/>: this device then shows its effect, colors and speed,
+    /// keeping its own brightness.
+    /// </summary>
+    public void AllowLink(LightingPanel source, string label)
+    {
+        linkSource = source;
+        linkSwitch.Text = label;
+        linkSwitch.Visible = true;
+        source.EffectApplied += () => { if (Linked) QueueSend(); };
+        UpdateLinkControls();
+    }
+
+    void UpdateLinkControls()
+    {
+        SuspendLayout();
+        effectSection.Visible = !Linked;
+        linkHint.Visible = Linked;
+        linkHint.Text = "Shows the keyboard's effect, colors and speed. Its four zones become four sections of the bar.";
+        ResumeLayout();
+    }
+
     public void Store(LightingSettings settings)
     {
         settings.On = powerSwitch.Checked;
@@ -229,6 +283,7 @@ internal sealed class LightingPanel : UserControl
         settings.WaveDirection = SelectedDirection;
         settings.Light = brightness.Value;
         settings.Speed = speed.Value;
+        settings.Linked = linkSwitch.Checked;
     }
 
     /// <summary>HIDKeyboard.CloseAnimation: fade the lights out until <see cref="Wake"/>.</summary>
@@ -244,7 +299,7 @@ internal sealed class LightingPanel : UserControl
     {
         if (!IdleOff) return;
         IdleOff = false;
-        if (SelectedEffect.IsMusic) Apply(saveToFirmware: false);
+        if (Plan().Effect.IsMusic) Apply(saveToFirmware: false);
         else _ = FadeToAsync(Light, 300);
     }
 
@@ -258,7 +313,7 @@ internal sealed class LightingPanel : UserControl
     {
         if (device is null || !IsOn) return;
         int generation = ++fadeGeneration;
-        if (SelectedEffect.IsMusic && device.Kind == LightingDeviceKind.Keyboard && !IdleOff)
+        if (SelectedEffect.IsMusic && device.Kind == LightingDeviceKind.Keyboard && !IdleOff && !Linked)
         {
             // The music loop owns the keyboard's brightness; the slider sets its peak.
             if (music.IsPlaying(this)) music.Play(this, new KeyboardMusic(device, target, speed.Value));
@@ -299,44 +354,73 @@ internal sealed class LightingPanel : UserControl
     {
         if (device is null) return;
         sendDebounce.Stop();
-        var effect = SelectedEffect;
+        var (effect, colors, direction, speedValue) = Plan();
         byte light = lightOverride ?? Light;
         fadeGeneration++; // a fade in progress would undo this
         Fading = false;
         music.Pause(this); // the music loop must not change the lights while the effect is being set
         try
         {
-            var colors = EffectColorsFor(effect);
+            bool drawnByApp = device.Kind == LightingDeviceKind.LightBar && (effect.IsMusic || effect.Colors == EffectColors.Zones);
             if (!IsOn)
             {
                 device.SwitchOff();
                 light = 0;
             }
-            else if (effect.IsMusic && device.Kind == LightingDeviceKind.LightBar)
+            else if (drawnByApp && saveToFirmware)
             {
-                if (saveToFirmware)
+                // These need this app; what stays afterwards is the first color, steady.
+                device.SetEffect(LightingEffect.LightBar[0], [colors[0]], 0, light, speedValue, saveToFirmware: true);
+            }
+            else if (drawnByApp)
+            {
+                device.EnterUserMode(light);
+                if (effect.IsMusic)
                 {
-                    // Music needs this app; what stays afterwards is the meter's middle color.
-                    device.SetEffect(LightingEffect.LightBar[0], [colors[0]], 0, light, speed.Value, saveToFirmware: true);
+                    if (!IdleOff) music.Play(this, new LightBarMusic(device, colors, speedValue));
                 }
                 else
                 {
-                    device.EnterUserMode(light);
-                    if (!IdleOff) music.Play(this, new LightBarMusic(device, colors, speed.Value));
+                    device.SetLeds(ZoneSections(colors));
                 }
             }
             else
             {
-                device.SetEffect(effect, colors, SelectedDirection, light, speed.Value, saveToFirmware);
-                if (effect.IsMusic && !IdleOff && !saveToFirmware) music.Play(this, new KeyboardMusic(device, light, speed.Value));
+                device.SetEffect(effect, colors, direction, light, speedValue, saveToFirmware);
+                if (effect.IsMusic && !IdleOff && !saveToFirmware) music.Play(this, new KeyboardMusic(device, light, speedValue));
             }
             shownLight = light;
             Changed?.Invoke();
+            if (!saveToFirmware) EffectApplied?.Invoke();
         }
         catch (Exception e)
         {
             Fail(e);
         }
+    }
+
+    /// <summary>What to show: this panel's own choices, or the linked panel's translated for this device.</summary>
+    (LightingEffect Effect, IReadOnlyList<Color> Colors, byte Direction, int Speed) Plan()
+    {
+        if (!Linked) return (SelectedEffect, EffectColorsFor(SelectedEffect), SelectedDirection, speed.Value);
+        var source = linkSource!;
+        var sourceEffect = source.SelectedEffect;
+        var colors = source.EffectColorsFor(sourceEffect);
+        // Zone colors (the keyboard's Static) have no firmware effect here; the app draws them (see Apply).
+        var effect = sourceEffect.Colors == EffectColors.Zones && !sourceEffect.IsMusic
+            ? sourceEffect
+            : effects.FirstOrDefault(e => e.Key == sourceEffect.Key) ?? effects[0];
+        if (effect.Colors == EffectColors.Palette && colors.Count > effect.MaxColors) colors = [.. colors.Take(effect.MaxColors)];
+        if (effect.Colors == EffectColors.Palette && colors.Count == 0) colors = effect.DefaultColors;
+        return (effect, colors, source.SelectedDirection, source.speed.Value);
+    }
+
+    /// <summary>The four zone colors as four sections of the light bar, left to right.</summary>
+    static Color[] ZoneSections(IReadOnlyList<Color> zones)
+    {
+        var leds = new Color[IteLightingDevice.LightBarLeds];
+        for (int i = 0; i < leds.Length; i++) leds[i] = zones[i * zones.Count / leds.Length];
+        return leds;
     }
 
     void Fail(Exception e)

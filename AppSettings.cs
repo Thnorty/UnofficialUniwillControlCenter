@@ -92,4 +92,6 @@ internal sealed class LightingSettings
     /// <summary>Firmware brightness, 0-50.</summary>
     public int Light { get; set; } = IteLightingDevice.MaxLight;
     public int Speed { get; set; } = 2;
+    /// <summary>The light bar shows the keyboard's effect, colors and speed.</summary>
+    public bool Linked { get; set; }
 }

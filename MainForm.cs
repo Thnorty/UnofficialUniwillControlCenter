@@ -97,8 +97,8 @@ internal sealed class MainForm : Form
         Controls.Add(layout);
 
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Open", null, (_, _) => ShowFromTray());
-        menu.Items.Add("Exit", null, (_, _) => ExitApp());
+        menu.Opening += (_, _) => BuildTrayMenu(menu);
+        BuildTrayMenu(menu);
         tray.ContextMenuStrip = menu;
         tray.DoubleClick += (_, _) => ShowFromTray();
         tray.Visible = true;
@@ -212,8 +212,56 @@ internal sealed class MainForm : Form
         lightBarPanel = new LightingPanel(LightingEffect.LightBar, settings.LightBar, powerLabel: "Light bar on", music);
         lightBarPanel.Changed += () => lightBarChanged = true;
         lightBarPanel.Failed += message => DeviceFailed("light bar", message);
+        lightBarPanel.AllowLink(keyboardPanel, "Same as keyboard");
         lightBarPanel.Attach(lightBar);
         pageButtons.Visible = true;
+    }
+
+    /// <summary>Quick settings in the tray icon's menu, built fresh each time it opens.</summary>
+    void BuildTrayMenu(ContextMenuStrip menu)
+    {
+        menu.Items.Clear();
+        var keyboard = new ToolStripMenuItem("Keyboard");
+        AddEffectItems(keyboard, keyboardPanel, enabled: true);
+        keyboard.DropDownItems.Add(new ToolStripSeparator());
+        var brightness = new ToolStripMenuItem("Brightness");
+        for (int percent = 0; percent <= 100; percent += 20)
+        {
+            byte light = (byte)(percent * IteLightingDevice.MaxLight / 100);
+            var item = new ToolStripMenuItem(percent == 0 ? "Off" : $"{percent}%") { Checked = keyboardPanel.Light == light };
+            item.Click += (_, _) => keyboardPanel.SetLight(light);
+            brightness.DropDownItems.Add(item);
+        }
+        keyboard.DropDownItems.Add(brightness);
+        menu.Items.Add(keyboard);
+
+        if (lightBarPanel is { } bar)
+        {
+            var lightBar = new ToolStripMenuItem("Light bar");
+            var on = new ToolStripMenuItem("On") { Checked = bar.IsOn };
+            on.Click += (_, _) => bar.SetPower(!bar.IsOn);
+            var linked = new ToolStripMenuItem("Same as keyboard") { Checked = bar.Linked, Enabled = bar.IsOn };
+            linked.Click += (_, _) => bar.Linked = !bar.Linked;
+            lightBar.DropDownItems.Add(on);
+            lightBar.DropDownItems.Add(linked);
+            lightBar.DropDownItems.Add(new ToolStripSeparator());
+            AddEffectItems(lightBar, bar, enabled: bar.IsOn && !bar.Linked);
+            menu.Items.Add(lightBar);
+        }
+
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Open", null, (_, _) => ShowFromTray());
+        menu.Items.Add("Exit", null, (_, _) => ExitApp());
+    }
+
+    static void AddEffectItems(ToolStripMenuItem parent, LightingPanel panel, bool enabled)
+    {
+        foreach (var effect in panel.Effects)
+        {
+            var item = new ToolStripMenuItem(effect.DisplayName) { Checked = effect == panel.SelectedEffect, Enabled = enabled };
+            item.Click += (_, _) => panel.SelectEffect(effect);
+            parent.DropDownItems.Add(item);
+        }
     }
 
     void DeviceFailed(string device, string message)
