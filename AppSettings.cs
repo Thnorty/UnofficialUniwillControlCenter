@@ -18,10 +18,11 @@ internal sealed class AppSettings
     /// <summary>Colors of each palette effect (Breathing, Wave, Flash, Mix), by effect key.</summary>
     public Dictionary<string, int[]> Palettes { get; set; } = [];
     public int WaveDirection { get; set; } = 1;
+    /// <summary>Firmware brightness, 0-50.</summary>
+    public int Light { get; set; } = -1;
+    /// <summary>Only read from old settings files, which saved Control Center's levels 0-4.</summary>
     public int Brightness { get; set; } = 4;
     public int Speed { get; set; } = 2;
-    public bool NightLight { get; set; }
-    public int NightColor { get; set; } = NightGlow.Colors.Length - 1;
     public int IdleTimeoutSeconds { get; set; }
 
     public static AppSettings Load()
@@ -37,11 +38,12 @@ internal sealed class AppSettings
                     if (settings.EffectIndex == 3) settings.WaveDirection = 2; // "Wave (right → left)"
                 }
                 settings.EffectIndex = -1;
+                if (settings.Light < 0) settings.Light = FourZoneKeyboard.StandardLights[Math.Clamp(settings.Brightness, 0, 4)];
                 return settings;
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { }
-        return new AppSettings();
+        return new AppSettings { Light = FourZoneKeyboard.MaxLight };
     }
 
     public void Save()

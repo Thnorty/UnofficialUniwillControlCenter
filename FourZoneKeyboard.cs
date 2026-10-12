@@ -24,7 +24,6 @@ internal sealed class FourZoneKeyboard : IDisposable
 
     const byte ControlOff = 1;
     const byte ControlLighting = 2;
-    const byte ControlNight = 4; // HIDKeyboard.NightPowerSwitch: a dim color that stays on while the lights are off
     const byte ControlReset = 5;
     const byte ColorIndexSlot1 = 1;   // effect uses the single color in slot 1
     const byte ColorIndexPalette = 8; // effect reads the circular palette loaded into slots 1..n
@@ -36,9 +35,8 @@ internal sealed class FourZoneKeyboard : IDisposable
     readonly int featureLength;
     // Commands come from the UI thread and the brightness watcher; a query must not interleave with a command sequence.
     readonly Lock io = new();
-    int lastKnownLevel = -1;
+    int lastKnownLight = -1;
     bool isOff; // switched off with control 1, which 09h can't undo
-    Color? nightGlow; // Night Light color, kept on while the backlight is off
 
     FourZoneKeyboard(SafeFileHandle handle, int featureLength)
     {
@@ -81,19 +79,23 @@ internal sealed class FourZoneKeyboard : IDisposable
     // FourZoneKeyboard.SetBrightnessStrategy: firmware >= 0x11.03 takes brightness through command 09h.
     bool HasBrightnessCommand => FirmwareVersion.Major >= 0x11 && FirmwareVersion.Minor >= 0x03;
 
+    /// <summary>Highest firmware brightness. Control Center's four levels are 8, 22, 36 and 50.</summary>
+    public const byte MaxLight = 50;
+
+    /// <summary>LM_ITE_RGB.Translate_ITE_LightValue: Control Center's brightness levels 0-4 as firmware values.</summary>
+    public static readonly byte[] StandardLights = [0, 8, 22, 36, 50];
+
     /// <summary>
-    /// Shows an effect. Brightness and speed are 0-4 like Control Center's sliders. <paramref name="nightGlow"/>
-    /// is the Night Light color to keep on while the backlight is off, or null for none.
+    /// Shows an effect. <paramref name="light"/> is the firmware brightness, 0-<see cref="MaxLight"/> (0 keeps the
+    /// effect running but dark, as Control Center's brightness 0 does); speed is 0-4 like Control Center's slider.
     /// </summary>
-    public void SetEffect(KeyboardEffect effect, IReadOnlyList<Color> colors, byte direction, int brightness, int speed,
-        Color? nightGlow, bool saveToFirmware)
+    public void SetEffect(KeyboardEffect effect, IReadOnlyList<Color> colors, byte direction, byte light, int speed, bool saveToFirmware)
     {
         lock (io)
         {
-            this.nightGlow = nightGlow;
-            if (brightness == 0) TurnOffLocked();
-            else SetEffectLocked(effect, colors, direction, brightness, speed, saveToFirmware);
-            lastKnownLevel = brightness;
+            light = Math.Min(light, MaxLight);
+            SetEffectLocked(effect, colors, direction, light, speed, saveToFirmware);
+            lastKnownLight = light;
         }
     }
 
@@ -101,70 +103,61 @@ internal sealed class FourZoneKeyboard : IDisposable
     /// Changes only the brightness (command 09h, as GCUService does for Fn keys). Returns false when that isn't
     /// possible because the firmware lacks 09h or the lights were switched off, so the caller must resend the effect.
     /// </summary>
-    public bool TrySetBrightness(int brightness)
+    public bool TrySetLight(byte light)
     {
         lock (io)
         {
             if (!HasBrightnessCommand || isOff) return false;
-            if (brightness == 0 && nightGlow is not null)
-            {
-                // SetBrightnessStrategy in Night mode: switch the lighting off so only the night glow is left.
-                Send(CmdSetEffect, ControlOff);
-                isOff = true;
-            }
-            else
-            {
-                Send(CmdSetBrightness, ControlLighting, LightValue(brightness));
-            }
-            lastKnownLevel = brightness;
+            light = Math.Min(light, MaxLight);
+            Send(CmdSetBrightness, ControlLighting, light);
+            lastKnownLight = light;
             return true;
         }
     }
 
     /// <summary>
-    /// Sets the raw firmware brightness (0-50) without changing the level this app tracks, for software-driven
-    /// effects such as Music and fades. Does nothing while the lights are off.
+    /// Sets the firmware brightness without changing the value this app tracks, for software-driven changes
+    /// such as Music and fades. Does nothing while the lights are switched off.
     /// </summary>
     public void SetRawLight(byte light)
     {
         lock (io)
         {
-            if (HasBrightnessCommand && !isOff) Send(CmdSetBrightness, ControlLighting, Math.Min(light, LightValues[^1]));
+            if (HasBrightnessCommand && !isOff) Send(CmdSetBrightness, ControlLighting, Math.Min(light, MaxLight));
         }
     }
 
-    /// <summary>The brightness level (0-4) the controller reports, or null if it reports a value we don't know.</summary>
-    public int? ReadBrightnessLevel()
+    /// <summary>The firmware brightness (0-<see cref="MaxLight"/>) the controller reports; 0 if it's switched off.</summary>
+    public byte ReadLight()
     {
         lock (io)
         {
             var reply = Query(CmdGetEffect); // control, effect, speed, light, color index, direction
             isOff = reply[2] == ControlOff;
-            int level = isOff ? 0 : Array.IndexOf(LightValues, reply[5]);
-            if (level < 0) return null;
-            lastKnownLevel = level;
-            return level;
+            byte light = isOff ? (byte)0 : Math.Min(reply[5], MaxLight);
+            lastKnownLight = light;
+            return light;
         }
     }
 
     /// <summary>
-    /// Returns the new brightness level if something other than this app changed it (the Fn keys are handled
-    /// by the laptop's firmware when Control Center isn't running), otherwise null.
+    /// Returns the new firmware brightness if something other than this app changed it (the Fn keys are handled
+    /// by the laptop's firmware when this app doesn't own them), otherwise null.
     /// </summary>
-    public int? PollExternalBrightnessChange()
+    public byte? PollExternalLightChange()
     {
         lock (io)
         {
-            int previous = lastKnownLevel;
-            return ReadBrightnessLevel() is int level && previous >= 0 && level != previous ? level : null;
+            int previous = lastKnownLight;
+            byte light = ReadLight();
+            return previous >= 0 && light != previous ? light : null;
         }
     }
 
-    void SetEffectLocked(KeyboardEffect effect, IReadOnlyList<Color> colors, byte direction, int brightness, int speed, bool saveToFirmware)
+    void SetEffectLocked(KeyboardEffect effect, IReadOnlyList<Color> colors, byte direction, byte light, int speed, bool saveToFirmware)
     {
         isOff = false;
         Send(CmdSetEffect, ControlReset);
-        SendNightGlow();
         byte colorIndex;
         if (effect.Id == KeyboardEffect.RainbowId)
         {
@@ -192,30 +185,12 @@ internal sealed class FourZoneKeyboard : IDisposable
             for (int i = 0; i < slots; i++) SetColor((byte)(i + 1), colors[i % colors.Count]);
             colorIndex = ColorIndexPalette;
         }
-        byte light = LightValue(brightness);
         Send(CmdSetEffect, ControlLighting, effect.FirmwareId, SpeedValues[Math.Clamp(speed, 0, 4)],
             light, colorIndex, effect.HasDirection ? direction : (byte)0, (byte)(saveToFirmware ? 1 : 0));
         if (HasBrightnessCommand) Send(CmdSetBrightness, ControlLighting, light);
     }
 
-    void TurnOffLocked()
-    {
-        isOff = true;
-        Send(CmdSetEffect, ControlReset);
-        SendNightGlow();
-        Send(CmdSetEffect, ControlOff);
-    }
-
-    // The night colors are raw LED levels (HIDKeyboard.BackgroundColorConverter), so no white balance.
-    void SendNightGlow()
-    {
-        if (nightGlow is Color c) Send(CmdSetEffect, ControlNight, 0, c.R, c.G, c.B, 0, 0);
-    }
-
-    public static byte LightValue(int level) => LightValues[Math.Clamp(level, 0, 4)];
-
-    // LM_ITE_RGB.Translate_ITE_LightValue / Translate_ITE_SpeedValue (slider 0-4 -> firmware value).
-    static readonly byte[] LightValues = [0, 8, 22, 36, 50];
+    // LM_ITE_RGB.Translate_ITE_SpeedValue (slider 0-4 -> firmware value).
     static readonly byte[] SpeedValues = [10, 7, 5, 3, 1];
 
     void SetColor(byte slot, Color color)
@@ -391,15 +366,4 @@ internal sealed record KeyboardEffect(string Key, string DisplayName, byte Id, E
     public static KeyboardEffect Find(string? key) => All.FirstOrDefault(e => e.Key == key) ?? All[0];
 
     public override string ToString() => DisplayName;
-}
-
-/// <summary>Night Light colors, as raw LED levels (HIDKeyboard.BackgroundColorConverter, indices 1-8).</summary>
-internal static class NightGlow
-{
-    public static readonly (string Name, Color Value)[] Colors =
-    [
-        ("Red", Color.FromArgb(3, 0, 0)), ("Orange", Color.FromArgb(9, 1, 0)), ("Yellow", Color.FromArgb(11, 2, 0)),
-        ("Green", Color.FromArgb(0, 1, 0)), ("Blue", Color.FromArgb(0, 0, 1)), ("Cyan", Color.FromArgb(0, 1, 1)),
-        ("Purple", Color.FromArgb(3, 0, 2)), ("White", Color.FromArgb(1, 1, 1)),
-    ];
 }

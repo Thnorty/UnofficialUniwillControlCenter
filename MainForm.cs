@@ -45,12 +45,15 @@ internal sealed class MainForm : Form
     readonly Label effectHint = new() { AutoSize = true, ForeColor = SystemColors.GrayText, MaximumSize = new Size(420, 0), Margin = new Padding(0, 0, 0, 10) };
     readonly ComboBox directionBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
     readonly Label directionLabel = RowLabel("Direction");
-    readonly TrackBar brightness = new() { Minimum = 0, Maximum = 4, Value = 4, TickStyle = TickStyle.BottomRight, Width = 220, LargeChange = 1 };
+    // The controller takes any brightness from 0 to 50; Control Center only uses 0, 8, 22, 36 and 50.
+    readonly TrackBar brightness = new()
+    {
+        Minimum = 0, Maximum = FourZoneKeyboard.MaxLight, Value = FourZoneKeyboard.MaxLight, TickStyle = TickStyle.BottomRight,
+        TickFrequency = 5, Width = 220, SmallChange = 1, LargeChange = 5,
+    };
     readonly TrackBar speed = new() { Minimum = 0, Maximum = 4, TickStyle = TickStyle.BottomRight, Width = 220, LargeChange = 1 };
     readonly Label brightnessValue = new() { AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
     readonly Label speedValue = new() { AutoSize = true, Padding = new Padding(0, 8, 0, 0) };
-    readonly CheckBox nightLight = new() { Text = "Keep a dim glow when the backlight is off", AutoSize = true, Margin = new Padding(0, 6, 8, 0) };
-    readonly ComboBox nightColorBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
     readonly ComboBox idleBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
     readonly Label status = new() { AutoSize = true, ForeColor = SystemColors.GrayText };
     readonly Button retry = new() { Text = "Retry", AutoSize = true, Visible = false };
@@ -84,8 +87,12 @@ internal sealed class MainForm : Form
     // Idle timer: the lights are faded out until the next input. The Fn keys reach us through the EC rather than
     // as Windows input, so they count as activity separately.
     bool idleOff;
-    int idleGeneration;
     long lastHotkeyActivity;
+    // Brightness changes fade over a few frames using the brightness-only command.
+    const int FadeMilliseconds = 180;
+    int fadeGeneration;
+    bool fading;
+    byte shownLight; // the brightness the keyboard is showing, including partway through a fade
 
     public MainForm(bool startHidden)
     {
@@ -155,18 +162,12 @@ internal sealed class MainForm : Form
         controls.Controls.Add(RowLabel("Speed"), 0, 1);
         controls.Controls.Add(speed, 1, 1);
         controls.Controls.Add(speedValue, 2, 1);
-        controls.Controls.Add(RowLabel("Night light"), 0, 2);
-        var night = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
-        night.Controls.Add(nightLight);
-        night.Controls.Add(nightColorBox);
-        controls.Controls.Add(night, 1, 2);
-        controls.SetColumnSpan(night, 2);
-        controls.Controls.Add(RowLabel("Turn off when idle"), 0, 3);
-        controls.Controls.Add(idleBox, 1, 3);
-        controls.Controls.Add(RowLabel("Touchpad"), 0, 4);
-        controls.Controls.Add(touchpadButton, 1, 4);
-        controls.Controls.Add(RowLabel("Windows key"), 0, 5);
-        controls.Controls.Add(winKeyButton, 1, 5);
+        controls.Controls.Add(RowLabel("Turn off when idle"), 0, 2);
+        controls.Controls.Add(idleBox, 1, 2);
+        controls.Controls.Add(RowLabel("Touchpad"), 0, 3);
+        controls.Controls.Add(touchpadButton, 1, 3);
+        controls.Controls.Add(RowLabel("Windows key"), 0, 4);
+        controls.Controls.Add(winKeyButton, 1, 4);
         layout.Controls.Add(controls);
 
         layout.Controls.Add(startWithWindows);
@@ -194,23 +195,17 @@ internal sealed class MainForm : Form
         effectBox.SelectedItem = KeyboardEffect.Find(settings.Effect);
         directionBox.Items.AddRange([.. WaveDirections.Select(d => d.Name)]);
         directionBox.SelectedIndex = Math.Max(0, Array.FindIndex(WaveDirections, d => d.Value == settings.WaveDirection));
-        brightness.Value = Math.Clamp(settings.Brightness, 0, 4);
+        brightness.Value = Math.Clamp(settings.Light, 0, FourZoneKeyboard.MaxLight);
         speed.Value = Math.Clamp(settings.Speed, 0, 4);
-        nightColorBox.Items.AddRange([.. NightGlow.Colors.Select(c => c.Name)]);
-        nightColorBox.SelectedIndex = Math.Clamp(settings.NightColor, 0, NightGlow.Colors.Length - 1);
-        nightLight.Checked = settings.NightLight;
         idleBox.Items.AddRange([.. IdleTimeouts.Select(t => t.Name)]);
         idleBox.SelectedIndex = Math.Max(0, Array.FindIndex(IdleTimeouts, t => t.Seconds == settings.IdleTimeoutSeconds));
         startWithWindows.Checked = Startup.IsEnabled();
         Startup.RemoveLegacyRunEntry();
-        toolTip.SetToolTip(nightLight, "Control Center's Night Light: a very dim glow stays on when the brightness is 0.");
 
         effectBox.SelectedIndexChanged += (_, _) => { UpdateEffectControls(); QueueSend(); };
         directionBox.SelectedIndexChanged += (_, _) => QueueSend();
-        brightness.ValueChanged += (_, _) => { UpdateLabels(); QueueSend(); };
+        brightness.ValueChanged += (_, _) => { UpdateLabels(); if (!suppressSend) FadeTo(Light); };
         speed.ValueChanged += (_, _) => { UpdateLabels(); QueueSend(); };
-        nightLight.CheckedChanged += (_, _) => { nightColorBox.Enabled = nightLight.Checked; QueueSend(); };
-        nightColorBox.SelectedIndexChanged += (_, _) => QueueSend();
         sendDebounce.Tick += (_, _) => { sendDebounce.Stop(); Send(saveToFirmware: false); };
         retry.Click += (_, _) => OpenKeyboard();
         touchpadButton.Click += (_, _) => ToggleTouchpad();
@@ -219,7 +214,6 @@ internal sealed class MainForm : Form
         idleCheck.Tick += (_, _) => CheckIdle();
         startWithWindows.CheckedChanged += (_, _) => SetStartWithWindows(startWithWindows.Checked);
 
-        nightColorBox.Enabled = nightLight.Checked;
         RefreshTouchpad();
         RefreshZoneButtons();
         UpdateLabels();
@@ -250,7 +244,7 @@ internal sealed class MainForm : Form
 
     byte SelectedDirection => WaveDirections[Math.Max(0, directionBox.SelectedIndex)].Value;
 
-    Color? SelectedNightGlow => nightLight.Checked ? NightGlow.Colors[Math.Max(0, nightColorBox.SelectedIndex)].Value : null;
+    byte Light => (byte)brightness.Value;
 
     /// <summary>The colors the selected effect shows.</summary>
     IReadOnlyList<Color> EffectColorsFor(KeyboardEffect effect) => effect.Colors switch
@@ -381,14 +375,20 @@ internal sealed class MainForm : Form
             case FirmwareHotkeys.KeyboardLightCycle:
                 lastHotkeyActivity = Environment.TickCount64;
                 if (idleOff) WakeFromIdle();
-                int level = code switch
+                // The keys step through Control Center's levels, from wherever the slider is.
+                var levels = FourZoneKeyboard.StandardLights;
+                byte light = code switch
                 {
-                    FirmwareHotkeys.KeyboardLightDown => Math.Max(0, brightness.Value - 1),
-                    FirmwareHotkeys.KeyboardLightUp => Math.Min(4, brightness.Value + 1),
-                    _ => (brightness.Value + 1) % 5,
+                    FirmwareHotkeys.KeyboardLightDown => levels.LastOrDefault(l => l < Light),
+                    FirmwareHotkeys.KeyboardLightUp => levels.FirstOrDefault(l => l > Light, FourZoneKeyboard.MaxLight),
+                    _ => levels.FirstOrDefault(l => l > Light), // past the top wraps to off
                 };
-                if (level != brightness.Value) SetBrightnessFromKey(level);
-                osd.ShowBrightness(level);
+                if (light != Light)
+                {
+                    WithoutSending(() => brightness.Value = light);
+                    FadeTo(light);
+                }
+                osd.ShowBrightness(light / (float)FourZoneKeyboard.MaxLight);
                 break;
             case FirmwareHotkeys.WinKeyLocked:
             case FirmwareHotkeys.WinKeyUnlocked:
@@ -399,25 +399,49 @@ internal sealed class MainForm : Form
         }
     }
 
-    void SetBrightnessFromKey(int level)
+    void FadeTo(byte target) => _ = FadeToAsync(target, FadeMilliseconds);
+
+    /// <summary>
+    /// Moves the brightness to <paramref name="target"/> smoothly with the brightness-only command. A newer fade or
+    /// a full effect send takes over from one in progress.
+    /// </summary>
+    async Task FadeToAsync(byte target, int milliseconds)
     {
-        WithoutSending(() => brightness.Value = level);
         if (keyboard is null) return;
+        int generation = ++fadeGeneration;
+        if (SelectedEffect.IsMusic && !idleOff)
+        {
+            // The music loop owns the brightness; the slider sets its peak.
+            if (music.IsPlaying) music.Play(keyboard, target, speed.Value);
+            else Send(saveToFirmware: false);
+            return;
+        }
+        byte from = shownLight;
+        fading = true;
         try
         {
-            if (SelectedEffect.IsMusic && level > 0 && music.IsPlaying)
+            long start = Environment.TickCount64;
+            while (from != target)
             {
-                // The music loop owns the brightness; just change its peak.
-                music.Play(keyboard, FourZoneKeyboard.LightValue(level), speed.Value);
-                return;
+                float t = Math.Min(1f, (Environment.TickCount64 - start) / (float)milliseconds);
+                if (t >= 1) break;
+                float eased = t * (2 - t); // ease out: quick to respond, gentle to settle
+                shownLight = (byte)MathF.Round(from + (target - from) * eased);
+                keyboard.SetRawLight(shownLight);
+                await Task.Delay(15);
+                if (generation != fadeGeneration || keyboard is null) return; // superseded
             }
-            // The brightness-only command is what makes this instant; a full effect resend is the fallback.
-            if (!SelectedEffect.IsMusic && keyboard.TrySetBrightness(level)) changedThisSession = true;
-            else Send(saveToFirmware: false);
+            if (keyboard.TrySetLight(target)) shownLight = target;
+            else Send(saveToFirmware: false, lightOverride: target); // switched off by something else, or no 09h
+            changedThisSession = true;
         }
         catch (Exception e)
         {
             SetStatus($"Send failed: {e.Message}", error: true);
+        }
+        finally
+        {
+            if (generation == fadeGeneration) fading = false;
         }
     }
 
@@ -429,15 +453,15 @@ internal sealed class MainForm : Form
     void RestoreBrightnessAfterHandOver()
     {
         if (keyboard is null) return;
-        int level = brightness.Value;
+        byte light = Light;
         var deadline = Environment.TickCount64 + 3000;
         try
         {
             while (Environment.TickCount64 < deadline)
             {
-                if (keyboard.ReadBrightnessLevel() is int current && current != level)
+                if (keyboard.ReadLight() != light)
                 {
-                    if (!keyboard.TrySetBrightness(level)) Send(saveToFirmware: false);
+                    if (!keyboard.TrySetLight(light)) Send(saveToFirmware: false);
                     if (keyboard is null) return;
                 }
                 Thread.Sleep(50);
@@ -491,7 +515,7 @@ internal sealed class MainForm : Form
             }
             // Restore the saved lighting. Keep a nonzero brightness the keyboard reports, since the Fn keys may
             // have changed it while this app wasn't running; a zero is more likely the lights having been reset.
-            if (keyboard.ReadBrightnessLevel() is int level and > 0) WithoutSending(() => brightness.Value = level);
+            if (keyboard.ReadLight() is var light and > 0) WithoutSending(() => brightness.Value = light);
             Send(saveToFirmware: false);
             if (keyboard is null) return; // Send reported the failure
             SetConnectedStatus();
@@ -523,23 +547,24 @@ internal sealed class MainForm : Form
                 return;
             }
             var current = keyboard;
-            // Music and the idle fade change the brightness on purpose.
-            if (current is null || idleOff || music.IsPlaying) continue;
-            int? changed = await Task.Run(() =>
+            // Fades, Music and the idle timer change the brightness on purpose.
+            if (current is null || fading || idleOff || music.IsPlaying) continue;
+            byte? changed = await Task.Run(() =>
             {
-                try { return current.PollExternalBrightnessChange(); }
+                try { return current.PollExternalLightChange(); }
                 catch (Exception) { return null; } // device gone or handle closed; the UI path reports send errors
             });
-            if (changed is int level && !idleOff && !music.IsPlaying) OnKeyboardBrightnessChanged(level);
+            if (changed is byte light && !fading && !idleOff && !music.IsPlaying) OnKeyboardBrightnessChanged(light);
         }
     }
 
-    void OnKeyboardBrightnessChanged(int level)
+    void OnKeyboardBrightnessChanged(byte light)
     {
         lastHotkeyActivity = Environment.TickCount64;
-        WithoutSending(() => brightness.Value = level);
+        WithoutSending(() => brightness.Value = light);
+        shownLight = light;
         changedThisSession = true;
-        if (!ControlCenterIsRunning()) osd.ShowBrightness(level);
+        if (!ControlCenterIsRunning()) osd.ShowBrightness(light / (float)FourZoneKeyboard.MaxLight);
     }
 
     // Control Center shows its own OSD for the same keys.
@@ -563,30 +588,19 @@ internal sealed class MainForm : Form
         if (timeout > 0 && brightness.Value > 0 && idle >= timeout * 1000L) _ = FadeOutAsync();
     }
 
-    /// <summary>HIDKeyboard.CloseAnimation: step the brightness down, then switch the backlight off.</summary>
+    /// <summary>HIDKeyboard.CloseAnimation: fade the backlight out until the next input.</summary>
     async Task FadeOutAsync()
     {
         idleOff = true;
-        int generation = ++idleGeneration;
         music.Pause();
-        try
-        {
-            for (int light = FourZoneKeyboard.LightValue(brightness.Value); light > 0; light -= 8)
-            {
-                keyboard?.SetRawLight((byte)light);
-                await Task.Delay(light * 3);
-                if (generation != idleGeneration) return; // woken up meanwhile
-            }
-            if (keyboard is { } current && !current.TrySetBrightness(0)) Send(saveToFirmware: false, brightnessOverride: 0);
-        }
-        catch (Exception) { } // a failed send shows up on the next real one
+        await FadeToAsync(0, 600);
     }
 
     void WakeFromIdle()
     {
         idleOff = false;
-        idleGeneration++;
-        Send(saveToFirmware: false);
+        if (SelectedEffect.IsMusic) Send(saveToFirmware: false);
+        else _ = FadeToAsync(Light, 300);
     }
 
     static long MillisecondsSinceInput()
@@ -774,7 +788,7 @@ internal sealed class MainForm : Form
 
     void UpdateLabels()
     {
-        brightnessValue.Text = brightness.Value == 0 ? "Off" : $"{brightness.Value} / 4";
+        brightnessValue.Text = brightness.Value == 0 ? "Off" : $"{brightness.Value * 100 / FourZoneKeyboard.MaxLight}%";
         speedValue.Text = $"{speed.Value} / 4";
     }
 
@@ -791,18 +805,20 @@ internal sealed class MainForm : Form
         sendDebounce.Start();
     }
 
-    void Send(bool saveToFirmware, int? brightnessOverride = null)
+    void Send(bool saveToFirmware, byte? lightOverride = null)
     {
         if (keyboard is null) return;
         var effect = SelectedEffect;
-        int level = brightnessOverride ?? brightness.Value;
+        byte light = lightOverride ?? Light;
+        fadeGeneration++; // a fade in progress would undo this
+        fading = false;
         music.Pause(); // the music loop must not change the brightness while the effect is being set
         try
         {
-            keyboard.SetEffect(effect, EffectColorsFor(effect), SelectedDirection, level, speed.Value, SelectedNightGlow, saveToFirmware);
+            keyboard.SetEffect(effect, EffectColorsFor(effect), SelectedDirection, light, speed.Value, saveToFirmware);
+            shownLight = light;
             changedThisSession = true;
-            if (effect.IsMusic && level > 0 && !idleOff && !saveToFirmware)
-                music.Play(keyboard, FourZoneKeyboard.LightValue(level), speed.Value);
+            if (effect.IsMusic && !idleOff && !saveToFirmware) music.Play(keyboard, light, speed.Value);
         }
         catch (Exception e)
         {
@@ -865,10 +881,8 @@ internal sealed class MainForm : Form
         settings.Effect = SelectedEffect.Key;
         settings.Palettes = palettes.ToDictionary(p => p.Key, p => p.Value.Select(c => c.ToArgb()).ToArray());
         settings.WaveDirection = SelectedDirection;
-        settings.Brightness = brightness.Value;
+        settings.Light = brightness.Value;
         settings.Speed = speed.Value;
-        settings.NightLight = nightLight.Checked;
-        settings.NightColor = nightColorBox.SelectedIndex;
         settings.IdleTimeoutSeconds = IdleTimeouts[Math.Max(0, idleBox.SelectedIndex)].Seconds;
         settings.Save();
         tray.Visible = false;

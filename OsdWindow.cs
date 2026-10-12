@@ -21,7 +21,7 @@ internal sealed class OsdWindow : Form
     readonly System.Windows.Forms.Timer fadeTimer = new() { Interval = 15 };
     string glyph = KeyboardGlyph;
     string caption = "";
-    int level = -1; // brightness segments to fill, or -1 for none
+    float level = -1; // brightness bar fill, 0-1, or -1 for none
     bool dark;
 
     public OsdWindow()
@@ -59,13 +59,15 @@ internal sealed class OsdWindow : Form
         DwmSetWindowAttribute(Handle, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, ref round, sizeof(int));
     }
 
-    public void ShowBrightness(int level) => Flash(KeyboardGlyph, level == 0 ? "Keyboard light off" : "Keyboard light", level);
+    /// <summary>Shows the keyboard brightness as a fraction of the maximum, 0-1.</summary>
+    public void ShowBrightness(float fraction) =>
+        Flash(KeyboardGlyph, fraction <= 0 ? "Keyboard light off" : $"Keyboard light  {fraction:P0}", Math.Clamp(fraction, 0, 1));
 
     public void ShowTouchpad(bool enabled) => Flash(TouchpadGlyph, enabled ? "Touchpad on" : "Touchpad off", -1);
 
     public void ShowWinKey(bool locked) => Flash(locked ? LockGlyph : UnlockGlyph, locked ? "Windows key locked" : "Windows key unlocked", -1);
 
-    void Flash(string glyph, string caption, int level)
+    void Flash(string glyph, string caption, float level)
     {
         this.glyph = glyph;
         this.caption = caption;
@@ -113,14 +115,16 @@ internal sealed class OsdWindow : Form
 
         TextRenderer.DrawText(g, caption, captionFont, new Rectangle((int)(56 * s), (int)(9 * s), Width - (int)(64 * s), (int)(18 * s)), text,
             TextFormatFlags.Left | TextFormatFlags.Top);
-        // Four segments, one per brightness step.
-        float x = 56 * s, y = 34 * s, gap = 4 * s, h = 4 * s;
-        float w = (Width - x - 18 * s - 3 * gap) / 4;
-        for (int i = 0; i < 4; i++)
+        float x = 56 * s, y = 34 * s, h = 4 * s;
+        float w = Width - x - 18 * s;
+        using (var trackBrush = new SolidBrush(track))
+        using (var trackPath = RoundedRect(new RectangleF(x, y, w, h), h / 2))
+            g.FillPath(trackBrush, trackPath);
+        if (level > 0)
         {
-            using var segment = new SolidBrush(i < level ? accent : track);
-            using var path = RoundedRect(new RectangleF(x + i * (w + gap), y, w, h), h / 2);
-            g.FillPath(segment, path);
+            using var fill = new SolidBrush(accent);
+            using var fillPath = RoundedRect(new RectangleF(x, y, Math.Max(h, w * level), h), h / 2);
+            g.FillPath(fill, fillPath);
         }
     }
 
