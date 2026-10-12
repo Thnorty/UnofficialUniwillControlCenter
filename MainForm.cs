@@ -90,6 +90,7 @@ internal sealed class MainForm : Form
     long lastHotkeyActivity;
     // Brightness changes fade over a few frames using the brightness-only command.
     const int FadeMilliseconds = 180;
+    const int FnKeyStep = 10; // out of FourZoneKeyboard.MaxLight
     int fadeGeneration;
     bool fading;
     byte shownLight; // the brightness the keyboard is showing, including partway through a fade
@@ -375,13 +376,12 @@ internal sealed class MainForm : Form
             case FirmwareHotkeys.KeyboardLightCycle:
                 lastHotkeyActivity = Environment.TickCount64;
                 if (idleOff) WakeFromIdle();
-                // The keys step through Control Center's levels, from wherever the slider is.
-                var levels = FourZoneKeyboard.StandardLights;
+                // The keys move the brightness by a fifth of the range (20%), from wherever the slider is.
                 byte light = code switch
                 {
-                    FirmwareHotkeys.KeyboardLightDown => levels.LastOrDefault(l => l < Light),
-                    FirmwareHotkeys.KeyboardLightUp => levels.FirstOrDefault(l => l > Light, FourZoneKeyboard.MaxLight),
-                    _ => levels.FirstOrDefault(l => l > Light), // past the top wraps to off
+                    FirmwareHotkeys.KeyboardLightDown => (byte)Math.Max(0, Light - FnKeyStep),
+                    FirmwareHotkeys.KeyboardLightUp => (byte)Math.Min(FourZoneKeyboard.MaxLight, Light + FnKeyStep),
+                    _ => Light >= FourZoneKeyboard.MaxLight ? (byte)0 : (byte)Math.Min(FourZoneKeyboard.MaxLight, Light + FnKeyStep), // past the top wraps to off
                 };
                 if (light != Light)
                 {
