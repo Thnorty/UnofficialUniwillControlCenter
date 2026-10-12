@@ -10,7 +10,6 @@ namespace MonsterKeyboardRGB;
 internal static class CoreAudio
 {
     public const int RenderFlow = 0;   // eRender
-    public const int CaptureFlow = 1;  // eCapture
     public const int ConsoleRole = 0;  // eConsole
     public const int MultimediaRole = 1;
     const int ClsctxAll = 0x17;
@@ -63,24 +62,6 @@ internal static class CoreAudio
     public interface IAudioMeterInformation
     {
         [PreserveSig] int GetPeakValue(out float peak);
-    }
-
-    [ComImport, Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    public interface IAudioEndpointVolume
-    {
-        [PreserveSig] int RegisterControlChangeNotify(IntPtr notify);
-        [PreserveSig] int UnregisterControlChangeNotify(IntPtr notify);
-        [PreserveSig] int GetChannelCount(out uint count);
-        [PreserveSig] int SetMasterVolumeLevel(float level, IntPtr context);
-        [PreserveSig] int SetMasterVolumeLevelScalar(float level, IntPtr context);
-        [PreserveSig] int GetMasterVolumeLevel(out float level);
-        [PreserveSig] int GetMasterVolumeLevelScalar(out float level);
-        [PreserveSig] int SetChannelVolumeLevel(uint channel, float level, IntPtr context);
-        [PreserveSig] int SetChannelVolumeLevelScalar(uint channel, float level, IntPtr context);
-        [PreserveSig] int GetChannelVolumeLevel(uint channel, out float level);
-        [PreserveSig] int GetChannelVolumeLevelScalar(uint channel, out float level);
-        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, IntPtr context);
-        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
     }
 
     [ComImport, Guid("1CB9AD4C-DBFA-4C32-B178-C2F568A703B2"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -269,41 +250,5 @@ internal sealed class SampleHistory(int length)
     public void CopyTo(float[] destination)
     {
         for (int i = 0; i < ring.Length; i++) destination[i] = ring[(next + i) % ring.Length];
-    }
-}
-
-/// <summary>Whether the default microphone is muted.</summary>
-internal sealed class MicrophoneMute : IDisposable
-{
-    CoreAudio.IAudioEndpointVolume? volume;
-    long openedAt;
-
-    /// <summary>The mute state, or null when there's no microphone.</summary>
-    public bool? Read()
-    {
-        try
-        {
-            // Reopen now and then so a change of default microphone is picked up.
-            if (volume is null || Environment.TickCount64 - openedAt > 5000)
-            {
-                CoreAudio.Release(volume);
-                volume = CoreAudio.ActivateDefault<CoreAudio.IAudioEndpointVolume>(CoreAudio.CaptureFlow, CoreAudio.ConsoleRole);
-                openedAt = Environment.TickCount64;
-            }
-            if (volume is null || volume.GetMute(out bool muted) != 0) return null;
-            return muted;
-        }
-        catch (Exception)
-        {
-            CoreAudio.Release(volume);
-            volume = null;
-            return null;
-        }
-    }
-
-    public void Dispose()
-    {
-        CoreAudio.Release(volume);
-        volume = null;
     }
 }

@@ -84,8 +84,7 @@ These work the way Control Center does them. The commands come from Control Cent
   - keyboard: CPU temperature and GPU temperature colors, blue when cool to red when hot.
   - The CPU temperature is the hottest ACPI thermal zone, the same reading Control Center uses. The GPU temperature
     comes from the NVIDIA driver (NVML) and shows "no reading" while the GPU is switched off.
-- **Light bar indicators:** the bar flashes when Caps Lock (white), Num Lock (blue) or the microphone mute (red when
-  muted, green when unmuted) changes: opening from the middle for on, closing to the middle for off. Each can be
+- **Light bar indicators:** the bar flashes when Caps Lock (white) or Num Lock (blue) changes: opening from the middle for on, closing to the middle for off. Each can be
   turned off. Over effects this app draws the flash is drawn on top; over firmware effects the effect comes back
   after the flash.
 - **Timer:** 5 to 60 minutes, from the window or the tray. When it ends the light bar blinks orange, with a pop-up

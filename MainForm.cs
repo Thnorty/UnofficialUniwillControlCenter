@@ -42,8 +42,14 @@ internal sealed class MainForm : Form
     readonly FlowLayoutPanel indicatorRow = new() { AutoSize = true, WrapContents = false, Margin = new Padding(0, 3, 0, 3) };
     readonly CheckBox capsLockBox = new() { Text = "Caps Lock", AutoSize = true };
     readonly CheckBox numLockBox = new() { Text = "Num Lock", AutoSize = true };
-    readonly CheckBox micMuteBox = new() { Text = "Microphone mute", AutoSize = true };
     readonly Button timerButton = new() { AutoSize = true, Margin = new Padding(3, 6, 3, 3) };
+    readonly Label timerHint = new()
+    {
+        Text = "A countdown that runs in the background, also with this window closed (it's in the tray icon's menu "
+            + "too). When the time is up, the light bar blinks orange, a pop-up shows and Windows sends a notification. "
+            + "Useful as a break or cooking reminder.",
+        AutoSize = true, ForeColor = SystemColors.GrayText, MaximumSize = new Size(360, 0), Margin = new Padding(3, 0, 3, 8),
+    };
     readonly ContextMenuStrip timerMenu = new();
     readonly System.Windows.Forms.Timer indicatorCheck = new() { Interval = 250 };
     readonly CheckBox startWithWindows = new() { Text = "Start with Windows (in the tray)", AutoSize = true, Margin = new Padding(0, 0, 0, 8) };
@@ -105,9 +111,10 @@ internal sealed class MainForm : Form
         shared.Controls.Add(winKeyButton, 1, 2);
         shared.Controls.Add(UiText.RowLabel("Timer"), 0, 3);
         shared.Controls.Add(timerButton, 1, 3);
-        indicatorRow.Controls.AddRange([capsLockBox, numLockBox, micMuteBox]);
-        shared.Controls.Add(indicatorLabel, 0, 4);
-        shared.Controls.Add(indicatorRow, 1, 4);
+        shared.Controls.Add(timerHint, 1, 4);
+        indicatorRow.Controls.AddRange([capsLockBox, numLockBox]);
+        shared.Controls.Add(indicatorLabel, 0, 5);
+        shared.Controls.Add(indicatorRow, 1, 5);
         indicatorLabel.Visible = indicatorRow.Visible = false; // until a light bar is found
         layout.Controls.Add(shared);
 
@@ -132,7 +139,6 @@ internal sealed class MainForm : Form
         keyboardTab.Checked = true;
         capsLockBox.Checked = indicators.CapsLock = settings.FlashCapsLock;
         numLockBox.Checked = indicators.NumLock = settings.FlashNumLock;
-        micMuteBox.Checked = indicators.MicMute = settings.FlashMicMute;
         timerMenu.Opening += (_, _) => { timerMenu.Items.Clear(); AddTimerItems(timerMenu.Items); };
 
         keyboardTab.CheckedChanged += (_, _) => ShowPage();
@@ -144,7 +150,6 @@ internal sealed class MainForm : Form
         indicatorCheck.Tick += (_, _) => CheckIndicators();
         capsLockBox.CheckedChanged += (_, _) => indicators.CapsLock = capsLockBox.Checked;
         numLockBox.CheckedChanged += (_, _) => indicators.NumLock = numLockBox.Checked;
-        micMuteBox.CheckedChanged += (_, _) => indicators.MicMute = micMuteBox.Checked;
         timerButton.Click += (_, _) =>
         {
             if (timerEnd != 0) CancelTimer();
@@ -334,7 +339,7 @@ internal sealed class MainForm : Form
 
     void UpdateTimerButton()
     {
-        string text = timerEnd == 0 ? "Start…" : $"{TimeLeft()} left — click to cancel";
+        string text = timerEnd == 0 ? "Start a timer…" : $"{TimeLeft()} left — click to cancel";
         if (timerButton.Text != text) timerButton.Text = text;
     }
 
@@ -741,7 +746,6 @@ internal sealed class MainForm : Form
         if (idleOff) WakeFromIdle();
         engine.Dispose();
         keyboardHook?.Dispose();
-        indicators.Dispose();
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         // Live changes skip the firmware's non-volatile save to avoid a flash write per slider step;
         // commit the final state once so it survives without this app running. The effects this app draws can't
@@ -761,7 +765,6 @@ internal sealed class MainForm : Form
         settings.IdleTimeoutSeconds = IdleTimeouts[Math.Max(0, idleBox.SelectedIndex)].Seconds;
         settings.FlashCapsLock = capsLockBox.Checked;
         settings.FlashNumLock = numLockBox.Checked;
-        settings.FlashMicMute = micMuteBox.Checked;
         settings.Save();
         tray.Visible = false;
         keyboardPanel.Device?.Dispose();

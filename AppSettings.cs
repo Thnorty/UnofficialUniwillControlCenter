@@ -19,7 +19,6 @@ internal sealed class AppSettings
     /// <summary>The light bar flashes when these change.</summary>
     public bool FlashCapsLock { get; set; } = true;
     public bool FlashNumLock { get; set; } = true;
-    public bool FlashMicMute { get; set; } = true;
 
     // Earlier versions kept the keyboard's settings at the top level. Only read, to migrate them.
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int[]? ZoneColors { get; set; }
