@@ -19,7 +19,7 @@ internal sealed class LightingPanel : UserControl
     // Brightness changes fade over a few frames using the brightness-only command.
     const int FadeMilliseconds = 180;
 
-    readonly MusicVisualizer? music;
+    readonly MusicVisualizer music;
     readonly Color[] zoneColors = new Color[4];
     readonly Dictionary<string, List<Color>> palettes = [];
     readonly Button[] zoneButtons = new Button[4];
@@ -51,7 +51,7 @@ internal sealed class LightingPanel : UserControl
     byte shownLight; // the brightness the device is showing, including partway through a fade
 
     /// <param name="powerLabel">Text of an on/off switch, or null for none.</param>
-    public LightingPanel(IReadOnlyList<LightingEffect> effects, LightingSettings settings, string? powerLabel, MusicVisualizer? music = null)
+    public LightingPanel(IReadOnlyList<LightingEffect> effects, LightingSettings settings, string? powerLabel, MusicVisualizer music)
     {
         this.music = music;
         AutoSize = true;
@@ -236,7 +236,7 @@ internal sealed class LightingPanel : UserControl
     {
         if (IdleOff || !IsOn) return;
         IdleOff = true;
-        music?.Pause();
+        music.Pause(this);
         await FadeToAsync(0, 600);
     }
 
@@ -258,10 +258,10 @@ internal sealed class LightingPanel : UserControl
     {
         if (device is null || !IsOn) return;
         int generation = ++fadeGeneration;
-        if (SelectedEffect.IsMusic && music is not null && !IdleOff)
+        if (SelectedEffect.IsMusic && device.Kind == LightingDeviceKind.Keyboard && !IdleOff)
         {
-            // The music loop owns the brightness; the slider sets its peak.
-            if (music.IsPlaying) music.Play(device, target, speed.Value);
+            // The music loop owns the keyboard's brightness; the slider sets its peak.
+            if (music.IsPlaying(this)) music.Play(this, new KeyboardMusic(device, target, speed.Value));
             else Apply(saveToFirmware: false);
             return;
         }
@@ -303,20 +303,34 @@ internal sealed class LightingPanel : UserControl
         byte light = lightOverride ?? Light;
         fadeGeneration++; // a fade in progress would undo this
         Fading = false;
-        music?.Pause(); // the music loop must not change the brightness while the effect is being set
+        music.Pause(this); // the music loop must not change the lights while the effect is being set
         try
         {
+            var colors = EffectColorsFor(effect);
             if (!IsOn)
             {
                 device.SwitchOff();
-                shownLight = 0;
+                light = 0;
+            }
+            else if (effect.IsMusic && device.Kind == LightingDeviceKind.LightBar)
+            {
+                if (saveToFirmware)
+                {
+                    // Music needs this app; what stays afterwards is the meter's middle color.
+                    device.SetEffect(LightingEffect.LightBar[0], [colors[0]], 0, light, speed.Value, saveToFirmware: true);
+                }
+                else
+                {
+                    device.EnterUserMode(light);
+                    if (!IdleOff) music.Play(this, new LightBarMusic(device, colors, speed.Value));
+                }
             }
             else
             {
-                device.SetEffect(effect, EffectColorsFor(effect), SelectedDirection, light, speed.Value, saveToFirmware);
-                shownLight = light;
-                if (effect.IsMusic && music is not null && !IdleOff && !saveToFirmware) music.Play(device, light, speed.Value);
+                device.SetEffect(effect, colors, SelectedDirection, light, speed.Value, saveToFirmware);
+                if (effect.IsMusic && !IdleOff && !saveToFirmware) music.Play(this, new KeyboardMusic(device, light, speed.Value));
             }
+            shownLight = light;
             Changed?.Invoke();
         }
         catch (Exception e)

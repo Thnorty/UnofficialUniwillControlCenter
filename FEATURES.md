@@ -27,8 +27,10 @@ These work the way Control Center does them. The commands come from Control Cent
 ### Light bar
 - **On/off switch**, and the light bar's Fn toggle key (hotkey code 175), with a pop-up.
 - **Effects:** the firmware effects Control Center's light bar driver handles: Static color, Breathing, Wave
-  (Control Center's "Colorwave"), Rainbow, Flash, Mix and Thinking. Still to be confirmed on the hardware.
-- **Speed, wave direction and brightness**, as on the keyboard.
+  (Control Center's "Colorwave", which has no direction), Rainbow, Flash, Mix and Thinking.
+- **Music:** a level meter that grows from the middle of the bar outwards with the sound, set LED by LED (user
+  mode, command 12h and output reports), colored by distance from the middle with up to seven colors.
+- **Speed and brightness**, as on the keyboard.
 - **Color correction:** the light bar's own correction (`WKDColor.cheatRGB_HIDLightbar`).
 - **First run:** starts from what the light bar was showing (Control Center left it off, on Thinking).
 
@@ -83,8 +85,8 @@ These work the way Control Center does them. The commands come from Control Cent
   switches when the charger is plugged in or out. This app has one brightness.
 - **Aurora:** not the light bar. Control Center's Aurora switch hands all lighting over to a separate third-party
   RGB program called Aurora, which isn't installed here. Not implemented.
-- **Light bar Music, Star Spark and Star Hitting:** Control Center drives these in software, one LED at a time
-  (user mode, command 12h). Not implemented yet.
+- **Light bar Star Spark and Star Hitting:** Control Center drives these in software, one LED at a time. Not
+  implemented yet; the LED-by-LED mode they need is now in place (used by Music).
 - **Night Light:** removed. It had no visible effect on this laptop, and Control Center doesn't offer it for this
   model.
 - **Fn keys while the app is closed:** they still need several presses. The embedded controller counts from a hidden

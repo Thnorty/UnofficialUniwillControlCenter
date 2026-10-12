@@ -3,21 +3,18 @@ using System.Runtime.InteropServices;
 namespace MonsterKeyboardRGB;
 
 /// <summary>
-/// Control Center's four-zone Music effect (LM_ITE_RGB.DLL_SetMusicMode, MUSICTYPE.BRIGHTNESS): the keyboard shows
-/// the static zone colors and the brightness follows the peak level of the default audio output.
+/// Control Center's Music effect (LM_ITE_RGB.DLL_SetMusicMode): follows the peak level of the default audio output.
+/// Each device shows the level its own way (see <see cref="IMusicTarget"/>); the keyboard and the light bar can
+/// play at the same time.
 /// </summary>
 internal sealed class MusicVisualizer : IDisposable
 {
     const int TickMilliseconds = 25;
-    // How much of the level is kept each tick, by speed 0-4: faster speeds fall back sooner.
-    static readonly float[] Decay = [0.93f, 0.89f, 0.84f, 0.77f, 0.68f];
 
     readonly Lock gate = new();
     readonly AutoResetEvent wake = new(false);
     readonly Thread thread;
-    IteLightingDevice? keyboard; // null while paused
-    byte peakLight;
-    int speed;
+    readonly Dictionary<object, IMusicTarget> targets = [];
     volatile bool stopping;
 
     public MusicVisualizer()
@@ -26,41 +23,41 @@ internal sealed class MusicVisualizer : IDisposable
         thread.Start();
     }
 
-    /// <summary>Starts or updates the effect. <paramref name="peakLight"/> is the firmware brightness (0-50) at full volume.</summary>
-    public void Play(IteLightingDevice keyboard, byte peakLight, int speed)
+    /// <summary>Starts showing the music on <paramref name="target"/>, replacing what <paramref name="owner"/> played before.</summary>
+    public void Play(object owner, IMusicTarget target)
     {
-        lock (gate)
-        {
-            this.keyboard = keyboard;
-            this.peakLight = peakLight;
-            this.speed = Math.Clamp(speed, 0, 4);
-        }
+        lock (gate) targets[owner] = target;
         wake.Set();
     }
 
-    /// <summary>Stops sending. Once this returns the keyboard won't receive another brightness change from here.</summary>
-    public void Pause()
+    /// <summary>Stops <paramref name="owner"/>'s target. Once this returns, it won't be sent anything more from here.</summary>
+    public void Pause(object owner)
     {
-        lock (gate) keyboard = null;
+        lock (gate) targets.Remove(owner);
     }
 
-    public bool IsPlaying
+    public bool IsPlaying(object owner)
     {
-        get { lock (gate) return keyboard is not null; }
+        lock (gate) return targets.ContainsKey(owner);
+    }
+
+    bool AnyPlaying
+    {
+        get { lock (gate) return targets.Count > 0; }
     }
 
     void Run()
     {
         AudioMeter? meter = null;
         long meterOpened = 0;
-        float ceiling = 0, level = 0;
-        int lastSent = -1;
+        float ceiling = 0;
         while (!stopping)
         {
             lock (gate)
             {
-                if (keyboard is { } target)
+                if (targets.Count > 0)
                 {
+                    float level = 0;
                     try
                     {
                         // Reopen now and then so a change of default output device is picked up.
@@ -73,32 +70,26 @@ internal sealed class MusicVisualizer : IDisposable
                         float peak = meter?.ReadPeak() ?? 0;
                         // Automatic gain like the service's EqualMachine: scale to the loudest recent peak.
                         ceiling = Math.Max(Math.Max(peak, ceiling * 0.997f), 0.02f);
-                        float shaped = MathF.Pow(Math.Clamp(peak / ceiling, 0, 1), 1.6f);
-                        level = Math.Max(shaped, level * Decay[speed]);
-                        int light = (int)MathF.Round(peakLight * level);
-                        if (light != lastSent)
-                        {
-                            target.SetRawLight((byte)light);
-                            lastSent = light;
-                        }
+                        level = MathF.Pow(Math.Clamp(peak / ceiling, 0, 1), 1.6f);
                     }
                     catch (Exception)
                     {
-                        // Audio device or keyboard went away; try again on the next tick.
-                        meter?.Dispose();
+                        meter?.Dispose(); // the audio device went away; try again on the next tick
                         meter = null;
-                        lastSent = -1;
+                    }
+                    foreach (var (owner, target) in targets.ToArray())
+                    {
+                        try { target.Show(level); }
+                        catch (Exception) { targets.Remove(owner); } // device gone; its panel reports it on the next send
                     }
                 }
                 else
                 {
                     meter?.Dispose();
                     meter = null;
-                    lastSent = -1;
-                    level = 0;
                 }
             }
-            if (IsPlaying) Thread.Sleep(TickMilliseconds);
+            if (AnyPlaying) Thread.Sleep(TickMilliseconds);
             else wake.WaitOne();
         }
         meter?.Dispose();
@@ -106,7 +97,7 @@ internal sealed class MusicVisualizer : IDisposable
 
     public void Dispose()
     {
-        Pause();
+        lock (gate) targets.Clear();
         stopping = true;
         wake.Set();
         thread.Join(1000);
@@ -183,5 +174,73 @@ internal sealed class MusicVisualizer : IDisposable
         {
             [PreserveSig] int GetPeakValue(out float peak);
         }
+    }
+}
+
+/// <summary>Shows the music level on a device. Called on the music thread every tick.</summary>
+internal interface IMusicTarget
+{
+    /// <param name="loudness">How loud it is, 0-1, scaled to the loudest recent sound.</param>
+    void Show(float loudness);
+}
+
+/// <summary>Remembers how loud it was a moment ago, falling back at a rate set by the speed slider.</summary>
+internal abstract class DecayingMusicTarget(int speed) : IMusicTarget
+{
+    // How much of the level is kept each tick, by speed 0-4: faster speeds fall back sooner.
+    static readonly float[] Decay = [0.93f, 0.89f, 0.84f, 0.77f, 0.68f];
+
+    readonly float decay = Decay[Math.Clamp(speed, 0, 4)];
+    float level;
+
+    public void Show(float loudness)
+    {
+        level = Math.Max(loudness, level * decay);
+        ShowLevel(level);
+    }
+
+    protected abstract void ShowLevel(float level);
+}
+
+/// <summary>
+/// The keyboard's Music (MUSICTYPE.BRIGHTNESS): the static zone colors, with the brightness following the sound.
+/// </summary>
+internal sealed class KeyboardMusic(IteLightingDevice keyboard, byte peakLight, int speed) : DecayingMusicTarget(speed)
+{
+    int lastSent = -1;
+
+    protected override void ShowLevel(float level)
+    {
+        int light = (int)MathF.Round(peakLight * level);
+        if (light == lastSent) return;
+        keyboard.SetRawLight((byte)light);
+        lastSent = light;
+    }
+}
+
+/// <summary>
+/// The light bar's Music (LM_ITE_RGB.AudioData_LightbarEventHandler): a level meter that grows from the middle of the
+/// bar outwards, each LED colored by its distance from the middle.
+/// </summary>
+internal sealed class LightBarMusic(IteLightingDevice lightBar, IReadOnlyList<Color> colors, int speed) : DecayingMusicTarget(speed)
+{
+    const int Center = IteLightingDevice.LightBarLeds / 2;
+    readonly Color[] leds = new Color[IteLightingDevice.LightBarLeds];
+    int lastLit = -1;
+
+    protected override void ShowLevel(float level)
+    {
+        int lit = (int)MathF.Round(level * (Center + 1)); // LEDs lit on each side, counting the middle one
+        if (lit == lastLit) return;
+        Array.Clear(leds);
+        for (int distance = 0; distance < lit; distance++)
+        {
+            // The service gives the middle two steps the first color, then one color per step outwards.
+            var color = colors[Math.Clamp(distance - 1, 0, colors.Count - 1)];
+            leds[Center - distance] = color;
+            leds[Center + distance] = color;
+        }
+        lightBar.SetLeds(leds);
+        lastLit = lit;
     }
 }

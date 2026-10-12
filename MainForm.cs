@@ -209,7 +209,7 @@ internal sealed class MainForm : Form
                 Effect = LightingEffect.LightBar.FirstOrDefault(e => e.Id == effectId)?.Key ?? "static",
             };
         }
-        lightBarPanel = new LightingPanel(LightingEffect.LightBar, settings.LightBar, powerLabel: "Light bar on");
+        lightBarPanel = new LightingPanel(LightingEffect.LightBar, settings.LightBar, powerLabel: "Light bar on", music);
         lightBarPanel.Changed += () => lightBarChanged = true;
         lightBarPanel.Failed += message => DeviceFailed("light bar", message);
         lightBarPanel.Attach(lightBar);
@@ -432,7 +432,7 @@ internal sealed class MainForm : Form
         }
     }
 
-    bool BrightnessIsBusy() => keyboardPanel.Fading || idleOff || music.IsPlaying;
+    bool BrightnessIsBusy() => keyboardPanel.Fading || idleOff || music.IsPlaying(keyboardPanel);
 
     void OnKeyboardBrightnessChanged(byte light)
     {

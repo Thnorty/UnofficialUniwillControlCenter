@@ -27,6 +27,13 @@ internal sealed class IteLightingDevice : IDisposable
     const byte CmdSetColor = 0x14;
     const byte CmdGetFirmwareVersion = 0x80;
     const byte CmdGetEffect = 0x88;
+    const byte CmdSetRow = 0x12; // HID_Set_RowIndex_12H: the next output report fills this row of user-mode LEDs
+
+    const byte EffectUserMode = 51; // ITE_SPEC.EFFECT_USERMODE: each LED set by software
+    const int LedsPerRow = 21;      // Set_ITE_Effect_Type_UserMode_Lightbar12h: 21 LEDs (B, G, R) per output report
+
+    /// <summary>LEDs of the light bar in user mode (Set_Lighting_Effect sends the first 23).</summary>
+    public const int LightBarLeds = 23;
 
     const byte ControlOff = 1;
     const byte ControlLighting = 2;
@@ -53,14 +60,16 @@ internal sealed class IteLightingDevice : IDisposable
 
     readonly SafeFileHandle handle;
     readonly int featureLength;
+    readonly int outputLength;
     // Commands come from the UI thread, the brightness watcher and the music loop; a query must not interleave
     // with a command sequence.
     readonly Lock io = new();
     int lastKnownLight = -1;
     bool isOff; // switched off with control 1, which 09h can't undo
 
-    IteLightingDevice(LightingDeviceKind kind, SafeFileHandle handle, int featureLength)
+    IteLightingDevice(LightingDeviceKind kind, SafeFileHandle handle, int featureLength, int outputLength)
     {
+        this.outputLength = outputLength;
         Kind = kind;
         this.handle = handle;
         this.featureLength = featureLength;
@@ -87,7 +96,7 @@ internal sealed class IteLightingDevice : IDisposable
                 && Hid.TryGetCaps(h, out var caps)
                 && caps.UsagePage == usagePage && caps.Usage == ControlUsage)
             {
-                var device = new IteLightingDevice(kind, h, caps.FeatureReportByteLength);
+                var device = new IteLightingDevice(kind, h, caps.FeatureReportByteLength, caps.OutputReportByteLength);
                 try { device.ReadFirmwareVersion(); }
                 catch { device.Dispose(); throw; }
                 return device;
@@ -131,6 +140,49 @@ internal sealed class IteLightingDevice : IDisposable
             Send(CmdSetEffect, ControlOff);
             isOff = true;
             lastKnownLight = 0;
+        }
+    }
+
+    /// <summary>
+    /// Switches the light bar to user mode, where software sets each LED with <see cref="SetLeds"/>, all dark to start
+    /// with (Set_ITE_Effect_Type_UserMode_Lightbar12h with bRefresh).
+    /// </summary>
+    public void EnterUserMode(byte light)
+    {
+        lock (io)
+        {
+            isOff = false;
+            light = Math.Min(light, MaxLight);
+            Send(CmdSetEffect, ControlReset);
+            Send(CmdSetEffect, ControlLighting, EffectUserMode, 0, light, 0, 0, 0);
+            if (HasBrightnessCommand) Send(CmdSetBrightness, ControlLighting, light);
+            WriteLedsLocked(new Color[LightBarLeds]);
+            lastKnownLight = light;
+        }
+    }
+
+    /// <summary>Sets every LED of the light bar while it's in user mode, from one end to the other.</summary>
+    public void SetLeds(IReadOnlyList<Color> leds)
+    {
+        lock (io) WriteLedsLocked(leds);
+    }
+
+    void WriteLedsLocked(IReadOnlyList<Color> leds)
+    {
+        for (int row = 0; row * LedsPerRow < leds.Count; row++)
+        {
+            var report = new byte[Math.Max(outputLength, 2 + LedsPerRow * 3)];
+            for (int i = 0; i < LedsPerRow && row * LedsPerRow + i < leds.Count; i++)
+            {
+                var c = leds[row * LedsPerRow + i];
+                var (r, g, b) = LightBarWhiteBalance(c.R, c.G, c.B);
+                report[2 + i * 3] = b;
+                report[3 + i * 3] = g;
+                report[4 + i * 3] = r;
+            }
+            Send(CmdSetRow, 0, (byte)row);
+            if (!Hid.WriteFile(handle, report, report.Length, out _, IntPtr.Zero))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Light bar did not accept the LED colors");
         }
     }
 
@@ -234,7 +286,9 @@ internal sealed class IteLightingDevice : IDisposable
             for (int i = 0; i < slots; i++) SetColor((byte)(i + 1), colors[i % colors.Count]);
             colorIndex = ColorIndexPalette;
         }
-        Send(CmdSetEffect, ControlLighting, effect.Id, SpeedValues[Math.Clamp(speed, 0, 4)],
+        // Music has no firmware effect: the keyboard shows the static zones while software varies the brightness.
+        byte effectId = effect.IsMusic ? LightingEffect.StaticId : effect.Id;
+        Send(CmdSetEffect, ControlLighting, effectId, SpeedValues[Math.Clamp(speed, 0, 4)],
             light, colorIndex, effect.HasDirection ? direction : (byte)0, (byte)(saveToFirmware ? 1 : 0));
         if (HasBrightnessCommand) Send(CmdSetBrightness, ControlLighting, light);
     }
@@ -333,6 +387,7 @@ internal sealed class IteLightingDevice : IDisposable
         [DllImport("hid.dll")] static extern int HidP_GetCaps(IntPtr data, out Caps caps);
         [DllImport("hid.dll", SetLastError = true)] public static extern bool HidD_SetFeature(SafeFileHandle h, byte[] buffer, int length);
         [DllImport("hid.dll", SetLastError = true)] public static extern bool HidD_GetFeature(SafeFileHandle h, byte[] buffer, int length);
+        [DllImport("kernel32.dll", SetLastError = true)] public static extern bool WriteFile(SafeFileHandle h, byte[] buffer, int length, out int written, IntPtr overlapped);
 
         [DllImport("setupapi.dll", SetLastError = true)]
         static extern IntPtr SetupDiGetClassDevsW(ref Guid classGuid, IntPtr enumerator, IntPtr parent, int flags);
@@ -430,7 +485,8 @@ internal sealed record LightingEffect(string Key, string DisplayName, byte Id, E
             Hint: "Pulses with the sound this PC plays. Brightness sets the peak; speed sets how fast it falls back."),
     ];
 
-    // The firmware effects HIDLightbar.RunEffct handles for the light bar (Wave is its "Colorwave", 32).
+    // The firmware effects HIDLightbar.RunEffct handles for the light bar (Wave is its "Colorwave", 32, which
+    // has no direction), and Music, which this app drives LED by LED.
     public static readonly LightingEffect[] LightBar =
     [
         new("static", "Static color", StaticId, EffectColors.Palette, HasSpeed: false, MaxColors: 1)
@@ -438,7 +494,7 @@ internal sealed record LightingEffect(string Key, string DisplayName, byte Id, E
             DefaultColors = [Color.FromArgb(0, 255, 255)],
         },
         new("breathing", "Breathing", 2, EffectColors.Palette, HasSpeed: true, Hint: "Fades in and out, one color at a time."),
-        new("wave", "Wave", 32, EffectColors.Palette, HasSpeed: true, HasDirection: true, Hint: "The colors flow along the bar."),
+        new("wave", "Wave", 32, EffectColors.Palette, HasSpeed: true, Hint: "The colors flow along the bar."),
         new("rainbow", "Rainbow", RainbowId, EffectColors.None, HasSpeed: true),
         new("flash", "Flash", 18, EffectColors.Palette, HasSpeed: true, Hint: "Flashes on and off, one color at a time."),
         new("mix", "Mix", 19, EffectColors.Palette, HasSpeed: true),
@@ -452,6 +508,9 @@ internal sealed record LightingEffect(string Key, string DisplayName, byte Id, E
                 Color.FromArgb(136, 0, 255),
             ],
         },
+        new("music", "Music", MusicId, EffectColors.Palette, HasSpeed: true,
+            Hint: "A level meter that grows from the middle with the sound this PC plays: the first color in the middle, "
+                + "the last at the ends. Speed sets how fast it falls back."),
     ];
 
     public override string ToString() => DisplayName;
