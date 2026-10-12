@@ -16,6 +16,8 @@ internal sealed class OsdWindow : Form
     const string UnlockGlyph = "";   // Unlock
     const string LightGlyph = "";  // Lightbulb
 
+    const string TimerGlyph = ""; // Stopwatch
+
     static readonly string IconFont = FontFamily.Families.Any(f => f.Name == "Segoe Fluent Icons") ? "Segoe Fluent Icons" : "Segoe MDL2 Assets";
 
     readonly System.Windows.Forms.Timer hideTimer = new() { Interval = 1400 };
@@ -69,6 +71,8 @@ internal sealed class OsdWindow : Form
     public void ShowTouchpad(bool enabled) => Flash(TouchpadGlyph, enabled ? "Touchpad on" : "Touchpad off", -1);
 
     public void ShowWinKey(bool locked) => Flash(locked ? LockGlyph : UnlockGlyph, locked ? "Windows key locked" : "Windows key unlocked", -1);
+
+    public void ShowTimer(string caption) => Flash(TimerGlyph, caption, -1);
 
     void Flash(string glyph, string caption, float level)
     {

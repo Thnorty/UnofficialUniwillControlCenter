@@ -15,6 +15,9 @@ internal sealed class MainForm : Form
 
     const int FnKeyStep = 10; // keyboard brightness per Fn key press, out of IteLightingDevice.MaxLight
 
+    static readonly int[] TimerMinutes = [5, 10, 15, 25, 30, 45, 60];
+    static readonly Color TimerColor = Color.FromArgb(255, 110, 0);
+
     public const string TrayArgument = "--tray";
 
     /// <summary>Posted by a second launch so the running instance shows itself.</summary>
@@ -22,7 +25,8 @@ internal sealed class MainForm : Form
 
     readonly AppSettings settings = AppSettings.Load();
     readonly bool startHidden;
-    readonly MusicVisualizer music = new();
+    readonly EffectEngine engine = new();
+    readonly LockIndicators indicators = new();
     readonly LightingPanel keyboardPanel;
     LightingPanel? lightBarPanel;
     readonly RadioButton keyboardTab = PageButton("Keyboard");
@@ -34,6 +38,14 @@ internal sealed class MainForm : Form
     readonly Button retry = new() { Text = "Retry", AutoSize = true, Visible = false };
     readonly Button touchpadButton = new() { AutoSize = true, Margin = new Padding(3, 6, 3, 3) };
     readonly Button winKeyButton = new() { AutoSize = true, Margin = new Padding(3, 6, 3, 3), Text = "Needs administrator rights", Enabled = false };
+    readonly Label indicatorLabel = UiText.RowLabel("Light bar flashes");
+    readonly FlowLayoutPanel indicatorRow = new() { AutoSize = true, WrapContents = false, Margin = new Padding(0, 3, 0, 3) };
+    readonly CheckBox capsLockBox = new() { Text = "Caps Lock", AutoSize = true };
+    readonly CheckBox numLockBox = new() { Text = "Num Lock", AutoSize = true };
+    readonly CheckBox micMuteBox = new() { Text = "Microphone mute", AutoSize = true };
+    readonly Button timerButton = new() { AutoSize = true, Margin = new Padding(3, 6, 3, 3) };
+    readonly ContextMenuStrip timerMenu = new();
+    readonly System.Windows.Forms.Timer indicatorCheck = new() { Interval = 250 };
     readonly CheckBox startWithWindows = new() { Text = "Start with Windows (in the tray)", AutoSize = true, Margin = new Padding(0, 0, 0, 8) };
     // The touchpad can also be toggled with its Fn shortcut, so keep the button in sync.
     readonly System.Windows.Forms.Timer touchpadRefresh = new() { Interval = 250 };
@@ -56,6 +68,10 @@ internal sealed class MainForm : Form
     // as Windows input, so they count as activity separately.
     bool idleOff;
     long lastHotkeyActivity;
+    KeyboardHook? keyboardHook; // only while an effect reacts to typing
+    // A countdown that flashes the light bar when it ends: when it ends, in TickCount64 ms, or 0 for none.
+    long timerEnd;
+    int timerLength;
 
     public MainForm(bool startHidden)
     {
@@ -68,7 +84,7 @@ internal sealed class MainForm : Form
         Padding = new Padding(16);
         Font = new Font("Segoe UI", 9.75f);
 
-        keyboardPanel = new LightingPanel(LightingEffect.Keyboard, settings.Keyboard!, powerLabel: null, music);
+        keyboardPanel = new LightingPanel(LightingEffect.Keyboard, settings.Keyboard!, powerLabel: null, engine);
         keyboardPanel.Changed += () => keyboardChanged = true;
         keyboardPanel.Failed += message => DeviceFailed("keyboard", message);
         keyboardPanel.ColorsChanged += UpdateIcon;
@@ -87,6 +103,12 @@ internal sealed class MainForm : Form
         shared.Controls.Add(touchpadButton, 1, 1);
         shared.Controls.Add(UiText.RowLabel("Windows key"), 0, 2);
         shared.Controls.Add(winKeyButton, 1, 2);
+        shared.Controls.Add(UiText.RowLabel("Timer"), 0, 3);
+        shared.Controls.Add(timerButton, 1, 3);
+        indicatorRow.Controls.AddRange([capsLockBox, numLockBox, micMuteBox]);
+        shared.Controls.Add(indicatorLabel, 0, 4);
+        shared.Controls.Add(indicatorRow, 1, 4);
+        indicatorLabel.Visible = indicatorRow.Visible = false; // until a light bar is found
         layout.Controls.Add(shared);
 
         layout.Controls.Add(startWithWindows);
@@ -108,16 +130,30 @@ internal sealed class MainForm : Form
         startWithWindows.Checked = Startup.IsEnabled();
         Startup.RemoveLegacyRunEntry();
         keyboardTab.Checked = true;
+        capsLockBox.Checked = indicators.CapsLock = settings.FlashCapsLock;
+        numLockBox.Checked = indicators.NumLock = settings.FlashNumLock;
+        micMuteBox.Checked = indicators.MicMute = settings.FlashMicMute;
+        timerMenu.Opening += (_, _) => { timerMenu.Items.Clear(); AddTimerItems(timerMenu.Items); };
 
         keyboardTab.CheckedChanged += (_, _) => ShowPage();
         retry.Click += (_, _) => OpenDevices();
         touchpadButton.Click += (_, _) => ToggleTouchpad();
         winKeyButton.Click += (_, _) => RunEc(h => h.ToggleWinKeyLock()); // the EC answers with a 64/65 event
         touchpadRefresh.Tick += (_, _) => RefreshTouchpad();
-        idleCheck.Tick += (_, _) => CheckIdle();
+        idleCheck.Tick += (_, _) => { CheckIdle(); CheckTimer(); UpdateKeyboardHook(); };
+        indicatorCheck.Tick += (_, _) => CheckIndicators();
+        capsLockBox.CheckedChanged += (_, _) => indicators.CapsLock = capsLockBox.Checked;
+        numLockBox.CheckedChanged += (_, _) => indicators.NumLock = numLockBox.Checked;
+        micMuteBox.CheckedChanged += (_, _) => indicators.MicMute = micMuteBox.Checked;
+        timerButton.Click += (_, _) =>
+        {
+            if (timerEnd != 0) CancelTimer();
+            else timerMenu.Show(timerButton, new Point(0, timerButton.Height));
+        };
         startWithWindows.CheckedChanged += (_, _) => SetStartWithWindows(startWithWindows.Checked);
 
         RefreshTouchpad();
+        UpdateTimerButton();
         UpdateIcon();
     }
 
@@ -156,6 +192,7 @@ internal sealed class MainForm : Form
         OpenDevices(); // also takes over the Fn hotkeys
         touchpadRefresh.Start();
         idleCheck.Start();
+        indicatorCheck.Start();
         hotkeyCheck.Tick += (_, _) => CheckHotkeys();
         hotkeyCheck.Start();
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
@@ -209,12 +246,13 @@ internal sealed class MainForm : Form
                 Effect = LightingEffect.LightBar.FirstOrDefault(e => e.Id == effectId)?.Key ?? "static",
             };
         }
-        lightBarPanel = new LightingPanel(LightingEffect.LightBar, settings.LightBar, powerLabel: "Light bar on", music);
+        lightBarPanel = new LightingPanel(LightingEffect.LightBar, settings.LightBar, powerLabel: "Light bar on", engine);
         lightBarPanel.Changed += () => lightBarChanged = true;
         lightBarPanel.Failed += message => DeviceFailed("light bar", message);
         lightBarPanel.AllowLink(keyboardPanel, "Same as keyboard");
         lightBarPanel.Attach(lightBar);
         pageButtons.Visible = true;
+        indicatorLabel.Visible = indicatorRow.Visible = true;
     }
 
     /// <summary>Quick settings in the tray icon's menu, built fresh each time it opens.</summary>
@@ -249,9 +287,94 @@ internal sealed class MainForm : Form
             menu.Items.Add(lightBar);
         }
 
+        var timer = new ToolStripMenuItem("Timer");
+        AddTimerItems(timer.DropDownItems);
+        menu.Items.Add(timer);
+
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Open", null, (_, _) => ShowFromTray());
         menu.Items.Add("Exit", null, (_, _) => ExitApp());
+    }
+
+    /// <summary>The timer's choices: a length to start, or cancelling the one running.</summary>
+    void AddTimerItems(ToolStripItemCollection items)
+    {
+        if (timerEnd != 0)
+        {
+            items.Add($"Cancel ({TimeLeft()} left)", null, (_, _) => CancelTimer());
+            items.Add(new ToolStripSeparator());
+        }
+        foreach (int minutes in TimerMinutes)
+        {
+            var item = new ToolStripMenuItem($"{minutes} minutes") { Checked = timerEnd != 0 && timerLength == minutes };
+            item.Click += (_, _) => StartTimer(minutes);
+            items.Add(item);
+        }
+    }
+
+    void StartTimer(int minutes)
+    {
+        timerLength = minutes;
+        timerEnd = Environment.TickCount64 + minutes * 60_000L;
+        UpdateTimerButton();
+        osd.ShowTimer($"Timer: {minutes} minutes");
+    }
+
+    void CancelTimer()
+    {
+        timerEnd = 0;
+        UpdateTimerButton();
+    }
+
+    string TimeLeft()
+    {
+        var left = TimeSpan.FromMilliseconds(Math.Max(0, timerEnd - Environment.TickCount64));
+        return left.TotalHours >= 1 ? left.ToString(@"h\:mm\:ss") : left.ToString(@"m\:ss");
+    }
+
+    void UpdateTimerButton()
+    {
+        string text = timerEnd == 0 ? "Start…" : $"{TimeLeft()} left — click to cancel";
+        if (timerButton.Text != text) timerButton.Text = text;
+    }
+
+    void CheckTimer()
+    {
+        if (timerEnd == 0) return;
+        if (Environment.TickCount64 < timerEnd)
+        {
+            UpdateTimerButton();
+            return;
+        }
+        timerEnd = 0;
+        UpdateTimerButton();
+        // Wake the lights to show it, and count it as activity so the idle timer doesn't fade them again at once.
+        lastHotkeyActivity = Environment.TickCount64;
+        if (idleOff) WakeFromIdle();
+        lightBarPanel?.Flash(new LightBarOverlay(TimerColor, LightBarOverlay.Style.Blink, seconds: 4));
+        osd.ShowTimer("Time's up");
+        tray.ShowBalloonTip(5000, "Timer", $"{timerLength} minutes are up.", ToolTipIcon.Info);
+    }
+
+    void CheckIndicators()
+    {
+        var flashes = indicators.Poll();
+        if (lightBarPanel is null) return;
+        foreach (var flash in flashes) lightBarPanel.Flash(flash);
+    }
+
+    /// <summary>The keyboard hook is only installed while an effect reacts to typing.</summary>
+    void UpdateKeyboardHook()
+    {
+        if (engine.NeedsKeys && keyboardHook is null)
+        {
+            keyboardHook = KeyboardHook.Install(engine.KeyPressed);
+        }
+        else if (!engine.NeedsKeys && keyboardHook is not null)
+        {
+            keyboardHook.Dispose();
+            keyboardHook = null;
+        }
     }
 
     static void AddEffectItems(ToolStripMenuItem parent, LightingPanel panel, bool enabled)
@@ -480,7 +603,7 @@ internal sealed class MainForm : Form
         }
     }
 
-    bool BrightnessIsBusy() => keyboardPanel.Fading || idleOff || music.IsPlaying(keyboardPanel);
+    bool BrightnessIsBusy() => keyboardPanel.Fading || idleOff || keyboardPanel.DrivesBrightness;
 
     void OnKeyboardBrightnessChanged(byte light)
     {
@@ -614,12 +737,15 @@ internal sealed class MainForm : Form
         watcherStop.Cancel();
         hotkeyCheck.Stop();
         idleCheck.Stop();
+        indicatorCheck.Stop();
         if (idleOff) WakeFromIdle();
-        music.Dispose();
+        engine.Dispose();
+        keyboardHook?.Dispose();
+        indicators.Dispose();
         SystemEvents.PowerModeChanged -= OnPowerModeChanged;
         // Live changes skip the firmware's non-volatile save to avoid a flash write per slider step;
-        // commit the final state once so it survives without this app running. Music can't run without
-        // this app, so its static zone colors are what stays.
+        // commit the final state once so it survives without this app running. The effects this app draws can't
+        // run without it: on the keyboard their static zone colors stay, on the light bar their first color.
         if (keyboardPanel.HasPendingChange || keyboardChanged) keyboardPanel.Apply(saveToFirmware: true);
         if (lightBarPanel is not null && (lightBarPanel.HasPendingChange || lightBarChanged)) lightBarPanel.Apply(saveToFirmware: true);
         if (hotkeys is not null)
@@ -633,6 +759,9 @@ internal sealed class MainForm : Form
         keyboardPanel.Store(settings.Keyboard!);
         if (lightBarPanel is not null) lightBarPanel.Store(settings.LightBar!);
         settings.IdleTimeoutSeconds = IdleTimeouts[Math.Max(0, idleBox.SelectedIndex)].Seconds;
+        settings.FlashCapsLock = capsLockBox.Checked;
+        settings.FlashNumLock = numLockBox.Checked;
+        settings.FlashMicMute = micMuteBox.Checked;
         settings.Save();
         tray.Visible = false;
         keyboardPanel.Device?.Dispose();

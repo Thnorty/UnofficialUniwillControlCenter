@@ -19,7 +19,7 @@ internal sealed class LightingPanel : UserControl
     // Brightness changes fade over a few frames using the brightness-only command.
     const int FadeMilliseconds = 180;
 
-    readonly MusicVisualizer music;
+    readonly EffectEngine engine;
     readonly IReadOnlyList<LightingEffect> effects;
     readonly Color[] zoneColors = new Color[4];
     readonly Dictionary<string, List<Color>> palettes = [];
@@ -55,11 +55,12 @@ internal sealed class LightingPanel : UserControl
     bool suppressSend;
     int fadeGeneration;
     byte shownLight; // the brightness the device is showing, including partway through a fade
+    LightBarRenderer? renderer; // drawing the light bar in user mode, if anything is
 
     /// <param name="powerLabel">Text of an on/off switch, or null for none.</param>
-    public LightingPanel(IReadOnlyList<LightingEffect> effects, LightingSettings settings, string? powerLabel, MusicVisualizer music)
+    public LightingPanel(IReadOnlyList<LightingEffect> effects, LightingSettings settings, string? powerLabel, EffectEngine engine)
     {
-        this.music = music;
+        this.engine = engine;
         this.effects = effects;
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
@@ -204,6 +205,9 @@ internal sealed class LightingPanel : UserControl
     /// <summary>Faded out by the idle timer until the next input.</summary>
     public bool IdleOff { get; private set; }
 
+    /// <summary>Whether an effect of this app is changing the brightness (the keyboard's Music).</summary>
+    public bool DrivesBrightness => engine.Current(this) is KeyboardMusic;
+
     /// <summary>A pending change that hasn't been sent yet.</summary>
     public bool HasPendingChange => sendDebounce.Enabled;
 
@@ -291,7 +295,7 @@ internal sealed class LightingPanel : UserControl
     {
         if (IdleOff || !IsOn) return;
         IdleOff = true;
-        music.Pause(this);
+        engine.Pause(this);
         await FadeToAsync(0, 600);
     }
 
@@ -299,7 +303,8 @@ internal sealed class LightingPanel : UserControl
     {
         if (!IdleOff) return;
         IdleOff = false;
-        if (Plan().Effect.IsMusic) Apply(saveToFirmware: false);
+        // Effects this app draws were paused, and so was a flash shown over a firmware effect.
+        if (NeedsApp(Plan().Effect) || renderer is not null) Apply(saveToFirmware: false);
         else _ = FadeToAsync(Light, 300);
     }
 
@@ -313,10 +318,10 @@ internal sealed class LightingPanel : UserControl
     {
         if (device is null || !IsOn) return;
         int generation = ++fadeGeneration;
-        if (SelectedEffect.IsMusic && device.Kind == LightingDeviceKind.Keyboard && !IdleOff && !Linked)
+        if (Plan().Effect.IsMusic && device.Kind == LightingDeviceKind.Keyboard && !IdleOff)
         {
-            // The music loop owns the keyboard's brightness; the slider sets its peak.
-            if (music.IsPlaying(this)) music.Play(this, new KeyboardMusic(device, target, speed.Value));
+            // Music owns the keyboard's brightness; the slider sets its peak.
+            if (DrivesBrightness) engine.Play(this, new KeyboardMusic(device, target, speed.Value));
             else Apply(saveToFirmware: false);
             return;
         }
@@ -358,36 +363,36 @@ internal sealed class LightingPanel : UserControl
         byte light = lightOverride ?? Light;
         fadeGeneration++; // a fade in progress would undo this
         Fading = false;
-        music.Pause(this); // the music loop must not change the lights while the effect is being set
+        engine.Pause(this); // the running effect must not change the lights while the new one is being set
+        renderer = null;
         try
         {
-            bool drawnByApp = device.Kind == LightingDeviceKind.LightBar && (effect.IsMusic || effect.Colors == EffectColors.Zones);
+            bool isLightBar = device.Kind == LightingDeviceKind.LightBar;
             if (!IsOn)
             {
                 device.SwitchOff();
                 light = 0;
             }
-            else if (drawnByApp && saveToFirmware)
+            else if (isLightBar && NeedsApp(effect) && saveToFirmware)
             {
                 // These need this app; what stays afterwards is the first color, steady.
-                device.SetEffect(LightingEffect.LightBar[0], [colors[0]], 0, light, speedValue, saveToFirmware: true);
+                var color = colors.Count > 0 ? colors[0] : LightingEffect.LightBar[0].DefaultColors[0];
+                device.SetEffect(LightingEffect.LightBar[0], [color], 0, light, speedValue, saveToFirmware: true);
             }
-            else if (drawnByApp)
+            else if (isLightBar && NeedsApp(effect))
             {
                 device.EnterUserMode(light);
-                if (effect.IsMusic)
-                {
-                    if (!IdleOff) music.Play(this, new LightBarMusic(device, colors, speedValue));
-                }
-                else
-                {
-                    device.SetLeds(ZoneSections(colors));
-                }
+                renderer = new LightBarRenderer(device, SceneFor(effect, colors, speedValue));
+                if (!IdleOff) engine.Play(this, renderer);
             }
             else
             {
-                device.SetEffect(effect, colors, direction, light, speedValue, saveToFirmware);
-                if (effect.IsMusic && !IdleOff && !saveToFirmware) music.Play(this, new KeyboardMusic(device, light, speedValue));
+                // The keyboard's own effects drawn by this app run on the static zones (what stays once the app
+                // exits); those without colors start from the zone colors too.
+                var sent = effect.DrawnByApp && colors.Count == 0 ? zoneColors : colors;
+                device.SetEffect(effect, sent, direction, light, speedValue, saveToFirmware);
+                if (effect.DrawnByApp && !IdleOff && !saveToFirmware && KeyboardTarget(effect, colors, light, speedValue) is { } target)
+                    engine.Play(this, target);
             }
             shownLight = light;
             Changed?.Invoke();
@@ -407,12 +412,89 @@ internal sealed class LightingPanel : UserControl
         var sourceEffect = source.SelectedEffect;
         var colors = source.EffectColorsFor(sourceEffect);
         // Zone colors (the keyboard's Static) have no firmware effect here; the app draws them (see Apply).
-        var effect = sourceEffect.Colors == EffectColors.Zones && !sourceEffect.IsMusic
+        var effect = sourceEffect.Colors == EffectColors.Zones && !sourceEffect.DrawnByApp
             ? sourceEffect
             : effects.FirstOrDefault(e => e.Key == sourceEffect.Key) ?? effects[0];
         if (effect.Colors == EffectColors.Palette && colors.Count > effect.MaxColors) colors = [.. colors.Take(effect.MaxColors)];
         if (effect.Colors == EffectColors.Palette && colors.Count == 0) colors = effect.DefaultColors;
         return (effect, colors, source.SelectedDirection, source.speed.Value);
+    }
+
+    /// <summary>Whether this app has to draw the effect: one of its own, or the keyboard's zones on the light bar.</summary>
+    bool NeedsApp(LightingEffect effect) =>
+        effect.DrawnByApp || (device?.Kind == LightingDeviceKind.LightBar && effect.Colors == EffectColors.Zones);
+
+    /// <summary>What the light bar shows for an effect this app draws.</summary>
+    static LightBarScene SceneFor(LightingEffect effect, IReadOnlyList<Color> colors, int speedValue) => effect.Drawn switch
+    {
+        Drawn.Music => new MusicMeterScene(colors, speedValue),
+        Drawn.Spectrum => new SpectrumScene(colors, speedValue),
+        Drawn.StarSpark => new StarSparkScene(colors, speedValue),
+        Drawn.StarHitting => new StarHittingScene(colors, speedValue),
+        Drawn.Typing => new TypingScene(colors, speedValue),
+        Drawn.Battery => new BatteryScene(),
+        Drawn.CpuLoad => new GaugeScene(EffectInputs.CpuLoad),
+        Drawn.CpuTemperature => new GaugeScene(EffectInputs.CpuTemperature),
+        Drawn.GpuTemperature => new GaugeScene(EffectInputs.GpuTemperature),
+        _ => new StaticScene(ZoneSections(colors)), // the keyboard's static zones, linked
+    };
+
+    /// <summary>What runs on the keyboard for an effect this app draws, if anything.</summary>
+    IEffectTarget? KeyboardTarget(LightingEffect effect, IReadOnlyList<Color> colors, byte light, int speedValue) => effect.Drawn switch
+    {
+        Drawn.Music => new KeyboardMusic(device!, light, speedValue),
+        Drawn.Spectrum when colors.Count == 4 => new KeyboardSpectrum(device!, colors, speedValue),
+        Drawn.CpuTemperature => new KeyboardTemperature(device!, gpu: false),
+        Drawn.GpuTemperature => new KeyboardTemperature(device!, gpu: true),
+        _ => null,
+    };
+
+    /// <summary>
+    /// Shows an indicator animation on the light bar: over the effect if this app is drawing it, otherwise on a dark
+    /// bar for a moment before the effect comes back. Nothing while the lights are faded out for idle.
+    /// </summary>
+    public void Flash(LightBarOverlay overlay)
+    {
+        if (device is not { Kind: LightingDeviceKind.LightBar } || IdleOff) return;
+        if (renderer is not null && engine.IsPlaying(this, renderer))
+        {
+            renderer.AddOverlay(overlay);
+            return;
+        }
+        try
+        {
+            sendDebounce.Stop();
+            fadeGeneration++;
+            Fading = false;
+            // The bar may be off or at zero brightness; flash at a moderate brightness then.
+            byte light = IsOn && Light > 0 ? Light : (byte)(IteLightingDevice.MaxLight * 3 / 5);
+            device.EnterUserMode(light);
+            shownLight = light;
+            LightBarRenderer? flash = null;
+            flash = new LightBarRenderer(device, new DarkScene(), () => RunOnUi(() =>
+            {
+                if (flash is not null && renderer == flash) Apply(saveToFirmware: false); // put the effect back
+            }));
+            flash.AddOverlay(overlay);
+            renderer = flash;
+            engine.Play(this, flash);
+        }
+        catch (Exception e)
+        {
+            Fail(e);
+        }
+    }
+
+    void RunOnUi(Action action)
+    {
+        try
+        {
+            if (IsHandleCreated && !IsDisposed) BeginInvoke(action);
+        }
+        catch (InvalidOperationException)
+        {
+            // closing
+        }
     }
 
     /// <summary>The four zone colors as four sections of the light bar, left to right.</summary>
@@ -425,6 +507,8 @@ internal sealed class LightingPanel : UserControl
 
     void Fail(Exception e)
     {
+        engine.Pause(this);
+        renderer = null;
         device?.Dispose();
         device = null;
         Failed?.Invoke(e.Message);

@@ -30,6 +30,8 @@ These work the way Control Center does them. The commands come from Control Cent
   (Control Center's "Colorwave", which has no direction), Rainbow, Flash, Mix and Thinking.
 - **Music:** a level meter that grows from the middle of the bar outwards with the sound, set LED by LED (user
   mode, command 12h and output reports), colored by distance from the middle with up to seven colors.
+- **Star Spark and Star Hitting:** Control Center draws these in software for its per-LED devices; here they are
+  drawn LED by LED the same way. Star Spark twinkles every LED; Star Hitting bounces a ball of light per color.
 - **Speed and brightness**, as on the keyboard.
 - **Color correction:** the light bar's own correction (`WKDColor.cheatRGB_HIDLightbar`).
 - **First run:** starts from what the light bar was showing (Control Center left it off, on Thinking).
@@ -67,6 +69,27 @@ These work the way Control Center does them. The commands come from Control Cent
 - **Pop-up style:** a continuous bar with a percentage. It follows the light/dark theme, doesn't take focus or
   block clicks, and appears on the screen with the mouse pointer.
 - **Tray icon colors:** the tray and window icon show the current effect's colors.
+- **Tray quick menu:** keyboard effect and brightness, light bar on/off, "Same as keyboard" and effect, and the timer,
+  without opening the window.
+- **Same as keyboard:** the light bar can follow the keyboard's effect, colors and speed, keeping its own brightness.
+  The keyboard's four zones become four sections of the bar.
+- **Spectrum:** a spectrum analyzer of the sound the PC plays (captured from the default output, analyzed with an
+  FFT, with automatic gain):
+  - keyboard: each zone follows a range of pitches, bass on the left;
+  - light bar: mirrored, bass in the middle and treble at the ends, colored from the first color to the last.
+- **Typing (light bar):** each key press sends a ripple out from the matching spot on the bar. A keyboard hook reads
+  only key positions, and it is only installed while this effect runs.
+- **Status on the lights:**
+  - light bar: Battery (level bar, a pulse while charging), CPU load, CPU temperature and GPU temperature gauges;
+  - keyboard: CPU temperature and GPU temperature colors, blue when cool to red when hot.
+  - The CPU temperature is the hottest ACPI thermal zone, the same reading Control Center uses. The GPU temperature
+    comes from the NVIDIA driver (NVML) and shows "no reading" while the GPU is switched off.
+- **Light bar indicators:** the bar flashes when Caps Lock (white), Num Lock (blue) or the microphone mute (red when
+  muted, green when unmuted) changes: opening from the middle for on, closing to the middle for off. Each can be
+  turned off. Over effects this app draws the flash is drawn on top; over firmware effects the effect comes back
+  after the flash.
+- **Timer:** 5 to 60 minutes, from the window or the tray. When it ends the light bar blinks orange, with a pop-up
+  and a notification.
 - **Restore on start:**
   - restores all settings when it starts;
   - keeps a brightness changed with the Fn keys while the app was closed;
@@ -85,8 +108,9 @@ These work the way Control Center does them. The commands come from Control Cent
   switches when the charger is plugged in or out. This app has one brightness.
 - **Aurora:** not the light bar. Control Center's Aurora switch hands all lighting over to a separate third-party
   RGB program called Aurora, which isn't installed here. Not implemented.
-- **Light bar Star Spark and Star Hitting:** Control Center drives these in software, one LED at a time. Not
-  implemented yet; the LED-by-LED mode they need is now in place (used by Music).
+- **Effects drawn by this app stop with it:** Music, Spectrum, Star Spark, Star Hitting, Typing and the status
+  effects need the app running. When it exits, the keyboard keeps their static zone colors and the light bar their
+  first color (or cyan).
 - **Night Light:** removed. It had no visible effect on this laptop, and Control Center doesn't offer it for this
   model.
 - **Fn keys while the app is closed:** they still need several presses. The embedded controller counts from a hidden
@@ -111,7 +135,7 @@ None of this is implemented. I haven't checked which of these Control Center act
 - **Monitoring:** system dashboard, hardware monitoring, In-Game OSD and Quick Information Box.
 - **Keys:**
   - Fn Lock;
-  - Caps Lock, Num Lock and Scroll Lock pop-ups;
+  - Caps Lock, Num Lock and Scroll Lock pop-ups (the light bar flashes for Caps Lock and Num Lock instead);
   - key remapping, Game Mode and application profiles.
 - **Device switches:** Wi-Fi, Bluetooth and webcam, and touchpad active-area settings.
 - **Light bars and LED strips:** only on models that have them.

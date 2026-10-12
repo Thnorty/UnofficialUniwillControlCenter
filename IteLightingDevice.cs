@@ -66,6 +66,7 @@ internal sealed class IteLightingDevice : IDisposable
     readonly Lock io = new();
     int lastKnownLight = -1;
     bool isOff; // switched off with control 1, which 09h can't undo
+    byte currentLight; // the brightness last sent, including fades and Music
 
     IteLightingDevice(LightingDeviceKind kind, SafeFileHandle handle, int featureLength, int outputLength)
     {
@@ -140,6 +141,7 @@ internal sealed class IteLightingDevice : IDisposable
             Send(CmdSetEffect, ControlOff);
             isOff = true;
             lastKnownLight = 0;
+            currentLight = 0;
         }
     }
 
@@ -157,7 +159,22 @@ internal sealed class IteLightingDevice : IDisposable
             Send(CmdSetEffect, ControlLighting, EffectUserMode, 0, light, 0, 0, 0);
             if (HasBrightnessCommand) Send(CmdSetBrightness, ControlLighting, light);
             WriteLedsLocked(new Color[LightBarLeds]);
-            lastKnownLight = light;
+            lastKnownLight = currentLight = light;
+        }
+    }
+
+    /// <summary>
+    /// Changes the keyboard's four zone colors while the static effect runs, for effects drawn by this app. This is
+    /// how Control Center changes colors over time too (ChangeSingleTheme resends the static effect).
+    /// </summary>
+    public void SetZoneColors(IReadOnlyList<Color> zones)
+    {
+        lock (io)
+        {
+            if (isOff) return;
+            for (int i = 0; i < zones.Count; i++) SetColor((byte)(i + 1), zones[i]);
+            Send(CmdSetEffect, ControlLighting, LightingEffect.StaticId, SpeedValues[2], currentLight, ColorIndexPalette, 0, 0);
+            if (HasBrightnessCommand) Send(CmdSetBrightness, ControlLighting, currentLight);
         }
     }
 
@@ -207,7 +224,7 @@ internal sealed class IteLightingDevice : IDisposable
             if (!HasBrightnessCommand || isOff) return false;
             light = Math.Min(light, MaxLight);
             Send(CmdSetBrightness, ControlLighting, light);
-            lastKnownLight = light;
+            lastKnownLight = currentLight = light;
             return true;
         }
     }
@@ -220,7 +237,9 @@ internal sealed class IteLightingDevice : IDisposable
     {
         lock (io)
         {
-            if (HasBrightnessCommand && !isOff) Send(CmdSetBrightness, ControlLighting, Math.Min(light, MaxLight));
+            if (!HasBrightnessCommand || isOff) return;
+            currentLight = Math.Min(light, MaxLight);
+            Send(CmdSetBrightness, ControlLighting, currentLight);
         }
     }
 
@@ -286,8 +305,10 @@ internal sealed class IteLightingDevice : IDisposable
             for (int i = 0; i < slots; i++) SetColor((byte)(i + 1), colors[i % colors.Count]);
             colorIndex = ColorIndexPalette;
         }
-        // Music has no firmware effect: the keyboard shows the static zones while software varies the brightness.
-        byte effectId = effect.IsMusic ? LightingEffect.StaticId : effect.Id;
+        // Effects drawn by this app run on top of the static effect (Music varies the brightness, the others the
+        // zone colors through SetZoneColors).
+        byte effectId = effect.DrawnByApp ? LightingEffect.StaticId : effect.Id;
+        currentLight = light;
         Send(CmdSetEffect, ControlLighting, effectId, SpeedValues[Math.Clamp(speed, 0, 4)],
             light, colorIndex, effect.HasDirection ? direction : (byte)0, (byte)(saveToFirmware ? 1 : 0));
         if (HasBrightnessCommand) Send(CmdSetBrightness, ControlLighting, light);
@@ -449,16 +470,32 @@ internal sealed class IteLightingDevice : IDisposable
 
 internal enum EffectColors { None, Zones, Palette }
 
+/// <summary>Who animates an effect: the controller's firmware, or this app (and how).</summary>
+internal enum Drawn
+{
+    Firmware,
+    Music,
+    Spectrum,
+    StarSpark,
+    StarHitting,
+    Typing,
+    Battery,
+    CpuLoad,
+    CpuTemperature,
+    GpuTemperature,
+}
+
 /// <summary>
-/// A lighting effect from one of Control Center's lighting pages, with the firmware effect ID it sends
-/// (LM_ITE_RGB.Translate_ITE_EffectIndex, and HIDLightbar.RunEffct for the light bar).
+/// A lighting effect: one from Control Center's lighting pages, with the firmware effect ID it sends
+/// (LM_ITE_RGB.Translate_ITE_EffectIndex, and HIDLightbar.RunEffct for the light bar), or one drawn by this app.
 /// </summary>
 internal sealed record LightingEffect(string Key, string DisplayName, byte Id, EffectColors Colors, bool HasSpeed,
-    bool HasDirection = false, int MaxColors = 7, string? Hint = null)
+    bool HasDirection = false, int MaxColors = 7, string? Hint = null, Drawn Drawn = Drawn.Firmware)
 {
     public const byte StaticId = 1;
     public const byte RainbowId = 5;
     public const byte MusicId = 34;
+    const byte NoFirmwareId = 0; // drawn by this app on top of the static effect
 
     // Control Center's default 7-color palette for animated effects (from its RGBKeyboard.reg defaults).
     public static readonly Color[] DefaultPalette =
@@ -467,8 +504,11 @@ internal sealed record LightingEffect(string Key, string DisplayName, byte Id, E
         Color.FromArgb(0, 0, 255), Color.FromArgb(0, 255, 255), Color.FromArgb(139, 0, 255),
     ];
 
-    /// <summary>Music is driven by this app: the controller shows the static zones and we vary the brightness.</summary>
-    public bool IsMusic => Id == MusicId;
+    /// <summary>Music is driven by this app: the keyboard shows the static zones and we vary the brightness.</summary>
+    public bool IsMusic => Drawn == Drawn.Music;
+
+    /// <summary>Animated by this app rather than the controller, so it only runs while the app does.</summary>
+    public bool DrawnByApp => Drawn != Drawn.Firmware;
 
     /// <summary>The colors a palette effect starts with.</summary>
     public IReadOnlyList<Color> DefaultColors { get; init; } = DefaultPalette;
@@ -481,12 +521,20 @@ internal sealed record LightingEffect(string Key, string DisplayName, byte Id, E
         new("rainbow", "Rainbow", RainbowId, EffectColors.None, HasSpeed: true),
         new("flash", "Flash", 18, EffectColors.Palette, HasSpeed: true, Hint: "Flashes on and off, one color at a time."),
         new("mix", "Mix", 19, EffectColors.Palette, HasSpeed: true, Hint: "Mixes the colors across the zones."),
-        new("music", "Music", MusicId, EffectColors.Zones, HasSpeed: true,
+        new("music", "Music", MusicId, EffectColors.Zones, HasSpeed: true, Drawn: Drawn.Music,
             Hint: "Pulses with the sound this PC plays. Brightness sets the peak; speed sets how fast it falls back."),
+        new("spectrum", "Spectrum", NoFirmwareId, EffectColors.Zones, HasSpeed: true, Drawn: Drawn.Spectrum,
+            Hint: "Each zone follows a range of the sound this PC plays: bass on the left, treble on the right. "
+                + "Speed sets how fast the zones fall back."),
+        new("cputemp", "CPU temperature", NoFirmwareId, EffectColors.None, HasSpeed: false, Drawn: Drawn.CpuTemperature,
+            Hint: "Blue when cool, then green, yellow and red as the CPU heats up (35-95 °C)."),
+        new("gputemp", "GPU temperature", NoFirmwareId, EffectColors.None, HasSpeed: false, Drawn: Drawn.GpuTemperature,
+            Hint: "Blue when cool, then green, yellow and red as the NVIDIA GPU heats up (35-90 °C). Dim gray while the "
+                + "GPU is switched off."),
     ];
 
     // The firmware effects HIDLightbar.RunEffct handles for the light bar (Wave is its "Colorwave", 32, which
-    // has no direction), and Music, which this app drives LED by LED.
+    // has no direction), and the effects this app draws LED by LED.
     public static readonly LightingEffect[] LightBar =
     [
         new("static", "Static color", StaticId, EffectColors.Palette, HasSpeed: false, MaxColors: 1)
@@ -508,9 +556,28 @@ internal sealed record LightingEffect(string Key, string DisplayName, byte Id, E
                 Color.FromArgb(136, 0, 255),
             ],
         },
-        new("music", "Music", MusicId, EffectColors.Palette, HasSpeed: true,
+        new("music", "Music", MusicId, EffectColors.Palette, HasSpeed: true, Drawn: Drawn.Music,
             Hint: "A level meter that grows from the middle with the sound this PC plays: the first color in the middle, "
                 + "the last at the ends. Speed sets how fast it falls back."),
+        new("spectrum", "Spectrum", NoFirmwareId, EffectColors.Palette, HasSpeed: true, Drawn: Drawn.Spectrum,
+            Hint: "A spectrum analyzer of the sound this PC plays: bass in the middle, treble at the ends, colored from "
+                + "the first color to the last. Speed sets how fast it falls back."),
+        new("starspark", "Star Spark", NoFirmwareId, EffectColors.Palette, HasSpeed: true, Drawn: Drawn.StarSpark,
+            Hint: "Every LED twinkles in its color (Control Center's Star Spark)."),
+        new("starhitting", "Star Hitting", NoFirmwareId, EffectColors.Palette, HasSpeed: true, Drawn: Drawn.StarHitting,
+            Hint: "A ball of light per color bounces along the bar and off the others (Control Center's Star Hitting)."),
+        new("typing", "Typing", NoFirmwareId, EffectColors.Palette, HasSpeed: true, Drawn: Drawn.Typing,
+            Hint: "Each key press sends a ripple out from the matching spot on the bar, taking the colors in turn."),
+        new("battery", "Battery", NoFirmwareId, EffectColors.None, HasSpeed: false, Drawn: Drawn.Battery,
+            Hint: "The battery level as a bar from the left: green when full, yellow, then red when low. A pulse runs "
+                + "along it while charging."),
+        new("cpuload", "CPU load", NoFirmwareId, EffectColors.None, HasSpeed: false, Drawn: Drawn.CpuLoad,
+            Hint: "A gauge from the middle: wider and redder as the CPU gets busier."),
+        new("cputemp", "CPU temperature", NoFirmwareId, EffectColors.None, HasSpeed: false, Drawn: Drawn.CpuTemperature,
+            Hint: "A gauge from the middle: wider and redder as the CPU heats up (35-95 °C)."),
+        new("gputemp", "GPU temperature", NoFirmwareId, EffectColors.None, HasSpeed: false, Drawn: Drawn.GpuTemperature,
+            Hint: "A gauge from the middle: wider and redder as the NVIDIA GPU heats up (35-90 °C). Only a dim middle "
+                + "LED while the GPU is switched off."),
     ];
 
     public override string ToString() => DisplayName;
