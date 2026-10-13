@@ -201,7 +201,7 @@ pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f6
                 let radius = age * n as f64 * 0.9;
                 let fade = (1.0 - age / 1.1).max(0.0) as f32;
                 for (i, o) in out.iter_mut().enumerate() {
-                    let edge = 1.0 - (((i as f64 - origin).abs() - radius).abs() / (n as f64 / 10.0).max(1.0)) as f32;
+                    let edge = 1.0 - (((i as f64 - origin).abs() - radius).abs() / (n as f64 / 7.5).max(1.0)) as f32;
                     if edge > 0.0 {
                         *o = o.max(color.scale(edge * fade));
                     }
