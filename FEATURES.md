@@ -37,8 +37,10 @@ These work the way Control Center does them. The commands come from Control Cent
 ### Light bar
 - **On/off switch**, and the light bar's Fn toggle key (hotkey code 175), with a pop-up.
 - **Effects:** the firmware effects Control Center's light bar driver handles: Static color, Breathing, Wave
-  (Control Center's "Colorwave", which has no direction), Rainbow, Flash, Mix and Thinking. On the bar:
-  - Wave flows the colors out from the middle to both ends.
+  (Control Center's "Colorwave", which has no direction), Rainbow, Mix and Thinking. Control Center's Flash is left
+  out. On the bar:
+  - Wave lights the colors up from the middle out to both ends, in bands with the first color in the middle, then
+    starts over.
   - Rainbow is seven still sections, and Mix shows one color on the whole bar, going through the colors in turn,
     like the keyboard's.
   - Thinking is a star with a trail about five LEDs long. It runs to the right end and back, then takes the next

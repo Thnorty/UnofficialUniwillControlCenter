@@ -89,14 +89,20 @@ pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f6
                 }
             }
             32 => {
-                // The light bar's Wave: the colors flow out from the middle to both ends.
-                let cycles_per_second = speed_rate(speed, 0.12, 0.6);
+                // The light bar's Wave: the colors, in bands from the middle (the first) to the ends (the last), light
+                // up from the middle outwards. Once the ends are lit the bar goes dark and it starts over.
+                let period = speed_rate(speed, 4.0, 1.2);
+                let center = (n as f64 - 1.0) / 2.0;
+                let steps = center + 1.0; // LEDs on each side, counting the middle one
+                let front = (t / period).fract() * (steps + 1.0); // how far out it has lit, in LEDs
                 for (i, o) in out.iter_mut().enumerate() {
-                    let distance = (position(i) - 0.5).abs() * 2.0;
-                    *o = cyclic(palette, distance * 0.5 - t * cycles_per_second);
+                    let distance = (i as f64 - center).abs();
+                    let band = (distance / steps * palette.len() as f64) as usize;
+                    let lit = ((front - distance) / 1.5).clamp(0.0, 1.0) as f32; // a soft edge about two LEDs wide
+                    *o = palette[band.min(palette.len() - 1)].scale(lit);
                 }
             }
-            18 if zones_keyboard => {
+            18 => {
                 // The keyboard's Flash: each color flashes five times, then a short pause before the next color.
                 const FLASHES: f64 = 5.0;
                 const PAUSE: f64 = 1.0; // extra dark time after a color's flashes, in flashes
@@ -105,13 +111,6 @@ pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f6
                 let color = palette[((t / group) as usize) % palette.len()];
                 let within = t.rem_euclid(group) / flash;
                 out.fill(if within < FLASHES && within.fract() < 0.5 { color } else { Rgb::BLACK });
-            }
-            18 => {
-                // Flash: on and off, one color at a time.
-                let period = speed_rate(speed, 1.6, 0.45);
-                let cycle = t / period;
-                let color = palette[(cycle as usize) % palette.len()];
-                out.fill(if cycle.fract() < 0.5 { color } else { Rgb::BLACK });
             }
             19 => {
                 // Mix, on the keyboard and the light bar: the whole device goes through the palette, blending from

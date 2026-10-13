@@ -172,14 +172,14 @@ pub static KEYBOARD: &[Effect] = &[
 ];
 
 // The firmware effects HIDLightbar.RunEffct handles for the light bar (Wave is its "Colorwave", 32, which has no
-// direction), and the effects this app draws LED by LED.
+// direction; Flash is left out), and the effects this app draws LED by LED.
 pub static LIGHT_BAR: &[Effect] = &[
     Effect { max_colors: 1, default_colors: CYAN, ..Effect::firmware("static", "Static", STATIC_ID, EffectColors::Palette, false, "The whole bar in one color.") },
     Effect::firmware("breathing", "Breathing", 2, EffectColors::Palette, true, "Fades in and out, one color at a time."),
-    Effect::firmware("wave", "Wave", 32, EffectColors::Palette, true, "The colors flow out from the middle to both ends."),
+    Effect::firmware("wave", "Wave", 32, EffectColors::Palette, true,
+        "The colors light up from the middle out to both ends, the first in the middle and the last at the ends, then start over."),
     Effect::firmware("rainbow", "Rainbow", RAINBOW_ID, EffectColors::None, false,
         "Red, orange, yellow, green, cyan, blue and violet, in seven sections. The light bar's Rainbow doesn't move."),
-    Effect::firmware("flash", "Flash", 18, EffectColors::Palette, true, "Flashes on and off, one color at a time."),
     Effect { min_colors: 2, ..Effect::firmware("mix", "Mix", 19, EffectColors::Palette, true,
         "The whole bar goes through the colors in turn, blending from one into the next.") },
     Effect { max_colors: 9, default_colors: THINKING_PALETTE, ..Effect::firmware("thinking", "Thinking", 33, EffectColors::Palette, true,
