@@ -552,7 +552,7 @@ impl Target for KeyboardSpectrum {
     }
 }
 
-/// Typing on the keyboard: each key press lights the zone it's in with the next color and fades out; a moment later
+/// Typing on the keyboard: each key press fades the zone it's in up to the next color and back out; a moment later
 /// the zones beside it light more faintly, like the light bar's ripples.
 pub struct KeyboardTyping {
     keyboard: Arc<Device>,
@@ -578,7 +578,7 @@ impl Target for KeyboardTyping {
     }
 
     fn tick(&mut self, frame: &Frame) -> anyhow::Result<()> {
-        const MIN_INTERVAL: f64 = 0.03; // a full zone update each time
+        const MIN_INTERVAL: f64 = 0.02; // every engine tick while it changes, so the fades look smooth
         const SPREAD: [f32; 4] = [1.0, 0.45, 0.2, 0.1]; // by distance in zones
         for &key in &frame.keys {
             let zone = crate::lighting::keyhook::zone_of(key);
@@ -586,6 +586,7 @@ impl Target for KeyboardTyping {
             self.next_color += 1;
         }
         let lifetime = rate(self.speed, 1.2, 0.4) as f64;
+        let rise = rate(self.speed, 0.18, 0.08) as f64; // the fade in, part of the lifetime
         let step = lifetime * 0.12; // how long the light takes to reach the next zone
         self.presses.retain(|p| frame.time - p.1 <= lifetime + 3.0 * step);
         let mut colors = [Rgb::BLACK; 4];
@@ -594,8 +595,13 @@ impl Target for KeyboardTyping {
                 let distance = zone.abs_diff(origin);
                 let age = frame.time - start - distance as f64 * step;
                 if (0.0..lifetime).contains(&age) {
-                    let fade = 1.0 - (age / lifetime) as f32;
-                    *value = value.max(color.scale(fade * fade * SPREAD[distance]));
+                    let level = if age < rise {
+                        ((age / rise) as f32 * std::f32::consts::FRAC_PI_2).sin() // eases into full brightness
+                    } else {
+                        let fall = 1.0 - ((age - rise) / (lifetime - rise)) as f32;
+                        fall * fall
+                    };
+                    *value = value.max(color.scale(level * SPREAD[distance]));
                 }
             }
         }
