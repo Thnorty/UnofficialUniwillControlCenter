@@ -1,23 +1,152 @@
-# Tulpar Control 3.0
+<div align="center">
 
-A replacement for Control Center on the Monster Tulpar T5 V21.4. It does the keyboard and light bar lighting,
-performance modes, Fan Boost, custom fan curves and battery care, and has a hardware monitor. The full feature list is
-in `FEATURES.md`.
+<img src="res/app.png" width="88" alt="">
 
-- **Windows 11 look:** a navigation pane (Keyboard, Light bar, Performance, Battery, Monitor, Timer & alerts,
-  Plugins, Settings), Settings-style cards and rows, toggle switches, sliders and a color picker, in your dark/light theme and
-  accent color.
-- **Live previews:** a drawing of the Tulpar's keyboard whose keys glow in the zone colors, and the light bar's 23
-  LEDs, showing what the hardware shows.
-- **Performance:** Office, Gaming and (where the laptop has it) Turbo mode, Fan Boost, and a fan curve editor per mode.
-- **Battery:** High capacity, Balanced and Stationary charging, with the battery's health and charge rate.
-- **Monitor:** CPU and GPU temperature, CPU load, fan speeds, memory and battery, with the last minute of each.
-- **Windows 11 pop-ups** for the Fn keys, the performance key and Fan Boost.
-- **Plugins:** small sandboxed scripts that show things on the light bar, with their own settings. Claude Code at work,
-  download progress and an example come with the app; more can be imported from a `.zip`. See `PLUGINS.md`.
+# Tulpar Control
 
-Settings are kept in `%APPDATA%\TulparControl\settings.json`; the first run reads the old
-`%APPDATA%\MonsterKeyboardRGB\settings.json` if there is one, and replaces Keyboard RGB's startup task.
+**A replacement for Control Center on the Monster Tulpar T5 V21.4**
+
+Keyboard and light bar lighting, performance modes, fan curves, battery care, display colors and plugins,<br>
+in one small app that looks like Windows 11.
+
+![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?logo=windows11&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-2024_edition-B7410E?logo=rust&logoColor=white)
+![Slint](https://img.shields.io/badge/UI-Slint_1.18-2379F4)
+![Single exe](https://img.shields.io/badge/install-a_single_.exe-6c757d)
+![Version](https://img.shields.io/badge/version-3.0-8a2be2)
+
+<img src="docs/images/keyboard-preview.gif" width="760" alt="The keyboard preview animating the Wave effect">
+
+[Highlights](#highlights) · [Screenshots](#screenshots) · [Getting started](#getting-started) ·
+[Plugins](#plugins) · [Building](#building) · [Code](#code) · [Full feature list](FEATURES.md)
+
+</div>
+
+---
+
+## Highlights
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<h3>🌈 Lighting</h3>
+<ul>
+<li>Every effect of the keyboard's four zones and the light bar's 23 LEDs, with <b>up to 7 colors</b> each</li>
+<li>Effects the firmware doesn't have, drawn by the app: <b>Music, Spectrum, Typing, Star Spark</b>, and CPU, GPU and battery gauges</li>
+<li><b>Live previews</b> of the keyboard and the light bar, showing what the hardware shows</li>
+<li>Fine brightness in 1% steps, with smooth fades</li>
+</ul>
+</td>
+<td width="50%" valign="top">
+<h3>⚡ Performance</h3>
+<ul>
+<li><b>Office, Gaming and Turbo</b> modes and <b>Fan Boost</b>, from the window, the tray or the keys</li>
+<li><b>Custom power limits</b> (PL1, PL2, PL4) and <b>TCC offset</b>, up to five <b>profiles per mode</b></li>
+<li>A <b>fan curve editor</b> per mode, with safety rules that keep the laptop cooled enough</li>
+<li>Core voltage offset, with the BIOS's recovery after a failed start</li>
+</ul>
+</td>
+</tr>
+<tr>
+<td valign="top">
+<h3>🔋 Battery and 🖥️ display</h3>
+<ul>
+<li><b>High capacity, Balanced and Stationary</b> charging, battery health and charge rate</li>
+<li><b>USB charging while the laptop is off</b></li>
+<li><b>Display color modes</b> (Vibrant, Cinema, Low blue light, Custom) with saturation, contrast and color temperature</li>
+</ul>
+</td>
+<td valign="top">
+<h3>🧩 Everything around it</h3>
+<ul>
+<li><b>Setups:</b> lighting, mode and Fan Boost saved under a name, and <b>app profiles</b> that switch them while a game runs</li>
+<li><b>Plugins:</b> sandboxed scripts that show Claude Code at work, downloads, songs, notifications and more on the light bar</li>
+<li>A <b>hardware monitor</b>, Windows 11 <b>pop-ups</b> for the Fn keys, a <b>timer</b>, and <b>back up / restore</b></li>
+</ul>
+</td>
+</tr>
+</table>
+
+## Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/keyboard.png" alt="Keyboard page"><br><sub><b>Keyboard:</b> the effects, a live preview of the four zones, colors and brightness.</sub></td>
+<td width="50%"><img src="docs/images/light-bar.png" alt="Light bar page"><br><sub><b>Light bar:</b> its own effects, or the same as the keyboard.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/performance.png" alt="Performance page"><br><sub><b>Performance:</b> modes, their profiles, and the CPU tuning.</sub></td>
+<td><img src="docs/images/fan-curve.png" alt="Fan curve editor"><br><sub><b>Fan curves:</b> drag the points; the laptop's own curve is drawn underneath.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/monitor.png" alt="Monitor page"><br><sub><b>Monitor:</b> temperatures, load, fans, memory and battery, with the last minute of each.</sub></td>
+<td><img src="docs/images/display.png" alt="Display page"><br><sub><b>Display:</b> color modes for the whole screen.</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/plugins.png" alt="Plugins page"><br><sub><b>Plugins:</b> turn them on and off, press their buttons, change their settings.</sub></td>
+<td><img src="docs/images/setups.png" alt="Setups page"><br><sub><b>Setups:</b> saved setups, and the apps that switch to one.</sub></td>
+</tr>
+</table>
+
+<details>
+<summary><b>More screenshots:</b> Battery, Timer & alerts, Settings, and the light bar's Wave</summary>
+<br>
+
+| Battery | Timer & alerts |
+| --- | --- |
+| <img src="docs/images/battery.png" alt="Battery page"> | <img src="docs/images/alerts.png" alt="Timer and alerts page"> |
+
+| Settings | The light bar's Wave |
+| --- | --- |
+| <img src="docs/images/settings.png" alt="Settings page"> | <img src="docs/images/light-bar-preview.gif" alt="The light bar preview animating Wave from the middle out"> |
+
+</details>
+
+## Getting started
+
+1. Build it (see [Building](#building)): the result is one file, `TulparControl.exe`.
+2. Run it. It asks for administrator rights, because the Fn keys, the performance modes, the fans and battery care
+   go through the BIOS's WMI interface.
+3. Turn on **Start with Windows** in Settings to have it in the tray at every start.
+
+> [!NOTE]
+> **Control Center can stay installed.** While its service (GCUService) runs, this app leaves the Fn keys, the
+> modes, the fans and battery care to it and only shows what it set. Stop the service to let this app set them.
+
+Settings are kept in `%APPDATA%\TulparControl\settings.json`, and **Back up…** in Settings saves them to one file.
+The first run reads the old `%APPDATA%\MonsterKeyboardRGB\settings.json` if there is one, and replaces Keyboard RGB's
+startup task.
+
+> [!WARNING]
+> This is an unofficial app, made for and tried on the **Monster Tulpar T5 V21.4**. It writes to the laptop's
+> embedded controller and BIOS variables the way Control Center does. Other models may use different registers.
+> Higher power limits and voltage offsets are at your own risk.
+
+## Plugins
+
+Plugins are small [Rhai](https://rhai.rs) scripts that show things on the light bar. They can't read files, use the
+network or start programs, beyond the permissions listed on their card.
+
+| Plugin | What it shows |
+| --- | --- |
+| **Claude Code** | A sweep while Claude works, its task list filling the bar, a pulse when it needs you |
+| **Downloads** | Download progress from a Chrome/Edge extension |
+| **Focus timer** | Pomodoro rounds filling and emptying the bar |
+| **Media** | The song's progress, and the volume when it changes |
+| **Microphone** | A red glow while the microphone is muted |
+| **Notifications** | A flash for new notifications from the apps you choose |
+| **Temperature alert** | A red pulse while the CPU or GPU is too hot |
+| **Example** | A template for writing your own |
+
+More can be imported from a `.zip`. [PLUGINS.md](PLUGINS.md) explains how to write one:
+
+```rust
+fn on_event(path, body) {
+    if path == "/done" {
+        flash(if body.ok { "#4CAF50" } else { "#E53935" });
+    }
+}
+```
 
 ## Building
 
@@ -27,10 +156,12 @@ Needs Rust (MSVC toolchain) and the Windows SDK (for the icon and manifest).
 cargo build --release
 ```
 
-The app is `target\release\TulparControl.exe`, a single file with nothing else to install. It asks for administrator
-rights, because the Fn keys, the performance modes, the fans and battery care go through the BIOS WMI interface.
+The app is `target\release\TulparControl.exe`, a single file with nothing else to install. `cargo test` checks the fan
+curve rules, the BIOS variable edits, the display color math and the plugins (every bundled script included).
 
-To look at the window without touching the hardware:
+<details>
+<summary><b>Demo mode:</b> trying the window without touching the hardware</summary>
+<br>
 
 ```
 set TULPAR_NO_ADMIN=1
@@ -39,31 +170,47 @@ cargo build --release
 target-demo\release\TulparControl.exe --demo
 ```
 
-`--demo` opens no devices, sends nothing to the embedded controller, shows made-up readings and saves nothing.
-`--page N` opens on a page (0 Keyboard, 1 Light bar, 2 Timer & alerts, 3 Settings, 4 Performance, 5 Battery,
-6 Monitor, 7 Plugins, 8 Setups, 9 Display), `--tray` starts in the tray, `--osd-test` shows the pop-ups once. `cargo test` checks the fan curve rules, the BIOS variable edits and the plugins (every bundled script included).
+- `--demo` opens no devices, sends nothing to the embedded controller, shows made-up readings and saves nothing.
+- `--page N` opens on a page: 0 Keyboard, 1 Light bar, 2 Timer & alerts, 3 Settings, 4 Performance, 5 Battery,
+  6 Monitor, 7 Plugins, 8 Setups, 9 Display.
+- `--tray` starts in the tray, and `--osd-test` shows the pop-ups once.
+
+</details>
 
 ## Code
+
+<details>
+<summary><b>A map of the code</b></summary>
+<br>
 
 | Folder / file | What it does |
 | --- | --- |
 | `src/main.rs` | Start-up, the single-instance lock, the renderer and the crash handler. |
 | `src/app/mod.rs` | The window, the tray, the lighting and the Fn keys: everything the UI thread does. |
-| `src/app/power.rs` | Performance modes, Fan Boost, fan curves and battery care, and the performance keys. |
+| `src/app/power.rs` | Performance modes and their profiles, Fan Boost, fan curves and battery care, and the performance keys. |
 | `src/app/monitor.rs` | The readings thread and the Monitor page. |
 | `src/app/bios.rs` | Startup lighting, the CPU voltage offset and recovery after a failed start, kept in the BIOS. |
+| `src/app/setups.rs` | Saved setups and app profiles: saving, applying, and switching while a program runs. |
+| `src/app/display.rs`, `src/shell/display.rs` | The Display page's color modes, and their color matrix put over the screen. |
+| `src/app/backup.rs` | Backing up all settings to a file and restoring them. |
+| `src/app/plugins.rs` | The Plugins page: starting and stopping plugins, their settings, importing and removing them. |
 | `src/lighting/` | The ITE controllers over HID (`device.rs`), the effect lists, the effects engine and scenes, audio, the previews and the keyboard hook. |
 | `src/hardware/ec.rs` | The embedded controller's RAM through WMI, on one thread. |
 | `src/hardware/hotkeys.rs` | Taking the Fn keys over from the EC and listening for hotkey events. |
 | `src/hardware/performance.rs`, `fans.rs`, `battery.rs` | The EC registers for modes, power limits and TCC offset, fan tables and speeds, and charging. |
 | `src/hardware/uefi.rs` | Control Center's UEFI variable, read and changed field by field. |
 | `src/hardware/status.rs`, `system.rs` | Temperatures, loads, memory and battery readings; touchpad, startup task and registry. |
-| `src/shell/` | The pop-up (Direct2D on a layered window), the tray icon and menu, and file pickers. |
-| `src/app/plugins.rs` | The Plugins page: starting and stopping plugins, their settings, importing and removing them. |
-| `src/app/setups.rs` | Saved setups and app profiles: saving, applying, and switching while a program runs. |
-| `src/app/backup.rs` | Backing up all settings to a file and restoring them. |
-| `src/app/display.rs`, `src/shell/display.rs` | The Display page's color modes, and their color matrix put over the screen. |
+| `src/shell/` | The pop-up (Direct2D on a layered window), the tray icon and menu, file pickers and the display color effect. |
 | `src/plugins/` | The plugin manifest (`manifest.rs`), the plugins folder and imports (`store.rs`), the script thread and its API (`host.rs`), the light bar layers (`layers.rs`), the local events server (`server.rs`), Windows readings for scripts (`readings.rs`: temperatures, media, volume, microphone, notifications), and what permissions allow (`claude.rs`, `downloads.rs`). |
 | `plugins/` | The plugins that come with the app: Claude Code, Downloads with its browser extension, Example, Focus timer, Media, Microphone, Notifications and Temperature alert. |
 | `ui/*.slint` | The window, in Slint; `power.slint` has the Performance, Battery and Monitor pages, `plugins.slint` the Plugins page, `setups.slint` the Setups page, `display.slint` the Display page. |
+| `docs/images/` | The screenshots in this README, taken in demo mode. |
 | `tools/` | PowerShell scripts used to test the embedded controller's behavior. |
+
+</details>
+
+---
+
+<div align="center">
+<sub>Not affiliated with Monster Notebook. Control Center is theirs; this app was written by studying how it talks to the hardware.</sub>
+</div>
