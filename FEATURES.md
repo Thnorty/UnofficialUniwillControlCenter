@@ -109,6 +109,9 @@ Control Center's CPU overclocking settings for Intel laptops:
 ### Battery care
 - **High capacity, Balanced and Stationary:** Control Center's three charging modes (`BatteryProtection2`, 0x7A6 bits
   4 and 5). The first run picks up the mode Control Center last set; it's set again after sleep.
+- **USB charging while off:** the ports keep powering devices while the laptop is off or asleep (EC 0x767 bit 4, as
+  Control Center's USB charger switch). Shown where the EC or Control Center's settings say the laptop has it; the
+  first run keeps Control Center's choice.
 
 ### App behavior
 - **Tray:** runs in the tray and can start with Windows. The tray menu has the performance mode and Fan Boost.
@@ -215,12 +218,14 @@ Not implemented:
   Boost (15 W) and NVIDIA Whisper Mode. They go through the NVIDIA driver, and couldn't be built and tried without
   the GPU.
 - **GPU modes:** dGPU mode (Hybrid, iGPU, Auto) and disabling NVIDIA Optimus.
-- **Battery:** battery calibration, USB-C power delivery priority, powered USB while off, automatic boot on AC.
+- **Battery:** battery calibration. USB-C power delivery priority and starting up when the charger is connected
+  aren't supported on this laptop: Control Center's own flags (`TypeCSupport`, `AcRecoverySwitchSupport`) say so and
+  it hides them.
 - **Display:** refresh rate, color modes and calibration, low blue light.
 - **Monitoring:** In-Game OSD and Quick Information Box.
 - **Keys:**
   - Fn Lock;
-  - a Scroll Lock pop-up (the laptop has no Scroll Lock key);
+  - a Scroll Lock pop-up;
   - key remapping, Game Mode and application profiles.
 - **Device switches:** Wi-Fi, Bluetooth and webcam, and touchpad active-area settings.
 - **Light bars and LED strips:** only on models that have them.

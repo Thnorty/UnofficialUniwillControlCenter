@@ -1816,6 +1816,7 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_open_plugins_folder(|| with_app(|app| app.open_plugins_folder()));
     ui.on_reset_startup(|device| with_app(move |app| app.reset_startup(kind_of(device))));
     ui.on_set_charge_mode(|index| with_app(move |app| app.set_charge_mode(ChargeMode::from_index(index.max(0) as usize))));
+    ui.on_set_usb_power(|on| with_app(move |app| app.set_usb_power(on)));
     ui.on_retry(|| with_app(|app| app.open_devices()));
     ui.on_format_hex(|color| Rgb::from_slint(color).hex().into());
     ui.on_parse_hex(|text| match Rgb::parse_hex(&text) {

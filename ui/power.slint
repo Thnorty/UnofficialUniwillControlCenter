@@ -695,7 +695,10 @@ export component BatteryPage inherits VerticalLayout {
     in property <int> percent;
     in property <string> state;
     in property <[Detail]> details;
+    in property <bool> usb-supported;
+    in property <bool> usb-power;
     callback set-charge-mode(int);
+    callback set-usb-power(bool);
 
     spacing: 8px;
     VerticalLayout {
@@ -815,6 +818,26 @@ export component BatteryPage inherits VerticalLayout {
         }
         Caption {
             text: "Kept by the laptop itself, also when this app isn't running. Charging stops early in Balanced and Stationary, which slows the battery's wear.";
+        }
+    }
+
+    if root.usb-supported: VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "While the laptop is off";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.plug;
+            title: "Charge devices over USB";
+            description: "USB ports keep powering phones and other devices while the laptop is off or asleep. On battery this drains it.";
+            ToggleSwitch {
+                checked: root.usb-power;
+                enabled: root.available;
+                toggled(on) => { root.set-usb-power(on); }
+            }
         }
     }
 }

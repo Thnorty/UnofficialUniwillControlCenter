@@ -71,6 +71,8 @@ pub struct PowerSettings {
     pub fan_curves: HashMap<String, FanCurve>,
     /// CPU power limits and TCC offset, by mode name.
     pub tuning: HashMap<String, Tuning>,
+    /// USB charging while the laptop is off; None leaves it as it is.
+    pub usb_power: Option<bool>,
 }
 
 impl Default for PowerSettings {
@@ -82,6 +84,7 @@ impl Default for PowerSettings {
             default_fan_tables: HashMap::new(),
             fan_curves: HashMap::new(),
             tuning: HashMap::new(),
+            usb_power: None,
         }
     }
 }

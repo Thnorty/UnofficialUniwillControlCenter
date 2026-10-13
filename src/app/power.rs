@@ -56,6 +56,10 @@ pub(super) struct Power {
     mode_defaults: [Option<Defaults>; 3],
     pub tuning: [Tuning; 3],
     tuning_timer: slint::Timer,
+    /// USB charging while off: whether the laptop has it, whether it's on, and whether the user chose that.
+    usb_supported: bool,
+    usb_power: bool,
+    usb_chosen: bool,
 }
 
 impl Power {
@@ -100,6 +104,9 @@ impl Power {
             mode_defaults: std::array::from_fn(|i| demo.then(|| demo_defaults(Mode::from_index(i)))),
             tuning,
             tuning_timer: slint::Timer::default(),
+            usb_supported: demo,
+            usb_power: settings.and_then(|s| s.usb_power).unwrap_or(false),
+            usb_chosen: settings.is_some_and(|s| s.usb_power.is_some()),
         }
     }
 
@@ -124,6 +131,9 @@ impl Power {
                 stored.fan_curves.insert(mode.name().into(), curve.clone());
             }
             stored.tuning.insert(mode.name().into(), self.tuning[mode.index()]);
+        }
+        if self.usb_chosen {
+            stored.usb_power = Some(self.usb_power);
         }
     }
 
@@ -188,6 +198,7 @@ struct EcState {
     limits: PowerLimits,
     ranges: Option<Ranges>,
     defaults: [Option<Defaults>; 3],
+    usb_power: Option<bool>,
 }
 
 fn read_state(ec: &Registers) -> Result<EcState> {
@@ -208,6 +219,7 @@ fn read_state(ec: &Registers) -> Result<EcState> {
         fan_tables: fans::supported(ec)?,
         safety: fans::safety_protection(ec)?,
         limits: performance::limits(ec)?,
+        usb_power: battery::usb_power(ec)?,
     })
 }
 
@@ -303,6 +315,18 @@ impl App {
         power.ranges = state.ranges;
         power.mode_defaults = state.defaults;
         power.ready = true;
+        power.usb_supported = state.usb_power.is_some();
+        if !power.owned || !power.usb_chosen {
+            power.usb_power = state.usb_power.unwrap_or(false);
+        }
+        if power.owned && !power.usb_chosen && power.usb_supported {
+            // The first run keeps Control Center's choice, which its service set at every start.
+            if let Some(on) = battery::control_center_usb_power() {
+                power.usb_power = on;
+                power.usb_chosen = true;
+                self.settings_dirty = true;
+            }
+        }
         if !power.owned {
             // Control Center's choices, shown as they are.
             power.mode = state.mode;
@@ -339,10 +363,14 @@ impl App {
         let table = self.power.custom_table();
         let custom = table.is_some();
         let tuning = self.power.tuning_for(mode);
+        let usb_power = (self.power.usb_supported && self.power.usb_chosen).then_some(self.power.usb_power);
         ec.spawn(move |ec| {
             let result = (|| -> Result<PowerLimits> {
                 let limits = performance::apply(ec, mode, boost, on_ac, tuning.as_ref())?;
                 battery::set(ec, charge)?;
+                if let Some(on) = usb_power {
+                    battery::set_usb_power(ec, on)?;
+                }
                 if fan_tables {
                     apply_fan_table(ec, table.as_ref())?;
                 }
@@ -520,6 +548,24 @@ impl App {
                 if let Err(e) = battery::set(ec, mode) {
                     let reason = error_text(e);
                     post(move |app| app.set_status(&format!("Couldn't set battery care: {reason}"), true, false));
+                }
+            });
+        }
+        self.refresh_power();
+    }
+
+    pub(super) fn set_usb_power(&mut self, on: bool) {
+        if !self.power.available(self.demo) || !self.power.usb_supported {
+            return;
+        }
+        self.power.usb_power = on;
+        self.power.usb_chosen = true;
+        self.settings_dirty = true;
+        if let Some(ec) = &self.power.ec {
+            ec.spawn(move |ec| {
+                if let Err(e) = battery::set_usb_power(ec, on) {
+                    let reason = error_text(e);
+                    post(move |app| app.set_status(&format!("Couldn't change USB charging: {reason}"), true, false));
                 }
             });
         }
@@ -763,6 +809,8 @@ impl App {
         ui.set_battery_available(available);
         ui.set_battery_note(if available { "".into() } else { note.into() });
         ui.set_charge_mode(power.charge as i32);
+        ui.set_usb_supported(power.usb_supported);
+        ui.set_usb_power(power.usb_power);
 
         // The fan curve: the custom one if there is one, else the EC's.
         let index = power.mode.index();

@@ -145,6 +145,8 @@ export component AppWindow inherits Window {
     in property <bool> battery-available;
     in property <string> battery-note;
     in property <int> charge-mode;
+    in property <bool> usb-supported;
+    in property <bool> usb-power;
     in property <int> battery-percent: -1;
     in property <string> battery-state;
     in property <[Detail]> battery-details;
@@ -198,6 +200,7 @@ export component AppWindow inherits Window {
     callback save-startup(int);
     callback reset-startup(int);
     callback set-charge-mode(int);
+    callback set-usb-power(bool);
     callback plugin-toggled(string, bool);
     callback plugin-expand(string);
     callback plugin-action(string, string);
@@ -450,7 +453,10 @@ export component AppWindow inherits Window {
                         percent: root.battery-percent;
                         state: root.battery-state;
                         details: root.battery-details;
+                        usb-supported: root.usb-supported;
+                        usb-power: root.usb-power;
                         set-charge-mode(m) => { root.set-charge-mode(m); }
+                        set-usb-power(on) => { root.set-usb-power(on); }
                     }
                     if root.page == 6: MonitorPage {
                         metrics: root.metrics;
