@@ -1,0 +1,14 @@
+{
+  "id": "temperature-alert",
+  "name": "Temperature alert",
+  "version": "1.0.0",
+  "author": "Tulpar Control",
+  "description": "The light bar pulses red while the CPU or the GPU is hotter than its limit, and stops once it's 5 °C cooler. The temperatures are the ones the Monitor page shows.",
+  "settings": [
+    { "key": "cpu_limit", "label": "CPU limit", "type": "slider", "min": 70, "max": 100, "step": 1, "unit": " °C", "default": 95 },
+    { "key": "watch_gpu", "label": "Watch the GPU too", "type": "toggle", "default": true },
+    { "key": "gpu_limit", "label": "GPU limit", "type": "slider", "min": 60, "max": 95, "step": 1, "unit": " °C", "default": 87 },
+    { "key": "color", "label": "Color", "type": "color", "default": "#FF1A1A" },
+    { "key": "notify", "label": "Notification when it gets too hot", "type": "toggle", "default": true }
+  ]
+}

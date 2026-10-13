@@ -4,6 +4,7 @@
 //!
 //! The script's functions, all optional: `init()`, `on_event(path, body)` for what's posted to its address,
 //! `on_tick()` every `set_tick(ms)`, `on_settings()` after its settings change and `on_action(id)` for its buttons.
+//! Readings from Windows (temperatures, media, notifications) come from `readings`, on this thread.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -16,7 +17,7 @@ use serde_json::{Map, Value};
 
 use super::layers::{Layer, Layers};
 use super::manifest::Permission;
-use super::{claude, url_for};
+use super::{claude, readings, url_for};
 use crate::color::Rgb;
 
 /// What the app asks of the plugin thread.
@@ -148,6 +149,8 @@ impl Running {
 }
 
 fn run(receiver: Receiver<Command>, layers: Arc<Layers>, notice: NoticeFn) {
+    // For the readings: WMI, Core Audio and the WinRT media and notification APIs.
+    let _ = unsafe { windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_MULTITHREADED) };
     let mut plugins: HashMap<String, Running> = HashMap::new();
     loop {
         let next = plugins.values().filter_map(|p| p.next_tick).min();
@@ -365,7 +368,62 @@ fn engine(context: &Arc<Context>) -> Engine {
         Ok(())
     });
 
+    // Readings.
+    let reading = |value: Option<f32>| value.map_or(Dynamic::UNIT, |v| Dynamic::from_float(v as f64));
+    engine.register_fn("cpu_temperature", move || reading(readings::temperatures().0));
+    engine.register_fn("gpu_temperature", move || reading(readings::temperatures().1));
+
     // With permissions.
+    let c = context.clone();
+    engine.register_fn("media", move || -> Fallible<Dynamic> {
+        c.require(Permission::Media)?;
+        let playing = if c.inert {
+            // A made-up song that plays over and over.
+            let position = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64()) % 200.0;
+            Some(readings::Playing { app: "Demo".into(), title: "Demo song".into(), artist: "Tulpar Control".into(), playing: true, position, duration: 200.0 })
+        } else {
+            readings::playing()
+        };
+        Ok(playing.map_or(Dynamic::UNIT, |p| {
+            let mut map = ScriptMap::new();
+            map.insert("app".into(), p.app.into());
+            map.insert("title".into(), p.title.into());
+            map.insert("artist".into(), p.artist.into());
+            map.insert("playing".into(), p.playing.into());
+            map.insert("position".into(), Dynamic::from_float(p.position));
+            map.insert("duration".into(), Dynamic::from_float(p.duration));
+            Dynamic::from_map(map)
+        }))
+    });
+    let c = context.clone();
+    engine.register_fn("volume", move || -> Fallible<Dynamic> {
+        c.require(Permission::Media)?;
+        let volume = if c.inert { Some((0.6, false)) } else { readings::volume() };
+        Ok(volume.map_or(Dynamic::UNIT, |(level, muted)| {
+            let mut map = ScriptMap::new();
+            map.insert("level".into(), Dynamic::from_float(level as f64));
+            map.insert("muted".into(), muted.into());
+            Dynamic::from_map(map)
+        }))
+    });
+    let c = context.clone();
+    engine.register_fn("notifications", move || -> Fallible<Dynamic> {
+        c.require(Permission::Notifications)?;
+        let found = if c.inert { Some(Vec::new()) } else { readings::notifications() };
+        Ok(found.map_or(Dynamic::UNIT, |found| {
+            let list: Array = found
+                .into_iter()
+                .map(|n| {
+                    let mut map = ScriptMap::new();
+                    map.insert("id".into(), Dynamic::from_int(n.id as i64));
+                    map.insert("app".into(), n.app.into());
+                    map.insert("time".into(), Dynamic::from_float(n.time));
+                    Dynamic::from_map(map)
+                })
+                .collect();
+            list.into()
+        }))
+    });
     let c = context.clone();
     engine.register_fn("partial_downloads", move || -> Fallible<Array> {
         c.require(Permission::DownloadsFolder)?;
@@ -463,11 +521,16 @@ mod tests {
         assert!(wait().contains("Demo mode"));
     }
 
-    /// Runs a bundled plugin with its default settings.
-    fn bundled(host: &Host, id: &str, permissions: Vec<Permission>) {
+    /// Runs a bundled plugin with its default settings and the permissions it asks for.
+    fn bundled(host: &Host, id: &str, inert: bool) {
         let manifest = super::super::manifest::Manifest::parse(&std::fs::read_to_string(format!("plugins/{id}/plugin.json")).unwrap()).unwrap();
         let script = std::fs::read_to_string(format!("plugins/{id}/main.rhai")).unwrap();
-        host.send(Command::Start { id: id.into(), dir: std::env::temp_dir(), script, permissions, inert: false, settings: manifest.values(None) });
+        let permissions = manifest.permissions.clone();
+        host.send(Command::Start { id: id.into(), dir: std::env::temp_dir(), script, permissions, inert, settings: manifest.values(None) });
+    }
+
+    fn no_errors(log: &[String]) {
+        assert!(!log.iter().any(|l| l.starts_with("log true") || l.starts_with("stopped")), "{log:?}");
     }
 
     /// What the plugin sends until it goes quiet, or for a second at most (a ticking plugin never does).
@@ -485,7 +548,7 @@ mod tests {
     #[test]
     fn claude_code_plugin() {
         let (host, layers, rx) = host();
-        bundled(&host, "claude-code", vec![Permission::ClaudeHooks]);
+        bundled(&host, "claude-code", false);
         let event = |body: serde_json::Value| host.send(Command::Event { id: "claude-code".into(), path: "".into(), body });
         settle(&rx);
         assert!(layers.top_layer().is_none());
@@ -514,7 +577,7 @@ mod tests {
     #[test]
     fn downloads_plugin() {
         let (host, layers, rx) = host();
-        bundled(&host, "downloads", vec![Permission::DownloadsFolder]);
+        bundled(&host, "downloads", false);
         settle(&rx);
         host.send(Command::Event {
             id: "downloads".into(),
@@ -532,7 +595,7 @@ mod tests {
     #[test]
     fn example_plugin() {
         let (host, layers, rx) = host();
-        bundled(&host, "example", vec![]);
+        bundled(&host, "example", false);
         let log = settle(&rx);
         assert!(matches!(layers.top_layer(), Some((_, Layer::Progress { .. }))), "{log:?}");
         assert!(log.iter().any(|l| l.starts_with("status Example: ")), "{log:?}");
@@ -541,5 +604,74 @@ mod tests {
         let log = settle(&rx);
         assert!(matches!(layers.top_layer(), Some((_, Layer::Pulse(_)))), "{log:?}");
         assert!(!log.iter().any(|l| l.starts_with("log true")), "{log:?}");
+    }
+
+    #[test]
+    fn focus_timer_plugin() {
+        let (host, layers, rx) = host();
+        bundled(&host, "focus-timer", false);
+        let action = |id: &str| host.send(Command::Action { id: "focus-timer".into(), action: id.into() });
+        let log = settle(&rx);
+        assert!(log.iter().any(|l| l == "status Press Start to begin."), "{log:?}");
+        assert!(layers.top_layer().is_none());
+
+        action("start");
+        let log = settle(&rx);
+        assert!(matches!(layers.top_layer(), Some((_, Layer::Progress { value, .. })) if value < 0.01), "{log:?}");
+        assert!(log.iter().any(|l| l.starts_with("status Focus 1: 25:00 left") || l.starts_with("status Focus 1: 24:5")), "{log:?}");
+        action("pause");
+        let log = settle(&rx);
+        assert!(log.iter().any(|l| l.ends_with(", paused")), "{log:?}");
+
+        // Skipping to the break: the bar starts full and empties.
+        action("skip");
+        let log = settle(&rx);
+        assert!(matches!(layers.top_layer(), Some((_, Layer::Progress { value, .. })) if value > 0.99), "{log:?}");
+        assert!(log.iter().any(|l| l.starts_with("status Break: 5:00 left") || l.starts_with("status Break: 4:5")), "{log:?}");
+        action("stop");
+        let log = settle(&rx);
+        assert!(layers.top_layer().is_none(), "{log:?}");
+        no_errors(&log);
+    }
+
+    #[test]
+    fn media_plugin() {
+        // Inert: a made-up song plays, and the volume stays put.
+        let (host, layers, rx) = host();
+        bundled(&host, "media", true);
+        let log = settle(&rx);
+        assert!(matches!(layers.top_layer(), Some((_, Layer::Progress { .. }))), "{log:?}");
+        assert!(log.iter().any(|l| l.starts_with("status Demo song – Tulpar Control · ")), "{log:?}");
+        no_errors(&log);
+    }
+
+    #[test]
+    fn notifications_plugin() {
+        let (host, layers, rx) = host();
+        bundled(&host, "notifications", true);
+        let log = settle(&rx);
+        assert!(log.iter().any(|l| l == "status Flashes for every app."), "{log:?}");
+        assert!(layers.top_layer().is_none());
+        no_errors(&log);
+    }
+
+    #[test]
+    fn temperature_alert_plugin() {
+        // Real readings: whatever they are, it says them without errors; a limit under any reading makes it pulse.
+        let (host, layers, rx) = host();
+        bundled(&host, "temperature-alert", false);
+        // The first reading opens a WMI connection, which can take a while.
+        let first = rx.recv_timeout(Duration::from_secs(20)).unwrap();
+        let mut log = vec![first];
+        log.extend(settle(&rx));
+        assert!(log.iter().any(|l| l.starts_with("status CPU ") || l.starts_with("status GPU ") || l == "status No temperature reading."), "{log:?}");
+        no_errors(&log);
+        if log.iter().any(|l| l.starts_with("status CPU ")) {
+            let values = r##"{ "cpu_limit": 1, "watch_gpu": false, "gpu_limit": 60, "color": "#FF0000", "notify": false }"##;
+            host.send(Command::Settings { id: "temperature-alert".into(), values: serde_json::from_str(values).unwrap() });
+            let log = settle(&rx);
+            assert!(matches!(layers.top_layer(), Some((_, Layer::Pulse(_)))), "{log:?}");
+            no_errors(&log);
+        }
     }
 }

@@ -1,0 +1,13 @@
+{
+  "id": "notifications",
+  "name": "Notifications",
+  "version": "1.0.0",
+  "author": "Tulpar Control",
+  "description": "The light bar flashes when a Windows notification arrives from one of the apps you choose. It only sees which app sent it, not what it says.",
+  "permissions": ["notifications"],
+  "settings": [
+    { "key": "apps", "label": "Apps", "description": "Names as Windows shows them, separated by commas: WhatsApp, Discord, Outlook. Add =#RRGGBB for a color of its own: Discord=#5865F2. Empty: every app.", "type": "text", "default": "" },
+    { "key": "color", "label": "Color", "type": "color", "default": "#3399FF" },
+    { "key": "style", "label": "Flash", "type": "choice", "options": ["Blink", "Open"], "default": "Blink" }
+  ]
+}

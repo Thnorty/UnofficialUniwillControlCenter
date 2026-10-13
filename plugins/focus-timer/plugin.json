@@ -1,0 +1,23 @@
+{
+  "id": "focus-timer",
+  "name": "Focus timer",
+  "version": "1.0.0",
+  "author": "Tulpar Control",
+  "description": "A Pomodoro-style timer on the light bar: the bar fills while you focus and empties during the break, and every few rounds the break is a long one. Press Start; a blink and a notification mark each change.",
+  "settings": [
+    { "key": "focus", "label": "Focus", "type": "slider", "min": 5, "max": 90, "step": 5, "unit": " min", "default": 25 },
+    { "key": "break", "label": "Break", "type": "slider", "min": 1, "max": 30, "step": 1, "unit": " min", "default": 5 },
+    { "key": "long_break", "label": "Long break", "type": "slider", "min": 5, "max": 45, "step": 5, "unit": " min", "default": 15 },
+    { "key": "rounds", "label": "Rounds before a long break", "type": "slider", "min": 2, "max": 8, "step": 1, "default": 4 },
+    { "key": "focus_color", "label": "Focus color", "type": "color", "default": "#FF5533" },
+    { "key": "break_color", "label": "Break color", "type": "color", "default": "#33DD77" },
+    { "key": "auto", "label": "Go on by itself", "description": "When a part ends the next one starts. Off: the bar pulses until you press Start.", "type": "toggle", "default": true },
+    { "key": "notify", "label": "Notification at each change", "type": "toggle", "default": true }
+  ],
+  "actions": [
+    { "id": "start", "label": "Start" },
+    { "id": "pause", "label": "Pause" },
+    { "id": "skip", "label": "Skip" },
+    { "id": "stop", "label": "Stop" }
+  ]
+}

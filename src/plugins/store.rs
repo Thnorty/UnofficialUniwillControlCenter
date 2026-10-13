@@ -43,10 +43,38 @@ const BUILTIN: &[(&str, &[(&str, &[u8])])] = &[
             ("main.rhai", include_bytes!("../../plugins/example/main.rhai")),
         ],
     ),
+    (
+        "focus-timer",
+        &[
+            ("plugin.json", include_bytes!("../../plugins/focus-timer/plugin.json")),
+            ("main.rhai", include_bytes!("../../plugins/focus-timer/main.rhai")),
+        ],
+    ),
+    (
+        "media",
+        &[
+            ("plugin.json", include_bytes!("../../plugins/media/plugin.json")),
+            ("main.rhai", include_bytes!("../../plugins/media/main.rhai")),
+        ],
+    ),
+    (
+        "notifications",
+        &[
+            ("plugin.json", include_bytes!("../../plugins/notifications/plugin.json")),
+            ("main.rhai", include_bytes!("../../plugins/notifications/main.rhai")),
+        ],
+    ),
+    (
+        "temperature-alert",
+        &[
+            ("plugin.json", include_bytes!("../../plugins/temperature-alert/plugin.json")),
+            ("main.rhai", include_bytes!("../../plugins/temperature-alert/main.rhai")),
+        ],
+    ),
 ];
 
-/// Plugins that come with the app but start off.
-const OFF_BY_DEFAULT: &[&str] = &["example"];
+/// Plugins that come with the app but start off: they'd change the light bar unasked, or need choices first.
+const OFF_BY_DEFAULT: &[&str] = &["example", "media", "notifications", "temperature-alert"];
 
 const MAX_FILES: usize = 500;
 const MAX_BYTES: u64 = 20 << 20;

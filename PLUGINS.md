@@ -5,7 +5,7 @@ send an HTTP request. Plugins are small [Rhai](https://rhai.rs) scripts that run
 read files, use the network or start programs. Beyond the light bar and the app, it can only do what its listed
 permissions allow, and the window shows those permissions on the plugin's card.
 
-Three plugins come with the app:
+These plugins come with the app:
 
 - **Claude Code:**
   - a sweep while Claude works;
@@ -27,6 +27,18 @@ Three plugins come with the app:
   - It uses every kind of setting and a button, so it's a way to try plugins out.
   - Its files (`%APPDATA%\TulparControl\plugins\example\`) are a starting point for your own plugin. Copy the folder,
     give it a new `id`, and import its `plugin.json`.
+- **Focus timer:** a Pomodoro-style timer. Press **Start**: the bar fills while you focus (25 minutes) and empties
+  during the break (5 minutes, and 15 after every fourth round). A blink and a notification mark each change.
+  **Pause**, **Skip** and **Stop** do what they say; with **Go on by itself** off, the bar pulses until you press
+  Start for the next part.
+- **Media** (off at first): the bar fills as a song or video plays, in any app that shows in Windows' media controls
+  (Spotify, Chrome, Edge, …), and shows the volume for two seconds when it changes, in red while muted.
+- **Notifications** (off at first): a flash when a notification arrives from an app in its **Apps** list, or from
+  any app if the list is empty. An app can have its own color: `WhatsApp, Discord=#5865F2`. It needs Windows'
+  notification access (Settings › Privacy & security › Notifications), and it only sees which app sent a
+  notification.
+- **Temperature alert** (off at first): the bar pulses red while the CPU is over 95 °C or the GPU over 87 °C, until
+  it's 5 °C cooler, with a notification when it starts. The limits are settings.
 
 ## The Plugins page
 
@@ -85,6 +97,8 @@ files and 20 MB.
 - **`permissions`:**
   - `claude-hooks`: may add and remove its own hooks in Claude Code's settings.
   - `downloads-folder`: may see the unfinished downloads in the Downloads folder (names and sizes).
+  - `media`: may see what's playing (the program, title, artist and position) and the volume.
+  - `notifications`: may see which apps show notifications, and when. Never what they say.
 
 ### The script
 
@@ -154,6 +168,10 @@ several plugins show something, the one that started showing it last is on top.
 | `setting(key)`, `settings()` | One setting, or all of them as a map. |
 | `plugin_url()` | The plugin's events address. |
 | `open_folder(name)` | Opens a folder inside the plugin's own folder in Explorer. |
+| `cpu_temperature()`, `gpu_temperature()` | The temperature in °C, as the Monitor page shows it, or `()` without a reading (the GPU is off). |
+| `media()` | Needs `media`. What's playing: a map with `app`, `title`, `artist`, `playing` (false while paused), `position` and `duration` in seconds (0 if the app doesn't say), or `()` when nothing is. |
+| `volume()` | Needs `media`. The speakers' volume: a map with `level` (0 to 1) and `muted`. |
+| `notifications()` | Needs `notifications`. The notifications in the notification center, oldest first: maps with `id`, `app` and `time` (seconds since 1970). `()` when Windows doesn't allow it. |
 | `partial_downloads()` | Needs `downloads-folder`. The unfinished downloads: maps with `name`, `size` and `idle` (seconds since the last write). |
 | `install_claude_hooks(events)`, `remove_claude_hooks()`, `claude_hooks_installed()` | Need `claude-hooks`. Add or remove hooks that post to this plugin, or count how many there are. |
 
@@ -179,4 +197,4 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:47823/plugins/build-status/
 ```
 
 In demo mode (`--demo`), plugins run but receive no events. What their permissions allow is only pretended: no
-downloads are seen and Claude Code's settings aren't changed.
+downloads or notifications are seen, a made-up song plays, and Claude Code's settings aren't changed.

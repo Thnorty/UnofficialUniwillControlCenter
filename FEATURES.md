@@ -194,6 +194,13 @@ Control Center's CPU overclocking settings for Intel laptops:
   - **Downloads:** download progress from a Chrome/Edge extension, or a sweep while an unfinished download is in the
     Downloads folder.
   - **Example:** off at first; it fills the bar and uses every kind of setting, as a template for new plugins.
+  - **Focus timer:** Pomodoro rounds: the bar fills while you focus and empties during the break, with a long break
+    every few rounds, and Start, Pause, Skip and Stop buttons.
+  - **Media** (off at first): song progress from Windows' media controls (any player, browsers included), and the
+    volume for two seconds when it changes.
+  - **Notifications** (off at first): a flash for new notifications from chosen apps, each with its own color if
+    wanted. It sees only which app sent one.
+  - **Temperature alert** (off at first): the bar pulses red while the CPU or the GPU is over its limit.
   - Import more from a `.zip`. Each plugin's settings (colors, sliders, switches, lists, text) are on the Plugins
     page.
   - Plugins are sandboxed. They can't read files, use the network or start programs, beyond the permissions shown on

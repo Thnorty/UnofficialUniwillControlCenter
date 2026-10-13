@@ -85,6 +85,10 @@ pub enum Permission {
     ClaudeHooks,
     /// See the names and sizes of unfinished downloads in the Downloads folder.
     DownloadsFolder,
+    /// See what's playing (program, title, artist, position) and the volume.
+    Media,
+    /// See which apps show notifications, and when; not what they say.
+    Notifications,
 }
 
 impl Permission {
@@ -92,6 +96,8 @@ impl Permission {
         match self {
             Permission::ClaudeHooks => "add its hooks to Claude Code's settings",
             Permission::DownloadsFolder => "see unfinished downloads in your Downloads folder",
+            Permission::Media => "see what's playing and the volume",
+            Permission::Notifications => "see which apps show notifications (not what they say)",
         }
     }
 }

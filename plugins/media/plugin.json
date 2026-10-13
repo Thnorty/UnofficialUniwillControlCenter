@@ -1,0 +1,15 @@
+{
+  "id": "media",
+  "name": "Media",
+  "version": "1.0.0",
+  "author": "Tulpar Control",
+  "description": "The light bar fills as a song or video plays, in any app that shows up in Windows' media controls (Spotify, a browser, …), and shows the volume for two seconds when it changes.",
+  "permissions": ["media"],
+  "settings": [
+    { "key": "show_song", "label": "Song progress", "description": "While something plays; nothing while it's paused.", "type": "toggle", "default": true },
+    { "key": "song_color", "label": "Song color", "type": "color", "default": "#1ED760" },
+    { "key": "show_volume", "label": "Volume changes", "type": "toggle", "default": true },
+    { "key": "volume_color", "label": "Volume color", "type": "color", "default": "#FFFFFF" },
+    { "key": "mute_color", "label": "Muted color", "type": "color", "default": "#FF3B30" }
+  ]
+}

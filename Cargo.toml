@@ -22,6 +22,12 @@ zip = { version = "9.0", default-features = false, features = ["deflate"] }
 [dependencies.windows]
 version = "0.62"
 features = [
+    "ApplicationModel",
+    "Foundation",
+    "Foundation_Collections",
+    "Media_Control",
+    "UI_Notifications",
+    "UI_Notifications_Management",
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Devices_HumanInterfaceDevice",
     "Win32_Foundation",

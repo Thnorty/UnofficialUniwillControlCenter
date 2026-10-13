@@ -6,6 +6,7 @@ pub mod downloads;
 pub mod host;
 pub mod layers;
 pub mod manifest;
+pub mod readings;
 pub mod server;
 pub mod store;
 
