@@ -131,7 +131,8 @@ Control Center's CPU overclocking settings for Intel laptops:
 
 - **No Control Center needed:** no service, UWP app or broker. It is a single small exe.
 - **Windows 11 interface:** a Settings-style window in the system's dark/light theme and accent color, with live
-  previews of the keyboard and the light bar, animated effect tiles and a color picker.
+  previews of the keyboard and the light bar, animated effect tiles and a color picker. The navigation pane collapses
+  to its icons (with tooltips) with the ☰ button, and stays that way.
 - **Smooth Wave:** the keyboard's firmware moves Wave's colors a whole zone at a time; while the app runs it draws
   Wave itself, blending the colors across the zones. After exit the firmware's Wave takes over again.
 - **Fine brightness:** a 0–100% slider in 1% steps for the keyboard and the light bar, sent as the nearest of the

@@ -39,6 +39,8 @@ pub struct Settings {
     pub app_profiles_enabled: bool,
     /// The Display page's color modes.
     pub display: DisplaySettings,
+    /// The window's navigation pane shows only icons.
+    pub nav_collapsed: bool,
 }
 
 /// Whole-screen color modes: whether one is on, which, and each mode's values (missing ones are the mode's own).
@@ -117,6 +119,7 @@ impl Default for Settings {
             app_profiles: Vec::new(),
             app_profiles_enabled: true,
             display: DisplaySettings::default(),
+            nav_collapsed: false,
         }
     }
 }

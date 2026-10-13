@@ -473,6 +473,9 @@ impl App {
             app.bind_setups();
             app.apply_display();
             app.refresh_display();
+            if let Some(ui) = app.ui() {
+                ui.set_nav_collapsed(app.settings.nav_collapsed);
+            }
             app.refresh_power();
             app.refresh_bios();
             if !demo {
@@ -1858,6 +1861,12 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_set_display_mode(|i| with_app(move |app| app.set_display_mode(i.max(0) as usize)));
     ui.on_set_display_value(|which, v| with_app(move |app| app.set_display_value(which, v)));
     ui.on_reset_display_mode(|| with_app(|app| app.reset_display_mode()));
+    ui.on_nav_collapsed_changed(|on| {
+        with_app(move |app| {
+            app.settings.nav_collapsed = on;
+            app.settings_dirty = true;
+        })
+    });
     ui.on_import_settings(|| with_app(|app| app.import_settings()));
     ui.on_retry(|| with_app(|app| app.open_devices()));
     ui.on_format_hex(|color| Rgb::from_slint(color).hex().into());

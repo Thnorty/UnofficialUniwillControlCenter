@@ -15,8 +15,12 @@ component NavItem inherits Rectangle {
     in property <string> icon;
     in property <string> label;
     in property <bool> selected;
+    // Only the icon, in the collapsed pane; the label is then its tooltip.
+    in property <bool> compact;
     callback clicked;
+    callback hovered(bool);
     height: 40px;
+    clip: true;
     border-radius: 4px;
     background: root.selected ? Theme.subtle-selected : touch.pressed ? Theme.subtle-pressed : touch.has-hover ? Theme.subtle-hover : transparent;
     animate background { duration: 100ms; }
@@ -37,7 +41,7 @@ component NavItem inherits Rectangle {
             text: root.icon;
             width: 16px;
         }
-        Text {
+        if !root.compact: Text {
             text: root.label;
             vertical-alignment: center;
             color: Theme.text;
@@ -45,6 +49,7 @@ component NavItem inherits Rectangle {
     }
     touch := TouchArea {
         clicked => { root.clicked(); }
+        changed has-hover => { root.hovered(self.has-hover); }
     }
 }
 
@@ -179,6 +184,21 @@ export component AppWindow inherits Window {
     in property <string> app-profile-status;
     // How far a page of repeated rows reaches past its reported height (see PluginsPage).
     property <length> page-overflow;
+    // The navigation pane shows only its icons.
+    in-out property <bool> nav-collapsed;
+    callback nav-collapsed-changed(bool);
+    // The collapsed pane's tooltip: which item's name, and where.
+    property <string> tip;
+    property <length> tip-y;
+
+    function show-tip(on: bool, text: string, y: length) {
+        if (on) {
+            root.tip = text;
+            root.tip-y = y;
+        } else if (root.tip == text) {
+            root.tip = "";
+        }
+    }
 
     // device: 0 = keyboard, 1 = light bar
     callback select-effect(int, int);
@@ -267,22 +287,39 @@ export component AppWindow inherits Window {
     }
 
     HorizontalLayout {
-        // The navigation pane.
+        // The navigation pane; collapsed, only its icons.
+        Rectangle {
+            width: root.nav-collapsed ? 60px : 260px;
+            animate width { duration: 200ms; easing: cubic-bezier(0.0, 0.0, 0.0, 1.0); }
+            clip: true;
         VerticalLayout {
-            width: 260px;
             padding: 6px;
-            padding-top: 14px;
+            padding-top: 8px;
             spacing: 4px;
             HorizontalLayout {
-                padding-left: 14px;
-                padding-bottom: 18px;
-                spacing: 12px;
-                Image {
-                    source: @image-url("../res/app.png");
-                    width: 20px;
-                    height: 20px;
+                padding-bottom: 10px;
+                spacing: 8px;
+                NavItem {
+                    width: 48px;
+                    icon: Glyphs.menu;
+                    label: "Show the menu";
+                    compact: true;
+                    clicked => {
+                        root.nav-collapsed = !root.nav-collapsed;
+                        root.tip = "";
+                        root.nav-collapsed-changed(root.nav-collapsed);
+                    }
+                    hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 }
-                Text {
+                if !root.nav-collapsed: VerticalLayout {
+                    alignment: center;
+                    Image {
+                        source: @image-url("../res/app.png");
+                        width: 20px;
+                        height: 20px;
+                    }
+                }
+                if !root.nav-collapsed: Text {
                     text: "Tulpar Control";
                     font-size: 12px;
                     color: Theme.text;
@@ -290,54 +327,72 @@ export component AppWindow inherits Window {
                 }
             }
             NavItem {
+                compact: root.nav-collapsed;
+                hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.keyboard;
                 label: "Keyboard";
                 selected: root.page == 0;
                 clicked => { root.page = 0; }
             }
             if root.has-light-bar: NavItem {
+                compact: root.nav-collapsed;
+                hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.light;
                 label: "Light bar";
                 selected: root.page == 1;
                 clicked => { root.page = 1; }
             }
             NavItem {
+                compact: root.nav-collapsed;
+                hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.display;
                 label: "Display";
                 selected: root.page == 9;
                 clicked => { root.page = 9; }
             }
             NavItem {
+                compact: root.nav-collapsed;
+                hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.performance;
                 label: "Performance";
                 selected: root.page == 4;
                 clicked => { root.page = 4; }
             }
             NavItem {
+                compact: root.nav-collapsed;
+                hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.battery;
                 label: "Battery";
                 selected: root.page == 5;
                 clicked => { root.page = 5; }
             }
             NavItem {
+                compact: root.nav-collapsed;
+                hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.monitor;
                 label: "Monitor";
                 selected: root.page == 6;
                 clicked => { root.page = 6; }
             }
             NavItem {
+                compact: root.nav-collapsed;
+                hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.timer;
                 label: "Timer & alerts";
                 selected: root.page == 2;
                 clicked => { root.page = 2; }
             }
             NavItem {
+                compact: root.nav-collapsed;
+                hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.setups;
                 label: "Setups";
                 selected: root.page == 8;
                 clicked => { root.page = 8; }
             }
             NavItem {
+                compact: root.nav-collapsed;
+                hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.plugin;
                 label: "Plugins";
                 selected: root.page == 7;
@@ -347,11 +402,14 @@ export component AppWindow inherits Window {
                 vertical-stretch: 1;
             }
             NavItem {
+                compact: root.nav-collapsed;
+                hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.settings;
                 label: "Settings";
                 selected: root.page == 3;
                 clicked => { root.page = 3; }
             }
+        }
         }
 
         // The content, on a layer with a rounded corner like Windows 11 apps.
@@ -579,6 +637,26 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+
+    if root.nav-collapsed && root.tip != "": Rectangle {
+        x: 64px;
+        y: root.tip-y + 4px;
+        width: tip-text.preferred-width + 20px;
+        height: 32px;
+        border-radius: 4px;
+        background: Theme.dark ? #2c2c2c : #f9f9f9;
+        border-width: 1px;
+        border-color: Theme.card-stroke;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: #00000050;
+        tip-text := Text {
+            text: root.tip;
+            font-size: 12px;
+            color: Theme.text;
+            vertical-alignment: center;
+            horizontal-alignment: center;
         }
     }
 
