@@ -1,5 +1,5 @@
 //! The plugins' address on this PC: `http://127.0.0.1:47823/plugins/<id>[/more]`. Anything POSTed there as JSON
-//! goes to that plugin's `on_event(path, body)`, which is how Claude Code's HTTP hooks and the browser extension
+//! goes to that plugin's `on_event(path, body)`, which is how Claude Code's hooks and the browser extension
 //! reach their plugins.
 //!
 //! Only this PC can connect. Web pages can't post here: requests from a page carry its Origin and are refused, and

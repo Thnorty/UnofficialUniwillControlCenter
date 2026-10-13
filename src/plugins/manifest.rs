@@ -81,7 +81,7 @@ pub struct Action {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Permission {
-    /// Add and remove its own HTTP hooks in Claude Code's user settings (%USERPROFILE%\.claude\settings.json).
+    /// Add and remove its own hooks in Claude Code's user settings (%USERPROFILE%\.claude\settings.json).
     ClaudeHooks,
     /// See the names and sizes of unfinished downloads in the Downloads folder.
     DownloadsFolder,

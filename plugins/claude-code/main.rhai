@@ -1,5 +1,5 @@
 // Claude Code on the light bar. Claude Code posts each hook event here once "Connect Claude Code" has added its
-// HTTP hooks. Every session (each Claude Code window) is followed on its own; the bar shows the one that matters
+// hooks. Every session (each Claude Code window) is followed on its own; the bar shows the one that matters
 // most: one that needs you, then one at work, then one that just finished.
 
 fn hook_events() {
@@ -9,6 +9,13 @@ fn hook_events() {
 fn init() {
     this.sessions = #{};
     this.connected = claude_hooks_installed() > 0;
+    if this.connected {
+        // Brings hooks from an earlier version up to date (they were reported as failed while the app was closed).
+        try {
+            install_claude_hooks(hook_events());
+        } catch {
+        }
+    }
     set_tick(1000);
     this.update();
 }
@@ -34,7 +41,7 @@ fn on_event(path, e) {
         id = "default";
     }
     if !this.sessions.contains(id) {
-        this.sessions[id] = #{ state: "idle", total: 0, done: 0, completed: [], seen: now() };
+        this.sessions[id] = #{ state: "idle", total: 0, done: 0, completed: [], seen: now(), stopped: 0.0 };
     }
     let s = this.sessions[id];
     s.seen = now();
@@ -48,6 +55,11 @@ fn on_event(path, e) {
             s.completed = [];
         }
     } else if event == "PreToolUse" || event == "PostToolUse" || event == "PostToolUseFailure" {
+        // The hooks run in the background, so a tool's event can arrive just after Stop: it doesn't restart work.
+        if s.state != "working" && now() - s.stopped < 3.0 {
+            this.sessions[id] = s;
+            return;
+        }
         s.state = "working";
         let input = e.tool_input;
         if e.tool_name == "TodoWrite" && type_of(input) == "map" && type_of(input.todos) == "array" {
@@ -76,6 +88,7 @@ fn on_event(path, e) {
             s.state = "idle";
         }
     } else if event == "Stop" {
+        s.stopped = now();
         let done = setting("done");
         if done == "Flash" {
             flash(setting("done_color"), "open");

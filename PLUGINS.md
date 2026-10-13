@@ -13,9 +13,11 @@ These plugins come with the app:
   - a pulse when it needs you (a permission prompt or a question);
   - a flash when it's finished.
 
-  Press **Connect Claude Code** once. This adds HTTP hooks to `%USERPROFILE%\.claude\settings.json`, and a copy of
+  Press **Connect Claude Code** once. This adds hooks to `%USERPROFILE%\.claude\settings.json`, and a copy of
   the file as it was is kept next to it as `settings.json.tulpar-backup`. **Disconnect** removes only those hooks.
-  The hooks post to the app while it runs. While it's closed they fail quietly, and Claude Code carries on.
+  Each hook sends its event to the app with `curl.exe` in the background, so Claude Code doesn't wait for it, and
+  while the app is closed nothing is reported. Hooks added by an earlier version (HTTP hooks, which Claude Code
+  showed as failed while the app was closed) are replaced when the app starts.
 - **Downloads:**
   - With the browser extension, the bar fills as a download progresses. To install it in Chrome or Edge:
     1. Open `chrome://extensions` (or `edge://extensions`) and turn on Developer mode.

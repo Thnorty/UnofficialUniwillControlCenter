@@ -201,7 +201,8 @@ Control Center's CPU overclocking settings for Intel laptops:
   now into a setup.
 - **Plugins:** small scripts that show things on the light bar, over the current effect (`PLUGINS.md`):
   - **Claude Code:** a sweep while Claude works, its task list filling the bar, a pulse when it needs you and a flash
-    when it's done, through Claude Code's HTTP hooks (added and removed with one button, with a backup).
+    when it's done, through Claude Code hooks (added and removed with one button, with a backup) that run in the
+    background and stay quiet while the app is closed.
   - **Downloads:** download progress from a Chrome/Edge extension, or a sweep while an unfinished download is in the
     Downloads folder.
   - **Example:** off at first; it fills the bar and uses every kind of setting, as a template for new plugins.

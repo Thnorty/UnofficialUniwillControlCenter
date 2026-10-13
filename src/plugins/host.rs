@@ -572,7 +572,7 @@ mod tests {
     #[test]
     fn claude_code_plugin() {
         let (host, layers, rx) = host();
-        bundled(&host, "claude-code", false);
+        bundled(&host, "claude-code", true); // inert: it mustn't touch this PC's Claude Code settings
         let event = |body: serde_json::Value| host.send(Command::Event { id: "claude-code".into(), path: "".into(), body });
         settle(&rx);
         assert!(layers.top_layer().is_none());
@@ -593,6 +593,11 @@ mod tests {
         event(serde_json::json!({ "session_id": "b", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": {} }));
         event(serde_json::json!({ "session_id": "b", "hook_event_name": "Stop" }));
         event(serde_json::json!({ "session_id": "a", "hook_event_name": "Stop" }));
+        let log = settle(&rx);
+        assert!(layers.top_layer().is_none(), "{log:?}");
+
+        // A background hook's tool event arriving just after Stop doesn't start the sweep again.
+        event(serde_json::json!({ "session_id": "a", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": {} }));
         let log = settle(&rx);
         assert!(layers.top_layer().is_none(), "{log:?}");
         assert!(!log.iter().any(|l| l.starts_with("log true")), "{log:?}");

@@ -1,7 +1,7 @@
 {
   "id": "claude-code",
   "name": "Claude Code",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Tulpar Control",
   "description": "Shows Claude Code at work on the light bar: a sweep while it works, its task list filling the bar as tasks get done, a pulse when it needs you, and a flash when it's finished. Press Connect Claude Code once to add its hooks.",
   "permissions": ["claude-hooks"],
