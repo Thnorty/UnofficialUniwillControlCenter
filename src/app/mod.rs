@@ -404,6 +404,8 @@ impl App {
         ui.set_idle_index(idle_index as i32);
         ui.set_flash_caps(settings.flash_caps_lock);
         ui.set_flash_num(settings.flash_num_lock);
+        ui.set_popup_caps(settings.popup_caps_lock);
+        ui.set_popup_num(settings.popup_num_lock);
         if !demo {
             startup::migrate();
         }
@@ -1162,6 +1164,13 @@ impl App {
     fn check_indicators(&mut self) {
         let now = system::lock_keys();
         let Some((caps, num)) = self.lock_keys.replace(now) else { return }; // the first reading is only remembered
+        let on_off = |on: bool| if on { "on" } else { "off" };
+        if self.settings.popup_caps_lock && caps != now.0 {
+            self.osd.show_text(osd::KEYBOARD_GLYPH, &format!("Caps Lock {}", on_off(now.0)));
+        }
+        if self.settings.popup_num_lock && num != now.1 {
+            self.osd.show_text(osd::KEYBOARD_GLYPH, &format!("Num Lock {}", on_off(now.1)));
+        }
         if self.light_bar.is_none() {
             return;
         }
@@ -1734,6 +1743,24 @@ fn connect_callbacks(ui: &AppWindow) {
             app.settings_dirty = true;
             if let Some(ui) = app.ui() {
                 ui.set_flash_caps(on);
+            }
+        })
+    });
+    ui.on_set_popup_caps(|on| {
+        with_app(move |app| {
+            app.settings.popup_caps_lock = on;
+            app.settings_dirty = true;
+            if let Some(ui) = app.ui() {
+                ui.set_popup_caps(on);
+            }
+        })
+    });
+    ui.on_set_popup_num(|on| {
+        with_app(move |app| {
+            app.settings.popup_num_lock = on;
+            app.settings_dirty = true;
+            if let Some(ui) = app.ui() {
+                ui.set_popup_num(on);
             }
         })
     });

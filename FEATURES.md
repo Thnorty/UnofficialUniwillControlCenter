@@ -65,7 +65,8 @@ These work the way Control Center does them. The commands come from Control Cent
   Control Center's service does, by setting the "app present" bit in the embedded controller.
 - **Windows key lock:** shows the current state and has a button to toggle it.
 - **Touchpad:** toggles on and off, and the button follows the touchpad's Fn shortcut.
-- **Pop-ups (OSD):** for keyboard brightness, touchpad on/off and Windows key lock/unlock.
+- **Pop-ups (OSD):** for keyboard brightness, touchpad on/off, Windows key lock/unlock, and Caps Lock and Num Lock
+  (each can be turned off on the Timer & alerts page).
 
 ### Performance modes
 - **Office, Gaming and Turbo:** the EC's fan mode byte (0x751) and the CPU power limits (PL1, PL2, PL4) the EC keeps
@@ -219,7 +220,7 @@ Not implemented:
 - **Monitoring:** In-Game OSD and Quick Information Box.
 - **Keys:**
   - Fn Lock;
-  - Caps Lock, Num Lock and Scroll Lock pop-ups (the light bar flashes for Caps Lock and Num Lock instead);
+  - a Scroll Lock pop-up (the laptop has no Scroll Lock key);
   - key remapping, Game Mode and application profiles.
 - **Device switches:** Wi-Fi, Bluetooth and webcam, and touchpad active-area settings.
 - **Light bars and LED strips:** only on models that have them.

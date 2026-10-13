@@ -22,6 +22,9 @@ pub struct Settings {
     /// The light bar flashes when these change.
     pub flash_caps_lock: bool,
     pub flash_num_lock: bool,
+    /// A pop-up shows when these change.
+    pub popup_caps_lock: bool,
+    pub popup_num_lock: bool,
     /// None until the app has read the EC, so the first run keeps the mode and battery care already set.
     pub power: Option<PowerSettings>,
     /// The startup lighting the BIOS had before this app first changed it, by device ("Keyboard", "LightBar"): its
@@ -46,6 +49,8 @@ impl Default for Settings {
             idle_timeout_seconds: 0,
             flash_caps_lock: true,
             flash_num_lock: true,
+            popup_caps_lock: true,
+            popup_num_lock: true,
             power: None,
             startup_lighting_backup: HashMap::new(),
             plugins: HashMap::new(),

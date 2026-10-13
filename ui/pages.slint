@@ -445,10 +445,14 @@ export component AlertsPage inherits VerticalLayout {
     in-out property <int> timer-minutes: 25;
     in property <bool> flash-caps;
     in property <bool> flash-num;
+    in property <bool> popup-caps;
+    in property <bool> popup-num;
     callback start-timer(int);
     callback cancel-timer();
     callback set-flash-caps(bool);
     callback set-flash-num(bool);
+    callback set-popup-caps(bool);
+    callback set-popup-num(bool);
     property <[int]> lengths: [5, 10, 15, 25, 30, 45, 60];
 
     spacing: 8px;
@@ -558,6 +562,34 @@ export component AlertsPage inherits VerticalLayout {
                     icon: Glyphs.close;
                     clicked => { root.cancel-timer(); }
                 }
+            }
+        }
+    }
+
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "Pop-ups";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.keys;
+            title: "Caps Lock";
+            description: "A pop-up above the taskbar when Caps Lock turns on or off.";
+            ToggleSwitch {
+                checked: root.popup-caps;
+                toggled(on) => { root.set-popup-caps(on); }
+            }
+        }
+        SettingRow {
+            icon: Glyphs.keys;
+            title: "Num Lock";
+            description: "A pop-up when Num Lock turns on or off.";
+            ToggleSwitch {
+                checked: root.popup-num;
+                toggled(on) => { root.set-popup-num(on); }
             }
         }
     }

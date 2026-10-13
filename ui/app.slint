@@ -104,6 +104,8 @@ export component AppWindow inherits Window {
     in-out property <int> timer-minutes: 25;
     in property <bool> flash-caps;
     in property <bool> flash-num;
+    in property <bool> popup-caps;
+    in property <bool> popup-num;
 
     // Settings.
     in property <[string]> idle-options;
@@ -173,6 +175,8 @@ export component AppWindow inherits Window {
     callback cancel-timer();
     callback set-flash-caps(bool);
     callback set-flash-num(bool);
+    callback set-popup-caps(bool);
+    callback set-popup-num(bool);
     callback set-idle(int);
     callback toggle-touchpad();
     callback toggle-winkey();
@@ -393,10 +397,14 @@ export component AppWindow inherits Window {
                         timer-minutes <=> root.timer-minutes;
                         flash-caps: root.flash-caps;
                         flash-num: root.flash-num;
+                        popup-caps: root.popup-caps;
+                        popup-num: root.popup-num;
                         start-timer(m) => { root.start-timer(m); }
                         cancel-timer => { root.cancel-timer(); }
                         set-flash-caps(on) => { root.set-flash-caps(on); }
                         set-flash-num(on) => { root.set-flash-num(on); }
+                        set-popup-caps(on) => { root.set-popup-caps(on); }
+                        set-popup-num(on) => { root.set-popup-num(on); }
                     }
                     if root.page == 4: PerformancePage {
                         available: root.perf-available;
