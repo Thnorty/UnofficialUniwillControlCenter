@@ -14,9 +14,6 @@ pub mod ui {
     slint::include_modules!();
 }
 
-use shell::tray;
-use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
-use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
 use windows::core::{HSTRING, w};
 
@@ -26,14 +23,8 @@ fn main() {
     let demo = has("--demo");
     let start_hidden = has("--tray");
 
-    // Two instances would send interleaved commands to the same controllers; bring the running one forward instead.
-    if !demo {
-        let _mutex = unsafe { CreateMutexW(None, true, w!("Local\\TulparControl")) };
-        if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
-            tray::signal_running_instance();
-            return;
-        }
-        std::mem::forget(_mutex); // held until the process ends
+    if !demo && !shell::instance::acquire() {
+        return;
     }
 
     // Never leave the firmware's hotkeys pointed at a process that is gone, or the fans on a curve nothing watches.

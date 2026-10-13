@@ -1,4 +1,5 @@
-//! The tray icon and the pop-ups.
+//! The tray icon, the pop-ups and the single-instance lock.
 
+pub mod instance;
 pub mod osd;
 pub mod tray;

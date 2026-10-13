@@ -310,7 +310,7 @@ impl Scene for TypingScene {
             let age = (frame.time - start) as f32;
             let (radius, fade) = (age * spread, 1.0 - age / lifetime);
             for (led, value) in leds.iter_mut().enumerate() {
-                let edge = 1.0 - ((led as f32 - origin).abs() - radius).abs() / 3.0; // a ring about six LEDs wide
+                let edge = 1.0 - ((led as f32 - origin).abs() - radius).abs() / 4.5; // a ring about nine LEDs wide
                 if edge > 0.0 {
                     *value = value.max(color.scale(edge * fade));
                 }

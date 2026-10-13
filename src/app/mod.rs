@@ -1592,6 +1592,9 @@ impl App {
             return;
         }
         self.exiting = true;
+        if !self.demo {
+            crate::shell::instance::note_exiting(); // a launch from now on waits for this one to finish
+        }
         self.timers.clear();
         self.fade_timer.stop();
         self.watch.stop.store(true, Ordering::Release);
