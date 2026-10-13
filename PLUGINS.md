@@ -31,6 +31,10 @@ These plugins come with the app:
   during the break (5 minutes, and 15 after every fourth round). A blink and a notification mark each change.
   **Pause**, **Skip** and **Stop** do what they say; with **Go on by itself** off, the bar pulses until you press
   Start for the next part.
+- **Microphone** (off at first): the bar glows red while Windows' microphone is muted, so you don't talk into a
+  muted call; or only while an app tries to listen. It can also glow while an app listens, and **Mute / unmute**
+  switches the microphone. Apps with their own mute button (Discord, Teams) mute only themselves, which Windows
+  doesn't see.
 - **Media** (off at first): the bar fills as a song or video plays, in any app that shows in Windows' media controls
   (Spotify, Chrome, Edge, …), and shows the volume for two seconds when it changes, in red while muted.
 - **Notifications** (off at first): a flash when a notification arrives from an app in its **Apps** list, or from
@@ -99,6 +103,7 @@ files and 20 MB.
   - `downloads-folder`: may see the unfinished downloads in the Downloads folder (names and sizes).
   - `media`: may see what's playing (the program, title, artist and position) and the volume.
   - `notifications`: may see which apps show notifications, and when. Never what they say.
+  - `microphone`: may see whether the microphone is muted or in use (not which app uses it), and mute or unmute it.
 
 ### The script
 
@@ -171,6 +176,8 @@ several plugins show something, the one that started showing it last is on top.
 | `cpu_temperature()`, `gpu_temperature()` | The temperature in °C, as the Monitor page shows it, or `()` without a reading (the GPU is off). |
 | `media()` | Needs `media`. What's playing: a map with `app`, `title`, `artist`, `playing` (false while paused), `position` and `duration` in seconds (0 if the app doesn't say), or `()` when nothing is. |
 | `volume()` | Needs `media`. The speakers' volume: a map with `level` (0 to 1) and `muted`. |
+| `microphone()` | Needs `microphone`. A map with `muted` and `in_use` (an app is using the microphone now), or `()` without a microphone. |
+| `set_microphone_muted(muted)` | Needs `microphone`. Mutes or unmutes the default microphone; false if that didn't work. |
 | `notifications()` | Needs `notifications`. The notifications in the notification center, oldest first: maps with `id`, `app` and `time` (seconds since 1970). `()` when Windows doesn't allow it. |
 | `partial_downloads()` | Needs `downloads-folder`. The unfinished downloads: maps with `name`, `size` and `idle` (seconds since the last write). |
 | `install_claude_hooks(events)`, `remove_claude_hooks()`, `claude_hooks_installed()` | Need `claude-hooks`. Add or remove hooks that post to this plugin, or count how many there are. |
@@ -197,4 +204,4 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:47823/plugins/build-status/
 ```
 
 In demo mode (`--demo`), plugins run but receive no events. What their permissions allow is only pretended: no
-downloads or notifications are seen, a made-up song plays, and Claude Code's settings aren't changed.
+downloads or notifications are seen, a made-up song plays, the microphone is a pretend one, and Claude Code's settings aren't changed.

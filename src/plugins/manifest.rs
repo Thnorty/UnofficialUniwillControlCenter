@@ -89,6 +89,8 @@ pub enum Permission {
     Media,
     /// See which apps show notifications, and when; not what they say.
     Notifications,
+    /// See whether the microphone is muted or in use, and mute or unmute it.
+    Microphone,
 }
 
 impl Permission {
@@ -98,6 +100,7 @@ impl Permission {
             Permission::DownloadsFolder => "see unfinished downloads in your Downloads folder",
             Permission::Media => "see what's playing and the volume",
             Permission::Notifications => "see which apps show notifications (not what they say)",
+            Permission::Microphone => "see whether the microphone is muted or in use, and mute it",
         }
     }
 }

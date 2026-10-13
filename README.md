@@ -63,7 +63,7 @@ target-demo\release\TulparControl.exe --demo
 | `src/app/setups.rs` | Saved setups and app profiles: saving, applying, and switching while a program runs. |
 | `src/app/backup.rs` | Backing up all settings to a file and restoring them. |
 | `src/app/display.rs`, `src/shell/display.rs` | The Display page's color modes, and their color matrix put over the screen. |
-| `src/plugins/` | The plugin manifest (`manifest.rs`), the plugins folder and imports (`store.rs`), the script thread and its API (`host.rs`), the light bar layers (`layers.rs`), the local events server (`server.rs`), Windows readings for scripts (`readings.rs`: temperatures, media, volume, notifications), and what permissions allow (`claude.rs`, `downloads.rs`). |
-| `plugins/` | The plugins that come with the app: Claude Code, Downloads with its browser extension, Example, Focus timer, Media, Notifications and Temperature alert. |
+| `src/plugins/` | The plugin manifest (`manifest.rs`), the plugins folder and imports (`store.rs`), the script thread and its API (`host.rs`), the light bar layers (`layers.rs`), the local events server (`server.rs`), Windows readings for scripts (`readings.rs`: temperatures, media, volume, microphone, notifications), and what permissions allow (`claude.rs`, `downloads.rs`). |
+| `plugins/` | The plugins that come with the app: Claude Code, Downloads with its browser extension, Example, Focus timer, Media, Microphone, Notifications and Temperature alert. |
 | `ui/*.slint` | The window, in Slint; `power.slint` has the Performance, Battery and Monitor pages, `plugins.slint` the Plugins page, `setups.slint` the Setups page, `display.slint` the Display page. |
 | `tools/` | PowerShell scripts used to test the embedded controller's behavior. |

@@ -81,6 +81,8 @@ struct Context {
     settings: Mutex<ScriptMap>,
     tick: Mutex<Option<Duration>>,
     last_notify: Mutex<Option<Instant>>,
+    /// The pretend microphone's mute while inert.
+    demo_muted: Mutex<bool>,
 }
 
 impl Context {
@@ -243,6 +245,7 @@ fn start(
         settings: Mutex::new(to_script_map(&settings)),
         tick: Mutex::new(None),
         last_notify: Mutex::new(None),
+        demo_muted: Mutex::new(false),
     });
     let engine = engine(&context);
     let ast = engine.compile(script).map_err(|e| format!("The script has an error: {e}"))?;
@@ -405,6 +408,27 @@ fn engine(context: &Arc<Context>) -> Engine {
             map.insert("muted".into(), muted.into());
             Dynamic::from_map(map)
         }))
+    });
+    let c = context.clone();
+    engine.register_fn("microphone", move || -> Fallible<Dynamic> {
+        c.require(Permission::Microphone)?;
+        // Inert: a microphone that's on and not in use, unless a script muted it.
+        let muted = if c.inert { Some(*c.demo_muted.lock().unwrap_or_else(|e| e.into_inner())) } else { readings::microphone_muted() };
+        Ok(muted.map_or(Dynamic::UNIT, |muted| {
+            let mut map = ScriptMap::new();
+            map.insert("muted".into(), muted.into());
+            map.insert("in_use".into(), (!c.inert && readings::microphone_in_use()).into());
+            Dynamic::from_map(map)
+        }))
+    });
+    let c = context.clone();
+    engine.register_fn("set_microphone_muted", move |muted: bool| -> Fallible<bool> {
+        c.require(Permission::Microphone)?;
+        if c.inert {
+            *c.demo_muted.lock().unwrap_or_else(|e| e.into_inner()) = muted;
+            return Ok(true);
+        }
+        Ok(readings::set_microphone_muted(muted))
     });
     let c = context.clone();
     engine.register_fn("notifications", move || -> Fallible<Dynamic> {
@@ -642,6 +666,21 @@ mod tests {
         let log = settle(&rx);
         assert!(matches!(layers.top_layer(), Some((_, Layer::Progress { .. }))), "{log:?}");
         assert!(log.iter().any(|l| l.starts_with("status Demo song – Tulpar Control · ")), "{log:?}");
+        no_errors(&log);
+    }
+
+    #[test]
+    fn microphone_plugin() {
+        // Inert: the pretend microphone starts on; the button mutes it, and the bar glows.
+        let (host, layers, rx) = host();
+        bundled(&host, "microphone", true);
+        let log = settle(&rx);
+        assert!(log.iter().any(|l| l == "status On."), "{log:?}");
+        assert!(layers.top_layer().is_none());
+        host.send(Command::Action { id: "microphone".into(), action: "toggle".into() });
+        let log = settle(&rx);
+        assert!(log.iter().any(|l| l == "status Muted."), "{log:?}");
+        assert!(matches!(layers.top_layer(), Some((_, Layer::Solid(_)))), "{log:?}");
         no_errors(&log);
     }
 

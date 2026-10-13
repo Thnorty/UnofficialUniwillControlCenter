@@ -21,6 +21,13 @@ pub struct Installed {
 /// The plugins that come with the app: their id and files, from the repository's plugins folder.
 const BUILTIN: &[(&str, &[(&str, &[u8])])] = &[
     (
+        "microphone",
+        &[
+            ("plugin.json", include_bytes!("../../plugins/microphone/plugin.json")),
+            ("main.rhai", include_bytes!("../../plugins/microphone/main.rhai")),
+        ],
+    ),
+    (
         "claude-code",
         &[
             ("plugin.json", include_bytes!("../../plugins/claude-code/plugin.json")),
@@ -74,7 +81,7 @@ const BUILTIN: &[(&str, &[(&str, &[u8])])] = &[
 ];
 
 /// Plugins that come with the app but start off: they'd change the light bar unasked, or need choices first.
-const OFF_BY_DEFAULT: &[&str] = &["example", "media", "notifications", "temperature-alert"];
+const OFF_BY_DEFAULT: &[&str] = &["example", "media", "microphone", "notifications", "temperature-alert"];
 
 const MAX_FILES: usize = 500;
 const MAX_BYTES: u64 = 20 << 20;

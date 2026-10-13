@@ -87,6 +87,9 @@ Control Center's CPU overclocking settings for Intel laptops:
   limits go up to the highest mode's own.
 - **TCC offset per mode:** makes the CPU start throttling that many °C below its maximum temperature (EC 0x786,
   0x80 | °C), up to the table's maximum (here 5 °C), starting from the mode's default (EC 0x7D8–0x7DA).
+- **Profiles per mode:** as Control Center's five profiles per mode, each with its own power limits, TCC offset
+  and fan curve. Every mode starts with "Standard"; a new one starts as a copy of the active one, and changes on the
+  page go into the active one. Switching sends it at once, with a pop-up.
 - **Core voltage offset:** written to the UEFI variable (`ICpuCoreVoltageOffsetValue` and
   `ICpuCoreVoltageOffsetNegativeValue`), so it takes effect after a restart. This BIOS allows 0 to +100 mV (range
   type 0); there's no undervolting.
@@ -201,6 +204,9 @@ Control Center's CPU overclocking settings for Intel laptops:
   - **Example:** off at first; it fills the bar and uses every kind of setting, as a template for new plugins.
   - **Focus timer:** Pomodoro rounds: the bar fills while you focus and empties during the break, with a long break
     every few rounds, and Start, Pause, Skip and Stop buttons.
+  - **Microphone** (off at first): the bar glows red while Windows' microphone is muted (always, or only while an
+    app tries to listen), and if wanted while an app listens, with a Mute / unmute button. "In use" is Windows' own
+    privacy record (the capability access manager's consent store).
   - **Media** (off at first): song progress from Windows' media controls (any player, browsers included), and the
     volume for two seconds when it changes.
   - **Notifications** (off at first): a flash for new notifications from chosen apps, each with its own color if
@@ -232,8 +238,6 @@ Control Center's CPU overclocking settings for Intel laptops:
 ### Rest of Control Center
 
 Not implemented:
-- **Per-mode profiles:** Control Center keeps five profiles per mode with edited power limits; this app uses each
-  mode's defaults. (Switching per game is covered by app profiles, which switch saved setups.)
 - **GPU tuning:** GPU core and memory overclocking, configurable TGP (here up to 35 W over the 80 W base), Dynamic
   Boost (15 W) and NVIDIA Whisper Mode. They go through the NVIDIA driver, and couldn't be built and tried without
   the GPU.
