@@ -638,6 +638,8 @@ export component SettingsPage inherits VerticalLayout {
     callback toggle-touchpad();
     callback toggle-winkey();
     callback set-start-with-windows(bool);
+    callback export-settings();
+    callback import-settings();
 
     spacing: 4px;
     VerticalLayout {
@@ -712,6 +714,22 @@ export component SettingsPage inherits VerticalLayout {
             ToggleSwitch {
                 checked: root.start-with-windows;
                 toggled(on) => { root.set-start-with-windows(on); }
+            }
+        }
+        SettingRow {
+            icon: Glyphs.save;
+            title: "Back up and restore";
+            description: "All settings in one file: lighting, performance, fan curves, setups, app profiles and plugins' settings. Restoring replaces them and restarts the app.";
+            HorizontalLayout {
+                spacing: 8px;
+                FluentButton {
+                    text: "Back up…";
+                    clicked => { root.export-settings(); }
+                }
+                FluentButton {
+                    text: "Restore…";
+                    clicked => { root.import-settings(); }
+                }
             }
         }
         SettingRow {

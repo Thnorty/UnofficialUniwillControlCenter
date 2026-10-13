@@ -157,6 +157,23 @@ impl Settings {
         settings
     }
 
+    /// The settings as a backup file holds them.
+    pub fn to_backup(&self) -> anyhow::Result<String> {
+        Ok(serde_json::to_string_pretty(self)?)
+    }
+
+    /// Settings from a backup file; refuses JSON that isn't this app's settings.
+    pub fn from_backup(text: &str) -> anyhow::Result<Settings> {
+        let value: serde_json::Value = serde_json::from_str(text.trim_start_matches('\u{FEFF}')).map_err(|e| anyhow::anyhow!("The file isn't valid JSON ({e})"))?;
+        let known = ["Keyboard", "LightBar", "Power", "Plugins", "IdleTimeoutSeconds"];
+        if !value.as_object().is_some_and(|o| known.iter().any(|k| o.contains_key(*k))) {
+            anyhow::bail!("The file isn't a Tulpar Control settings backup");
+        }
+        let mut settings: Settings = serde_json::from_value(value).map_err(|e| anyhow::anyhow!("The settings in the file can't be read ({e})"))?;
+        settings.keyboard.get_or_insert_with(LightingSettings::default);
+        Ok(settings)
+    }
+
     pub fn save(&self) {
         let Some(path) = path() else { return };
         if let Some(dir) = path.parent() {
@@ -165,5 +182,23 @@ impl Settings {
         if let Ok(text) = serde_json::to_string(self) {
             let _ = std::fs::write(path, text);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backups() {
+        let mut settings = Settings::default();
+        settings.idle_timeout_seconds = 300;
+        settings.popup_num_lock = false;
+        let restored = Settings::from_backup(&settings.to_backup().unwrap()).unwrap();
+        assert_eq!(restored.idle_timeout_seconds, 300);
+        assert!(!restored.popup_num_lock);
+        assert!(restored.keyboard.is_some());
+        assert!(Settings::from_backup(r#"{ "name": "something else" }"#).is_err());
+        assert!(Settings::from_backup("not json").is_err());
     }
 }

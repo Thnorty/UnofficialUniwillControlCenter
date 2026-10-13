@@ -3,6 +3,7 @@
 //! Everything here runs on the UI thread; the effects, EC, hotkey, monitor and brightness-watching threads post back
 //! to it with slint::invoke_from_event_loop.
 
+mod backup;
 mod bios;
 mod monitor;
 mod plugins;
@@ -332,6 +333,8 @@ pub struct App {
     started: Instant,
     settings_dirty: bool,
     exiting: bool,
+    /// Settings restored from a backup: saved over the current ones on exit, then the app starts again.
+    replace_settings: Option<Settings>,
     power: power::Power,
     monitor: monitor::Monitor,
     bios: bios::Bios,
@@ -442,6 +445,7 @@ impl App {
             started: Instant::now(),
             settings_dirty: false,
             exiting: false,
+            replace_settings: None,
             power,
             monitor: monitor::Monitor::new(),
             bios: bios::Bios::default(),
@@ -1661,6 +1665,13 @@ impl App {
             }
             self.store_settings();
             self.settings.save();
+            if let Some(restored) = self.replace_settings.take() {
+                restored.save();
+                // The new instance waits for this one to finish (see instance::acquire).
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).spawn();
+                }
+            }
         }
         self.tray = None;
         self.keyboard.device = None;
@@ -1817,6 +1828,8 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_reset_startup(|device| with_app(move |app| app.reset_startup(kind_of(device))));
     ui.on_set_charge_mode(|index| with_app(move |app| app.set_charge_mode(ChargeMode::from_index(index.max(0) as usize))));
     ui.on_set_usb_power(|on| with_app(move |app| app.set_usb_power(on)));
+    ui.on_export_settings(|| with_app(|app| app.export_settings()));
+    ui.on_import_settings(|| with_app(|app| app.import_settings()));
     ui.on_retry(|| with_app(|app| app.open_devices()));
     ui.on_format_hex(|color| Rgb::from_slint(color).hex().into());
     ui.on_parse_hex(|text| match Rgb::parse_hex(&text) {

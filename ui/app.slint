@@ -201,6 +201,8 @@ export component AppWindow inherits Window {
     callback reset-startup(int);
     callback set-charge-mode(int);
     callback set-usb-power(bool);
+    callback export-settings();
+    callback import-settings();
     callback plugin-toggled(string, bool);
     callback plugin-expand(string);
     callback plugin-action(string, string);
@@ -494,6 +496,8 @@ export component AppWindow inherits Window {
                         toggle-touchpad => { root.toggle-touchpad(); }
                         toggle-winkey => { root.toggle-winkey(); }
                         set-start-with-windows(on) => { root.set-start-with-windows(on); }
+                        export-settings => { root.export-settings(); }
+                        import-settings => { root.import-settings(); }
                     }
                 }
             }

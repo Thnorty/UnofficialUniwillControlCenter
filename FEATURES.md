@@ -117,6 +117,8 @@ Control Center's CPU overclocking settings for Intel laptops:
 - **Tray:** runs in the tray and can start with Windows. The tray menu has the performance mode and Fan Boost.
 - **Coexists with Control Center:** steps back and leaves the Fn keys, the modes, the fans and battery care alone
   while Control Center's service is running; the Performance and Battery pages then only show what it set.
+- **Back up and restore:** all settings in one JSON file (Settings page). Restoring checks the file, asks first, and
+  restarts the app with the restored settings.
 
 ## Added beyond Control Center
 
