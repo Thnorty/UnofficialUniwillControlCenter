@@ -243,7 +243,13 @@ impl Lighting {
 
 /// Whether this app has to draw the effect: one of its own, or the keyboard's zones on the light bar.
 fn needs_app(kind: Kind, effect: &Effect) -> bool {
-    effect.drawn_by_app() || (kind == Kind::LightBar && effect.colors == EffectColors::Zones)
+    effect.drawn_by_app() || smooth_wave(kind, effect) || (kind == Kind::LightBar && effect.colors == EffectColors::Zones)
+}
+
+/// The keyboard firmware's Wave moves the colors a whole zone at a time. While the app runs it draws Wave itself,
+/// blending the colors across the zones as the preview shows; on exit the firmware's Wave takes over again.
+fn smooth_wave(kind: Kind, effect: &Effect) -> bool {
+    kind == Kind::Keyboard && effect.id == effects::WAVE_ID && effect.drawn == Drawn::Firmware
 }
 
 /// What the light bar shows for an effect this app draws.
@@ -612,6 +618,14 @@ impl App {
                 if !lighting.idle_off {
                     let renderer = LightBarRenderer::new(device.clone(), scene_for(&plan), lighting.overlays.clone(), lighting.live.clone());
                     lighting.renderer = Some(engine.play(kind, Box::new(renderer)));
+                }
+            } else if smooth_wave(kind, plan.effect) && !save {
+                // Drawn on the static effect, starting from the first frame so nothing jumps.
+                let first = scenes::KeyboardWave::frame(&plan.colors, plan.direction, plan.speed, 0.0);
+                device.set_effect(&effects::KEYBOARD[0], &first, 0, light, plan.speed, false)?;
+                if !lighting.idle_off {
+                    let wave = scenes::KeyboardWave::new(device.clone(), plan.colors.clone(), plan.direction, plan.speed, lighting.live.clone());
+                    engine.play(kind, Box::new(wave));
                 }
             } else {
                 // The keyboard's effects drawn by this app run on the static zones (what stays once the app exits);
@@ -1219,7 +1233,7 @@ impl App {
         let plan = self.plan(Kind::Keyboard);
         let keyboard = &self.keyboard;
         let running = self.engine.current(Kind::Keyboard).is_some() && !self.demo;
-        let mut zones = if running && plan.effect.drawn_by_app() {
+        let mut zones = if running && needs_app(Kind::Keyboard, plan.effect) {
             let live = keyboard.live.lock().unwrap_or_else(|e| e.into_inner()).clone();
             if live.len() == 4 { live } else { preview::simulate(plan.effect, &plan.colors, plan.direction, plan.speed, t, 4, true) }
         } else {

@@ -552,6 +552,52 @@ impl Target for KeyboardSpectrum {
     }
 }
 
+/// The keyboard's Wave, drawn by this app: the colors blend as they flow across the zones, where the firmware's Wave
+/// moves them a whole zone at a time. Uses the preview's animation, so the keyboard looks like the window.
+pub struct KeyboardWave {
+    keyboard: Arc<Device>,
+    colors: Vec<Rgb>,
+    direction: u8,
+    speed: u8,
+    shown: [Rgb; 4],
+    start: Option<f64>, // the engine's time at the first tick
+    last_send: f64,
+    live: Live,
+}
+
+impl KeyboardWave {
+    pub fn new(keyboard: Arc<Device>, colors: Vec<Rgb>, direction: u8, speed: u8, live: Live) -> Self {
+        let shown = Self::frame(&colors, direction, speed, 0.0);
+        KeyboardWave { keyboard, colors, direction, speed, shown, start: None, last_send: 0.0, live }
+    }
+
+    /// The four zone colors at `time` seconds.
+    pub fn frame(colors: &[Rgb], direction: u8, speed: u8, time: f64) -> [Rgb; 4] {
+        let zones = crate::preview::simulate(&crate::effects::KEYBOARD[2], colors, direction, speed, time, 4, true);
+        std::array::from_fn(|i| zones[i])
+    }
+}
+
+impl Target for KeyboardWave {
+    fn inputs(&self) -> Inputs {
+        Inputs::NONE
+    }
+
+    fn tick(&mut self, frame: &Frame) -> anyhow::Result<()> {
+        const MIN_INTERVAL: f64 = 0.04; // a full zone update each time; 25 a second looks smooth
+        let time = frame.time - *self.start.get_or_insert(frame.time);
+        let colors = Self::frame(&self.colors, self.direction, self.speed, time);
+        publish(&self.live, &colors);
+        if time - self.last_send < MIN_INTERVAL || colors == self.shown {
+            return Ok(());
+        }
+        self.keyboard.set_zone_colors(&colors)?;
+        self.shown = colors;
+        self.last_send = time;
+        Ok(())
+    }
+}
+
 /// The whole keyboard colored by the CPU or GPU temperature: blue when cool, through green and yellow, to red when hot.
 pub struct KeyboardTemperature {
     keyboard: Arc<Device>,

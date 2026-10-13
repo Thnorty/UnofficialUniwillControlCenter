@@ -63,6 +63,7 @@ pub struct Effect {
 }
 
 pub const STATIC_ID: u8 = 1;
+pub const WAVE_ID: u8 = 3;
 pub const RAINBOW_ID: u8 = 5;
 pub const MUSIC_ID: u8 = 34;
 const NO_FIRMWARE_ID: u8 = 0; // drawn by this app on top of the static effect
@@ -144,7 +145,7 @@ impl Effect {
 pub static KEYBOARD: &[Effect] = &[
     Effect::firmware("static", "Static", STATIC_ID, EffectColors::Zones, false, "Each of the four zones glows in its own color."),
     Effect::firmware("breathing", "Breathing", 2, EffectColors::Palette, true, "Fades in and out, one color at a time."),
-    Effect { has_direction: true, ..Effect::firmware("wave", "Wave", 3, EffectColors::Palette, true, "The colors flow across the zones.") },
+    Effect { has_direction: true, ..Effect::firmware("wave", "Wave", WAVE_ID, EffectColors::Palette, true, "The colors flow smoothly across the zones.") },
     Effect::firmware("rainbow", "Rainbow", RAINBOW_ID, EffectColors::None, true, "Every color of the rainbow, flowing across the keyboard."),
     Effect::firmware("flash", "Flash", 18, EffectColors::Palette, true, "Flashes on and off, one color at a time."),
     Effect::firmware("mix", "Mix", 19, EffectColors::Palette, true, "Mixes the colors across the zones."),
