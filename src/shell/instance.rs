@@ -4,8 +4,8 @@
 
 use std::time::Duration;
 
-use windows::Win32::Foundation::{HANDLE, WAIT_ABANDONED, WAIT_OBJECT_0};
-use windows::Win32::System::Threading::{CreateEventW, CreateMutexW, OpenEventW, SYNCHRONIZATION_SYNCHRONIZE, WaitForSingleObject};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_ABANDONED, WAIT_OBJECT_0};
+use windows::Win32::System::Threading::{CreateEventW, CreateMutexW, OpenEventW, ReleaseMutex, SYNCHRONIZATION_SYNCHRONIZE, WaitForSingleObject};
 use windows::core::w;
 
 use super::tray;
@@ -32,6 +32,21 @@ pub fn acquire() -> bool {
 fn owned(lock: HANDLE, wait: Duration) -> bool {
     let result = unsafe { WaitForSingleObject(lock, wait.as_millis() as u32) };
     result == WAIT_OBJECT_0 || result == WAIT_ABANDONED // abandoned: the previous instance ended without releasing it
+}
+
+/// Asks the running instance, if any, to quit, and waits until it has handed everything back and ended. False if it
+/// was still running after `wait`.
+pub fn close_running(wait: Duration) -> bool {
+    let Ok(lock) = (unsafe { CreateMutexW(None, false, LOCK) }) else { return true };
+    let closed = owned(lock, Duration::ZERO) || {
+        tray::signal_exit();
+        owned(lock, wait)
+    };
+    unsafe {
+        let _ = ReleaseMutex(lock);
+        let _ = CloseHandle(lock);
+    }
+    closed
 }
 
 /// Tells later launches that this instance is on its way out. The event lives as long as this process.

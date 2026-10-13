@@ -24,6 +24,15 @@ fn main() {
     let demo = has("--demo");
     let start_hidden = has("--tray");
 
+    // For the installer: no window, just the job, and an exit code.
+    if has("--exit") {
+        std::process::exit(if shell::instance::close_running(std::time::Duration::from_secs(30)) { 0 } else { 1 });
+    }
+    if has("--enable-startup") || has("--disable-startup") {
+        let result = if has("--enable-startup") { hardware::system::startup::enable() } else { hardware::system::startup::disable() };
+        std::process::exit(if result.is_ok() { 0 } else { 1 });
+    }
+
     if !demo && !shell::instance::acquire() {
         return;
     }

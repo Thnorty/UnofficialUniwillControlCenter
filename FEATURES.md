@@ -117,6 +117,9 @@ Control Center's CPU overclocking settings for Intel laptops:
   first run keeps Control Center's choice.
 
 ### App behavior
+- **Installer:** installs to Program Files with a Start menu entry, and by default starts the app with Windows. An
+  upgrade closes the running app first (`--exit`, which hands the Fn keys and fans back); uninstalling removes the
+  startup task and keeps the settings.
 - **Tray:** runs in the tray and can start with Windows. The tray menu has the performance mode and Fan Boost.
 - **Coexists with Control Center:** steps back and leaves the Fn keys, the modes, the fans and battery care alone
   while Control Center's service is running; the Performance and Battery pages then only show what it set.

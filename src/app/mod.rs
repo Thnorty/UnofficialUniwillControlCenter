@@ -1404,6 +1404,7 @@ impl App {
             },
             |event| match event {
                 TrayEvent::Open => with_app(|app| app.show_window()),
+                TrayEvent::Exit => with_app(|app| app.exit()),
                 TrayEvent::Command(id) => with_app(move |app| app.tray_command(id)),
                 TrayEvent::Resumed => with_app(|app| {
                     app.apply_display();

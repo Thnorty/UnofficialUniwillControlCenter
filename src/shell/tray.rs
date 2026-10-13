@@ -45,6 +45,8 @@ impl MenuItem {
 pub enum TrayEvent {
     /// Open the window: a click on the icon, or a second launch.
     Open,
+    /// Quit, as the menu's Exit does: asked by `--exit` (the installer, before replacing or removing the app).
+    Exit,
     Command(u32),
     Resumed,
     /// The power adapter was plugged in or out, or the battery changed.
@@ -59,7 +61,7 @@ struct Handlers {
 
 thread_local! {
     static HANDLERS: RefCell<Option<Handlers>> = const { RefCell::new(None) };
-    static MESSAGES: RefCell<(u32, u32)> = const { RefCell::new((0, 0)) }; // TaskbarCreated, the show message
+    static MESSAGES: RefCell<(u32, u32, u32)> = const { RefCell::new((0, 0, 0)) }; // TaskbarCreated, show, exit
 }
 
 pub struct Tray {
@@ -73,10 +75,24 @@ pub fn show_message() -> u32 {
     unsafe { RegisterWindowMessageW(w!("TulparControl.Show")) }
 }
 
+/// The message `--exit` broadcasts so the running instance quits.
+pub fn exit_message() -> u32 {
+    unsafe { RegisterWindowMessageW(w!("TulparControl.Exit")) }
+}
+
 /// Asks a running instance to show its window.
 pub fn signal_running_instance() {
+    broadcast(show_message());
+}
+
+/// Asks a running instance to quit.
+pub fn signal_exit() {
+    broadcast(exit_message());
+}
+
+fn broadcast(message: u32) {
     unsafe {
-        let _ = PostMessageW(Some(HWND(0xFFFF as _)), show_message(), WPARAM(0), LPARAM(0)); // HWND_BROADCAST
+        let _ = PostMessageW(Some(HWND(0xFFFF as _)), message, WPARAM(0), LPARAM(0)); // HWND_BROADCAST
     }
 }
 
@@ -84,7 +100,7 @@ impl Tray {
     pub fn create(tip: &str, menu: impl Fn() -> Vec<MenuItem> + 'static, event: impl Fn(TrayEvent) + 'static) -> windows::core::Result<Tray> {
         HANDLERS.with(|h| *h.borrow_mut() = Some(Handlers { menu: Box::new(menu), event: Box::new(event) }));
         unsafe {
-            MESSAGES.with(|m| *m.borrow_mut() = (RegisterWindowMessageW(w!("TaskbarCreated")), show_message()));
+            MESSAGES.with(|m| *m.borrow_mut() = (RegisterWindowMessageW(w!("TaskbarCreated")), show_message(), exit_message()));
             allow_dark_menus();
             let instance = GetModuleHandleW(None)?;
             let class = w!("KeyboardRgbTray");
@@ -250,7 +266,7 @@ fn show_menu(hwnd: HWND) {
 }
 
 unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    let (taskbar_created, show) = MESSAGES.with(|m| *m.borrow());
+    let (taskbar_created, show, exit) = MESSAGES.with(|m| *m.borrow());
     match message {
         CALLBACK => {
             match (lparam.0 as u32) & 0xFFFF {
@@ -277,6 +293,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         }
         m if m != 0 && m == show => {
             emit(TrayEvent::Open);
+            LRESULT(0)
+        }
+        m if m != 0 && m == exit => {
+            emit(TrayEvent::Exit);
             LRESULT(0)
         }
         m if m != 0 && m == taskbar_created => {

@@ -104,10 +104,15 @@ in one small app that looks like Windows 11.
 
 ## Getting started
 
-1. Build it (see [Building](#building)): the result is one file, `TulparControl.exe`.
-2. Run it. It asks for administrator rights, because the Fn keys, the performance modes, the fans and battery care
-   go through the BIOS's WMI interface.
-3. Turn on **Start with Windows** in Settings to have it in the tray at every start.
+1. Download **`TulparControl-<version>-Setup.exe`** from [Releases](../../releases/latest) and run it.
+   - It installs to `Program Files`, adds a Start menu entry, and by default **starts the app in the tray when you
+     sign in** (the same as **Start with Windows** in Settings, so it can be turned off there).
+   - The installer isn't signed, so Windows SmartScreen may warn about it: choose **More info › Run anyway**.
+   - Installing a new version over an old one closes the running app first, handing the Fn keys and fans back.
+2. The app asks for administrator rights, because the Fn keys, the performance modes, the fans and battery care go
+   through the BIOS's WMI interface.
+
+Uninstalling (Settings › Apps) removes the app and its startup task, and keeps your settings.
 
 > [!NOTE]
 > **Control Center can stay installed.** While its service (GCUService) runs, this app leaves the Fn keys, the
@@ -159,6 +164,15 @@ cargo build --release
 The app is `target\release\TulparControl.exe`, a single file with nothing else to install. `cargo test` checks the fan
 curve rules, the BIOS variable edits, the display color math and the plugins (every bundled script included).
 
+To build the installer as well, install [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+(`winget install JRSoftware.InnoSetup`) and run:
+
+```
+powershell -ExecutionPolicy Bypass -File installer\build.ps1
+```
+
+It builds the app and writes `dist\TulparControl-<version>-Setup.exe`, with the version from `Cargo.toml`.
+
 <details>
 <summary><b>Demo mode:</b> trying the window without touching the hardware</summary>
 <br>
@@ -174,6 +188,8 @@ target-demo\release\TulparControl.exe --demo
 - `--page N` opens on a page: 0 Keyboard, 1 Light bar, 2 Timer & alerts, 3 Settings, 4 Performance, 5 Battery,
   6 Monitor, 7 Plugins, 8 Setups, 9 Display.
 - `--tray` starts in the tray, and `--osd-test` shows the pop-ups once.
+- For the installer: `--enable-startup` and `--disable-startup` add or remove the startup task, and `--exit` closes
+  the running app as its Exit menu does and waits until it's gone.
 
 </details>
 
@@ -204,6 +220,7 @@ target-demo\release\TulparControl.exe --demo
 | `src/plugins/` | The plugin manifest (`manifest.rs`), the plugins folder and imports (`store.rs`), the script thread and its API (`host.rs`), the light bar layers (`layers.rs`), the local events server (`server.rs`), Windows readings for scripts (`readings.rs`: temperatures, media, volume, microphone, notifications), and what permissions allow (`claude.rs`, `downloads.rs`). |
 | `plugins/` | The plugins that come with the app: Claude Code, Downloads with its browser extension, Example, Focus timer, Media, Microphone, Notifications and Temperature alert. |
 | `ui/*.slint` | The window, in Slint; `power.slint` has the Performance, Battery and Monitor pages, `plugins.slint` the Plugins page, `setups.slint` the Setups page, `display.slint` the Display page. |
+| `installer/` | The Inno Setup script and `build.ps1`, which builds the app and the installer. |
 | `docs/images/` | The screenshots in this README, taken in demo mode. |
 | `tools/` | PowerShell scripts used to test the embedded controller's behavior. |
 
