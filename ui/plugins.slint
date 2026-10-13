@@ -155,9 +155,6 @@ export component PluginsPage inherits VerticalLayout {
                         enabled: plugin.enabled;
                         clicked => { root.action(plugin.id, a.id); }
                     }
-                    Rectangle {
-                        horizontal-stretch: 1;
-                    }
                     if plugin.settings.length > 0: LinkButton {
                         text: plugin.expanded ? "Hide settings" : "Settings";
                         vertical-alignment: center;
