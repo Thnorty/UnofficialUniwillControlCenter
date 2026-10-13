@@ -113,8 +113,8 @@ Control Center's CPU overclocking settings for Intel laptops:
 - **High capacity, Balanced and Stationary:** Control Center's three charging modes (`BatteryProtection2`, 0x7A6 bits
   4 and 5). The first run picks up the mode Control Center last set; it's set again after sleep.
 - **USB charging while off:** the ports keep powering devices while the laptop is off or asleep (EC 0x767 bit 4, as
-  Control Center's USB charger switch). Shown where the EC or Control Center's settings say the laptop has it; the
-  first run keeps Control Center's choice.
+  Control Center's USB charger switch). Shown where the EC or Control Center's settings say the laptop has it, and
+  from then on, so it stays after Control Center is uninstalled; the first run keeps Control Center's choice.
 
 ### App behavior
 - **Installer:** installs to Program Files with a Start menu entry, and by default starts the app with Windows. An

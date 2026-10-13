@@ -55,9 +55,10 @@ pub fn set(ec: &Registers, mode: ChargeMode) -> Result<()> {
 }
 
 /// Whether USB ports keep charging devices while the laptop is off, or None if the laptop can't. Control Center
-/// offers the switch where the EC reports it; its own setting counts too.
-pub fn usb_power(ec: &Registers) -> Result<Option<bool>> {
-    if !ec.bit(SUPPORT_BYTE2, USB_SUPPORT_BIT)? && control_center_usb_power().is_none() {
+/// offers the switch where the EC reports it; its own setting counts too, and so does `known` (this app saw the
+/// switch before), which still holds once Control Center and its setting are gone.
+pub fn usb_power(ec: &Registers, known: bool) -> Result<Option<bool>> {
+    if !known && !ec.bit(SUPPORT_BYTE2, USB_SUPPORT_BIT)? && control_center_usb_power().is_none() {
         return Ok(None);
     }
     Ok(Some(ec.bit(TRIGGER_BYTE, USB_POWER_BIT)?))

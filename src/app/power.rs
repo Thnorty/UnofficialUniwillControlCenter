@@ -236,7 +236,8 @@ struct EcState {
     usb_power: Option<bool>,
 }
 
-fn read_state(ec: &Registers) -> Result<EcState> {
+/// `usb_known`: the laptop is known to have USB charging while off.
+fn read_state(ec: &Registers, usb_known: bool) -> Result<EcState> {
     let support = performance::support(ec)?;
     let (mode, fan_boost) = performance::current(ec)?;
     let mut defaults = [None; 3];
@@ -254,7 +255,7 @@ fn read_state(ec: &Registers) -> Result<EcState> {
         fan_tables: fans::supported(ec)?,
         safety: fans::safety_protection(ec)?,
         limits: performance::limits(ec)?,
-        usb_power: battery::usb_power(ec)?,
+        usb_power: battery::usb_power(ec, usb_known)?,
     })
 }
 
@@ -331,8 +332,10 @@ impl App {
 
     fn read_power_state(&mut self) {
         let Some(ec) = self.power.ec.clone() else { return };
-        ec.spawn(|ec| {
-            let state = read_state(ec).map_err(error_text);
+        // A saved USB charging choice means the switch was there, even if Control Center's own setting is gone now.
+        let usb_known = self.power.usb_chosen;
+        ec.spawn(move |ec| {
+            let state = read_state(ec, usb_known).map_err(error_text);
             post(move |app| app.power_state_read(state));
         });
     }
