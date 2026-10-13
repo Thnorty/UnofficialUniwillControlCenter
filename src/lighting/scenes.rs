@@ -127,8 +127,8 @@ pub fn zone_sections(zones: &[Rgb]) -> Vec<Rgb> {
 // Kept per tick, by speed: faster speeds fall back sooner.
 const DECAY: [f32; 5] = [0.93, 0.89, 0.84, 0.77, 0.68];
 
-/// Music (LM_ITE_RGB.AudioData_LightbarEventHandler): a level meter that grows from the middle outwards, each LED
-/// colored by its distance from the middle.
+/// Music (LM_ITE_RGB.AudioData_LightbarEventHandler): a level meter that grows from the middle outwards. The colors
+/// split each half of the bar into equal bands, the first in the middle and the last at the ends.
 pub struct MusicMeterScene {
     colors: Vec<Rgb>,
     speed: u8,
@@ -151,8 +151,9 @@ impl Scene for MusicMeterScene {
         let mut leds = vec![Rgb::BLACK; LEDS];
         let lit = (self.level * (CENTER + 1) as f32).round() as usize; // LEDs lit on each side, counting the middle one
         for distance in 0..lit.min(CENTER + 1) {
-            // The service gives the middle two steps the first color, then one color per step outwards.
-            let color = self.colors[distance.saturating_sub(1).min(self.colors.len() - 1)];
+            // Control Center's service gives one color per LED outwards, so the last color fills the rest; equal bands
+            // use the whole bar for however many colors there are.
+            let color = self.colors[(distance * self.colors.len() / (CENTER + 1)).min(self.colors.len() - 1)];
             leds[CENTER - distance] = color;
             leds[CENTER + distance] = color;
         }

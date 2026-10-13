@@ -37,9 +37,15 @@ These work the way Control Center does them. The commands come from Control Cent
 ### Light bar
 - **On/off switch**, and the light bar's Fn toggle key (hotkey code 175), with a pop-up.
 - **Effects:** the firmware effects Control Center's light bar driver handles: Static color, Breathing, Wave
-  (Control Center's "Colorwave", which has no direction), Rainbow, Flash, Mix and Thinking.
+  (Control Center's "Colorwave", which has no direction), Rainbow, Flash, Mix and Thinking. On the bar:
+  - Wave flows the colors out from the middle to both ends.
+  - Rainbow is seven still sections, and Mix shows one color on the whole bar, going through the colors in turn,
+    like the keyboard's.
+  - Thinking is a star with a trail about five LEDs long. It runs to the right end and back, then takes the next
+    color.
 - **Music:** a level meter that grows from the middle of the bar outwards with the sound, set LED by LED (user
-  mode, command 12h and output reports), colored by distance from the middle with up to seven colors.
+  mode, command 12h and output reports). Up to seven colors split each half into equal bands, the first in the
+  middle. Control Center gives one color per LED instead, so its last color fills the rest.
 - **Star Spark and Star Hitting:** Control Center draws these in software for its per-LED devices; here they are
   drawn LED by LED the same way. Star Spark twinkles every LED; Star Hitting bounces a ball of light per color.
 - **Speed and brightness**, as on the keyboard.

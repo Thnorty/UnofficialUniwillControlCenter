@@ -70,16 +70,18 @@ const CAPS_COLOR: Rgb = Rgb::new(255, 255, 255);
 const NUM_COLOR: Rgb = Rgb::new(0, 140, 255);
 const TILE_LEDS: usize = 8;
 
+/// The color picker's quick colors: the default palette's seven (effects::DEFAULT_PALETTE, which holds the light bar
+/// Static's cyan too), then magenta, pink and white.
 const PRESETS: &[Rgb] = &[
     Rgb::new(255, 0, 0),
-    Rgb::new(255, 80, 0),
-    Rgb::new(255, 200, 0),
+    Rgb::new(255, 165, 0),
+    Rgb::new(255, 255, 0),
     Rgb::new(0, 255, 0),
-    Rgb::new(0, 255, 160),
-    Rgb::new(0, 200, 255),
-    Rgb::new(0, 40, 255),
-    Rgb::new(140, 0, 255),
-    Rgb::new(255, 0, 160),
+    Rgb::new(0, 255, 255),
+    Rgb::new(0, 0, 255),
+    Rgb::new(139, 0, 255),
+    Rgb::new(255, 0, 255),
+    Rgb::new(255, 0, 128),
     Rgb::new(255, 255, 255),
 ];
 

@@ -74,18 +74,26 @@ pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f6
                 let level = (std::f64::consts::PI * cycle.fract()).sin().powi(2) as f32;
                 out.fill(color.scale(level));
             }
-            5 if zones_keyboard => {
-                // The keyboard's Rainbow stands still: one color per zone.
+            5 => {
+                // Rainbow stands still, on the keyboard and the light bar: the colors in equal sections.
                 for (i, o) in out.iter_mut().enumerate() {
                     *o = palette[i * palette.len() / n];
                 }
             }
-            3 | 32 | 5 => {
-                // Wave and Rainbow: the colors flow across.
+            3 => {
+                // The keyboard's Wave: the colors flow across.
                 let cycles_per_second = speed_rate(speed, 0.12, 0.6);
                 let sign = if direction == 2 { 1.0 } else { -1.0 };
                 for (i, o) in out.iter_mut().enumerate() {
                     *o = cyclic(palette, position(i) * 0.8 + sign * t * cycles_per_second);
+                }
+            }
+            32 => {
+                // The light bar's Wave: the colors flow out from the middle to both ends.
+                let cycles_per_second = speed_rate(speed, 0.12, 0.6);
+                for (i, o) in out.iter_mut().enumerate() {
+                    let distance = (position(i) - 0.5).abs() * 2.0;
+                    *o = cyclic(palette, distance * 0.5 - t * cycles_per_second);
                 }
             }
             18 if zones_keyboard => {
@@ -105,31 +113,40 @@ pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f6
                 let color = palette[(cycle as usize) % palette.len()];
                 out.fill(if cycle.fract() < 0.5 { color } else { Rgb::BLACK });
             }
-            19 if zones_keyboard => {
-                // The keyboard's Mix: the whole keyboard goes through the palette, blending from one color into the next.
+            19 => {
+                // Mix, on the keyboard and the light bar: the whole device goes through the palette, blending from
+                // one color into the next.
                 let period = speed_rate(speed, 3.0, 0.8);
                 let cycle = t / period;
                 let k = cycle as usize;
                 let color = palette[k % palette.len()].lerp(palette[(k + 1) % palette.len()], (cycle.fract() as f32 * 1.5 - 0.25).clamp(0.0, 1.0));
                 out.fill(color);
             }
-            19 => {
-                // Mix: the positions take different colors and crossfade through the palette.
-                let period = speed_rate(speed, 3.0, 0.8);
-                let cycle = t / period;
-                for (i, o) in out.iter_mut().enumerate() {
-                    let k = cycle as usize + i * 3 / n.max(1);
-                    let from = palette[k % palette.len()];
-                    let to = palette[(k + 1) % palette.len()];
-                    *o = from.lerp(to, (cycle.fract() as f32 * 1.5 - 0.25).clamp(0.0, 1.0));
-                }
-            }
             _ => {
-                // Thinking: warm waves that swell and move.
-                let speed_factor = speed_rate(speed, 0.15, 0.6);
-                for (i, o) in out.iter_mut().enumerate() {
-                    let wave = (0.5 + 0.5 * ((position(i) * 6.0 - t * speed_factor * 6.0).sin())) as f32;
-                    *o = cyclic(palette, position(i) * 0.5 + t * speed_factor * 0.3).scale(0.25 + 0.75 * wave);
+                // Thinking: a star with a trail about five LEDs long (of the bar's 23) runs to the right end and back
+                // to the left, then takes the next color.
+                let round_trips_per_second = speed_rate(speed, 0.2, 0.7);
+                let end = (n - 1).max(1) as f64;
+                let trail = 5.0 / 23.0 * n as f64; // in positions
+                let trail_time = trail / (2.0 * end * round_trips_per_second); // how long the star takes to run that far
+                let star = |at: f64| {
+                    let trip = at * round_trips_per_second;
+                    let phase = trip.rem_euclid(1.0);
+                    let x = if phase < 0.5 { phase * 2.0 } else { 2.0 - phase * 2.0 } * end;
+                    (x, palette[(trip.floor() as i64).rem_euclid(palette.len() as i64) as usize])
+                };
+                // The trail is where the star was a moment ago, fading with age; that also bends it around the ends.
+                const STEPS: usize = 24;
+                for step in 0..=STEPS {
+                    let age = trail_time * step as f64 / STEPS as f64;
+                    let (x, color) = star(t - age);
+                    let fade = 1.0 - (age / trail_time) as f32;
+                    for (i, o) in out.iter_mut().enumerate() {
+                        let glow = (1.0 - (i as f64 - x).abs() as f32).max(0.0) * fade * fade;
+                        if glow > 0.0 {
+                            *o = o.max(color.scale(glow));
+                        }
+                    }
                 }
             }
         },
@@ -140,12 +157,13 @@ pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f6
                     *o = palette[i * palette.len() / n].scale(level);
                 }
             } else {
-                // A meter from the middle.
+                // A meter from the middle, the colors in equal bands from the middle to the ends.
                 let center = (n as f32 - 1.0) / 2.0;
                 for (i, o) in out.iter_mut().enumerate() {
                     let distance = (i as f32 - center).abs() / (center + 0.5);
                     if distance <= level {
-                        *o = gradient(palette, distance);
+                        let band = ((i as f32 - center).abs() / (center + 1.0) * palette.len() as f32) as usize;
+                        *o = palette[band.min(palette.len() - 1)];
                     }
                 }
             }
