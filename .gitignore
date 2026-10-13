@@ -1,3 +1,4 @@
 *.log
-rust/target/
-rust/target-demo/
+target/
+target-demo/
+rust/

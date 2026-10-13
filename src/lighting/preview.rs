@@ -3,7 +3,7 @@
 //! their real frames instead (see scenes::Live), and are imitated with made-up sound and readings in the tiles.
 
 use crate::color::{HEAT_SCALE, Rgb, gradient};
-use crate::effects::{Drawn, Effect, EffectColors, KEYBOARD_RAINBOW, LIGHT_BAR_RAINBOW};
+use crate::lighting::effects::{Drawn, Effect, EffectColors, KEYBOARD_RAINBOW, LIGHT_BAR_RAINBOW};
 use crate::ui::KeyCap;
 
 fn speed_rate(speed: u8, slowest: f64, fastest: f64) -> f64 {

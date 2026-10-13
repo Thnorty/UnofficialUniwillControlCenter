@@ -114,11 +114,12 @@ fn process_running(name: &str) -> bool {
 }
 
 /// Starts the app at logon through Task Scheduler with highest privileges. The Run key can't start an app that needs
-/// administrator rights without a UAC prompt. The task keeps the earlier C# version's name, so it replaces that one's.
+/// administrator rights without a UAC prompt. The task the app had when it was called Keyboard RGB is removed.
 pub mod startup {
     use super::*;
 
-    const TASK_NAME: &str = "MonsterKeyboardRGB";
+    const TASK_NAME: &str = "TulparControl";
+    const OLD_TASK_NAME: &str = "MonsterKeyboardRGB";
 
     pub fn is_enabled() -> bool {
         schtasks(&["/Query", "/TN", TASK_NAME]).is_ok_and(|code| code == 0)
@@ -130,7 +131,7 @@ pub mod startup {
         let xml = format!(
             r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Keyboard RGB tray app</Description></RegistrationInfo>
+  <RegistrationInfo><Description>Tulpar Control tray app</Description></RegistrationInfo>
   <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger></Triggers>
   <Principals>
     <Principal id="Author">
@@ -166,7 +167,7 @@ pub mod startup {
         if result? != 0 {
             bail!("Task Scheduler refused to create the startup task.");
         }
-        remove_legacy_run_entry();
+        remove_legacy_entries();
         Ok(())
     }
 
@@ -174,16 +175,30 @@ pub mod startup {
         if is_enabled() && schtasks(&["/Delete", "/TN", TASK_NAME, "/F"])? != 0 {
             bail!("Task Scheduler refused to delete the startup task.");
         }
-        remove_legacy_run_entry();
+        remove_legacy_entries();
         Ok(())
     }
 
-    /// The first versions started from the Run key, which can't launch an elevated app.
-    pub fn remove_legacy_run_entry() {
+    /// Moves Keyboard RGB's startup task over to this name, pointing at this exe.
+    pub fn migrate() {
+        if schtasks(&["/Query", "/TN", OLD_TASK_NAME]).is_ok_and(|code| code == 0) {
+            if is_enabled() {
+                remove_legacy_entries();
+            } else {
+                let _ = enable();
+            }
+        }
+    }
+
+    /// Keyboard RGB's startup task, and the Run key entry the first versions used (which can't launch an elevated app).
+    pub fn remove_legacy_entries() {
+        if schtasks(&["/Query", "/TN", OLD_TASK_NAME]).is_ok_and(|code| code == 0) {
+            let _ = schtasks(&["/Delete", "/TN", OLD_TASK_NAME, "/F"]);
+        }
         unsafe {
             let mut key = HKEY::default();
             if RegOpenKeyExW(HKEY_CURRENT_USER, w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run"), Some(0), KEY_SET_VALUE, &mut key).is_ok() {
-                let _ = RegDeleteValueW(key, &HSTRING::from(TASK_NAME));
+                let _ = RegDeleteValueW(key, &HSTRING::from(OLD_TASK_NAME));
                 let _ = RegCloseKey(key);
             }
         }

@@ -33,7 +33,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::{PCWSTR, w};
 
 use crate::color::Rgb;
-use crate::system;
+use crate::hardware::system;
 
 pub const KEYBOARD_GLYPH: char = '\u{E765}'; // KeyboardClassic
 pub const TOUCHPAD_GLYPH: char = '\u{EFA5}'; // Touchpad
@@ -207,7 +207,7 @@ impl Osd {
             let hwnd = CreateWindowExW(
                 WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
                 class,
-                w!("Keyboard RGB"),
+                w!("Tulpar Control"),
                 WS_POPUP,
                 0,
                 0,

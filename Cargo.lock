@@ -2381,21 +2381,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "keyboard-rgb"
-version = "2.0.0"
-dependencies = [
- "anyhow",
- "embed-resource",
- "raw-window-handle",
- "serde",
- "serde_json",
- "slint",
- "slint-build",
- "windows",
- "wmi",
-]
-
-[[package]]
 name = "keyboard-types"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4567,6 +4552,21 @@ name = "ttf-parser"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
+
+[[package]]
+name = "tulpar-control"
+version = "3.0.0"
+dependencies = [
+ "anyhow",
+ "embed-resource",
+ "raw-window-handle",
+ "serde",
+ "serde_json",
+ "slint",
+ "slint-build",
+ "windows",
+ "wmi",
+]
 
 [[package]]
 name = "typed-index-collections"

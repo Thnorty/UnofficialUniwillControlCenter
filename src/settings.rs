@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::color::Rgb;
-use crate::device::MAX_LIGHT;
+use crate::lighting::device::MAX_LIGHT;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "PascalCase", default)]
@@ -65,14 +65,23 @@ impl Default for LightingSettings {
     }
 }
 
+fn folder(name: &str) -> Option<PathBuf> {
+    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join(name))
+}
+
 fn path() -> Option<PathBuf> {
-    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("MonsterKeyboardRGB").join("settings.json"))
+    folder("TulparControl").map(|f| f.join("settings.json"))
+}
+
+/// Where the app kept its settings when it was called Keyboard RGB.
+fn old_path() -> Option<PathBuf> {
+    folder("MonsterKeyboardRGB").map(|f| f.join("settings.json"))
 }
 
 impl Settings {
     pub fn load() -> Settings {
-        let mut settings: Settings = path()
-            .and_then(|p| std::fs::read_to_string(p).ok())
+        let text = path().and_then(|p| std::fs::read_to_string(p).ok()).or_else(|| old_path().and_then(|p| std::fs::read_to_string(p).ok()));
+        let mut settings: Settings = text
             .and_then(|text| serde_json::from_str(text.trim_start_matches('\u{FEFF}')).ok())
             .unwrap_or_default();
         settings.keyboard.get_or_insert_with(LightingSettings::default);

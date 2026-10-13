@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 use rand_lite::Random;
 
 use crate::color::{HEAT_SCALE, Rgb, gradient};
-use crate::device::{Device, LIGHT_BAR_LEDS, MAX_LIGHT};
-use crate::engine::{Frame, Inputs, Target};
+use crate::lighting::device::{Device, LIGHT_BAR_LEDS, MAX_LIGHT};
+use crate::lighting::engine::{Frame, Inputs, Target};
 
 /// The latest colors an effect showed, for the window's preview.
 pub type Live = Arc<Mutex<Vec<Rgb>>>;
@@ -573,7 +573,7 @@ impl KeyboardWave {
 
     /// The four zone colors at `time` seconds.
     pub fn frame(colors: &[Rgb], direction: u8, speed: u8, time: f64) -> [Rgb; 4] {
-        let zones = crate::preview::simulate(crate::effects::keyboard_wave(), colors, direction, speed, time, 4, true);
+        let zones = crate::lighting::preview::simulate(crate::lighting::effects::keyboard_wave(), colors, direction, speed, time, 4, true);
         std::array::from_fn(|i| zones[i])
     }
 }

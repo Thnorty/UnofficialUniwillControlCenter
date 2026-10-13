@@ -1,12 +1,12 @@
 [package]
-name = "keyboard-rgb"
-version = "2.0.0"
+name = "tulpar-control"
+version = "3.0.0"
 edition = "2024"
 description = "Keyboard and light bar lighting for the Monster Tulpar T5 V21.4"
 publish = false
 
 [[bin]]
-name = "KeyboardRGB"
+name = "TulparControl"
 path = "src/main.rs"
 
 [dependencies]

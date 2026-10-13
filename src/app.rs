@@ -16,17 +16,17 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINF
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SW_RESTORE, SetForegroundWindow, ShowWindow};
 
 use crate::color::Rgb;
-use crate::device::{Device, Kind, MAX_LIGHT};
-use crate::effects::{self, Drawn, Effect, EffectColors, Group};
-use crate::engine::{Engine, Inputs, Target};
-use crate::hotkeys::{self, Hotkeys};
-use crate::keyhook::KeyboardHook;
-use crate::osd::{self, OsdWindow};
-use crate::preview;
-use crate::scenes::{self, Live, LightBarRenderer, Overlay, OverlayStyle, Scene};
+use crate::lighting::device::{Device, Kind, MAX_LIGHT};
+use crate::lighting::effects::{self, Drawn, Effect, EffectColors, Group};
+use crate::lighting::engine::{Engine, Inputs, Target};
+use crate::hardware::hotkeys::{self, Hotkeys};
+use crate::lighting::keyhook::KeyboardHook;
+use crate::shell::osd::{self, OsdWindow};
+use crate::lighting::preview;
+use crate::lighting::scenes::{self, Live, LightBarRenderer, Overlay, OverlayStyle, Scene};
 use crate::settings::{LightingSettings, Settings};
-use crate::system::{self, startup, touchpad};
-use crate::tray::{self, MenuItem, Tray, TrayEvent};
+use crate::hardware::system::{self, startup, touchpad};
+use crate::shell::tray::{self, MenuItem, Tray, TrayEvent};
 use crate::ui::{AppWindow, DeviceView, Theme, TileGroup};
 
 // Control Center's "Idle Timer" (KeyboardCloseTimer): switch the lights off after this long without input.
@@ -364,7 +364,7 @@ impl App {
             kb_tile_leds: colors_model(&vec![Rgb::BLACK; effects::KEYBOARD.len() * TILE_LEDS]),
             lb_tile_leds: colors_model(&vec![Rgb::BLACK; effects::LIGHT_BAR.len() * TILE_LEDS]),
             kb_glow: colors_model(&[Rgb::BLACK; 4]),
-            lb_leds: colors_model(&[Rgb::BLACK; crate::device::LIGHT_BAR_LEDS]),
+            lb_leds: colors_model(&[Rgb::BLACK; crate::lighting::device::LIGHT_BAR_LEDS]),
             kb_zones: colors_model(&keyboard.zones),
             kb_palette: colors_model(&[]),
             lb_palette: colors_model(&[]),
@@ -388,8 +388,10 @@ impl App {
         ui.set_idle_index(idle_index as i32);
         ui.set_flash_caps(settings.flash_caps_lock);
         ui.set_flash_num(settings.flash_num_lock);
+        if !demo {
+            startup::migrate();
+        }
         ui.set_start_with_windows(!demo && startup::is_enabled());
-        startup::remove_legacy_run_entry();
         apply_theme(ui);
 
         let watch = Arc::new(Watch { keyboard: Mutex::new(None), busy: AtomicBool::new(false), stop: AtomicBool::new(false) });
@@ -1264,9 +1266,9 @@ impl App {
             let mut leds = if drawn {
                 light_bar.live.lock().unwrap_or_else(|e| e.into_inner()).clone()
             } else {
-                preview::simulate(plan.effect, &plan.colors, plan.direction, plan.speed, t, crate::device::LIGHT_BAR_LEDS, false)
+                preview::simulate(plan.effect, &plan.colors, plan.direction, plan.speed, t, crate::lighting::device::LIGHT_BAR_LEDS, false)
             };
-            leds.resize(crate::device::LIGHT_BAR_LEDS, Rgb::BLACK);
+            leds.resize(crate::lighting::device::LIGHT_BAR_LEDS, Rgb::BLACK);
             let shown = if self.demo { if light_bar.idle_off { 0 } else { to_level(light_bar.percent) } } else { light_bar.shown_light };
             let scale = if light_bar.on { preview::brightness_scale(shown) } else { 0.0 };
             for led in &mut leds {
@@ -1302,7 +1304,7 @@ impl App {
 
     fn create_tray(&mut self) {
         let tray = Tray::create(
-            "Keyboard RGB",
+            "Tulpar Control",
             || {
                 let mut items = Vec::new();
                 APP.with(|cell| {
@@ -1388,7 +1390,7 @@ impl App {
         }
         menu.push(MenuItem::Submenu { text: "Timer".into(), enabled: true, items: timer });
         menu.push(MenuItem::Separator);
-        menu.push(MenuItem::item(CMD_OPEN, "Open Keyboard RGB"));
+        menu.push(MenuItem::item(CMD_OPEN, "Open Tulpar Control"));
         menu.push(MenuItem::item(CMD_EXIT, "Exit"));
         menu
     }

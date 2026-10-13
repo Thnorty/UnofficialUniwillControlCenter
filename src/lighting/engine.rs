@@ -10,9 +10,9 @@ use std::time::{Duration, Instant};
 
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 
-use crate::audio::{AudioMeter, LoopbackCapture, SampleHistory};
-use crate::device::Kind;
-use crate::status::SystemStatus;
+use crate::lighting::audio::{AudioMeter, LoopbackCapture, SampleHistory};
+use crate::lighting::device::Kind;
+use crate::hardware::status::SystemStatus;
 
 /// What an effect reads each frame; the engine only gathers what some effect needs.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]

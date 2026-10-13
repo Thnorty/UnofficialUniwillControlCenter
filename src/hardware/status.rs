@@ -10,7 +10,7 @@ use windows::Win32::System::Threading::GetSystemTimes;
 use windows::core::{s, w};
 use wmi::{Variant, WMIConnection};
 
-use crate::engine::Inputs;
+use crate::lighting::engine::Inputs;
 
 #[derive(Default)]
 pub struct SystemStatus {

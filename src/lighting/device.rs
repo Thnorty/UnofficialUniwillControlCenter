@@ -20,7 +20,7 @@ use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_FLAGS_AND_ATTRIBUTES
 use windows::core::PCWSTR;
 
 use crate::color::Rgb;
-use crate::effects::{self, Effect, EffectColors};
+use crate::lighting::effects::{self, Effect, EffectColors};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Kind {
