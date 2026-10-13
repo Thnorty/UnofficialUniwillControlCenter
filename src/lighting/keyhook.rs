@@ -1,15 +1,22 @@
 //! Reports where on the keyboard each key press is, from 0 (left edge) to 1 (right edge, the numpad), for the light
 //! bar's Typing effect. Only key positions are looked at, nothing is recorded, and the hook is only installed while
-//! an effect needs it. It must be installed on a thread with a message loop (the UI thread).
+//! an effect needs it.
+//!
+//! The hook runs on a thread of its own with its own message loop. Windows calls a low-level hook on the thread that
+//! installed it and drops the hook if that thread is slow to answer; on the UI thread, busy drawing the window and
+//! handling its keys while it has focus, that happened while this window was in front.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::sync::mpsc;
+use std::thread::JoinHandle;
 
 use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, HHOOK, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP,
-    WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, DispatchMessageW, GetMessageW, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, MSG, PostThreadMessageW, SetWindowsHookExW,
+    TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 const EXTENDED: u32 = 0x100;
@@ -27,17 +34,42 @@ thread_local! {
     static STATE: RefCell<Option<HookState>> = const { RefCell::new(None) };
 }
 
-pub struct KeyboardHook(HHOOK);
+pub struct KeyboardHook {
+    thread_id: u32,
+    thread: Option<JoinHandle<()>>,
+}
 
 impl KeyboardHook {
-    /// Installs the hook, or returns None if Windows refused it.
-    pub fn install(pressed: impl Fn(f32) + 'static) -> Option<KeyboardHook> {
-        STATE.with(|s| *s.borrow_mut() = Some(HookState { pressed: Box::new(pressed), down: HashSet::new(), positions: positions() }));
-        let module = unsafe { GetModuleHandleW(None) }.ok().map(|m| HINSTANCE(m.0));
-        match unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(on_key), module, 0) } {
-            Ok(hook) => Some(KeyboardHook(hook)),
-            Err(_) => {
-                STATE.with(|s| *s.borrow_mut() = None);
+    /// Installs the hook on its own thread, or returns None if Windows refused it. `pressed` is called on that thread.
+    pub fn install(pressed: impl Fn(f32) + Send + 'static) -> Option<KeyboardHook> {
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let thread = std::thread::Builder::new()
+            .name("Keyboard hook".into())
+            .spawn(move || {
+                STATE.with(|s| *s.borrow_mut() = Some(HookState { pressed: Box::new(pressed), down: HashSet::new(), positions: positions() }));
+                let module = unsafe { GetModuleHandleW(None) }.ok().map(|m| HINSTANCE(m.0));
+                let Ok(hook) = (unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(on_key), module, 0) }) else {
+                    ready_tx.send(None).ok();
+                    return;
+                };
+                ready_tx.send(Some(unsafe { GetCurrentThreadId() })).ok();
+                let mut message = MSG::default();
+                // Until WM_QUIT (0) or an error (-1).
+                while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
+                    unsafe {
+                        let _ = TranslateMessage(&message);
+                        DispatchMessageW(&message);
+                    }
+                }
+                unsafe {
+                    let _ = UnhookWindowsHookEx(hook);
+                }
+            })
+            .ok()?;
+        match ready_rx.recv() {
+            Ok(Some(thread_id)) => Some(KeyboardHook { thread_id, thread: Some(thread) }),
+            _ => {
+                let _ = thread.join();
                 None
             }
         }
@@ -47,9 +79,11 @@ impl KeyboardHook {
 impl Drop for KeyboardHook {
     fn drop(&mut self) {
         unsafe {
-            let _ = UnhookWindowsHookEx(self.0);
+            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
         }
-        STATE.with(|s| *s.borrow_mut() = None);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 

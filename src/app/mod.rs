@@ -1145,7 +1145,7 @@ impl App {
     fn update_keyboard_hook(&mut self) {
         let needs = self.engine.needs_keys();
         if needs && self.key_hook.is_none() {
-            self.key_hook = KeyboardHook::install(|x| with_app(move |app| app.engine.key_pressed(x)));
+            self.key_hook = KeyboardHook::install(self.engine.key_sink());
         } else if !needs && self.key_hook.is_some() {
             self.key_hook = None;
         }

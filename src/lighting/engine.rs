@@ -155,10 +155,13 @@ impl Engine {
         Inputs(self.shared.inputs_in_use.load(Ordering::Acquire)).contains(Inputs::KEYS)
     }
 
-    /// Reports a key press at a position across the keyboard (0 = left, 1 = right).
-    pub fn key_pressed(&self, position: f32) {
-        if self.needs_keys() {
-            self.shared.keys.lock().unwrap_or_else(|e| e.into_inner()).push(position);
+    /// Reports key presses at a position across the keyboard (0 = left, 1 = right), from any thread.
+    pub fn key_sink(&self) -> impl Fn(f32) + Send + 'static {
+        let shared = self.shared.clone();
+        move |position| {
+            if Inputs(shared.inputs_in_use.load(Ordering::Acquire)).contains(Inputs::KEYS) {
+                shared.keys.lock().unwrap_or_else(|e| e.into_inner()).push(position);
+            }
         }
     }
 
