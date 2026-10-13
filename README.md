@@ -49,10 +49,12 @@ target-demo\release\TulparControl.exe --demo
 | `src/app/mod.rs` | The window, the tray, the lighting and the Fn keys: everything the UI thread does. |
 | `src/app/power.rs` | Performance modes, Fan Boost, fan curves and battery care, and the performance keys. |
 | `src/app/monitor.rs` | The readings thread and the Monitor page. |
+| `src/app/bios.rs` | Startup lighting, the CPU voltage offset and recovery after a failed start, kept in the BIOS. |
 | `src/lighting/` | The ITE controllers over HID (`device.rs`), the effect lists, the effects engine and scenes, audio, the previews and the keyboard hook. |
 | `src/hardware/ec.rs` | The embedded controller's RAM through WMI, on one thread. |
 | `src/hardware/hotkeys.rs` | Taking the Fn keys over from the EC and listening for hotkey events. |
-| `src/hardware/performance.rs`, `fans.rs`, `battery.rs` | The EC registers for modes and power limits, fan tables and speeds, and charging. |
+| `src/hardware/performance.rs`, `fans.rs`, `battery.rs` | The EC registers for modes, power limits and TCC offset, fan tables and speeds, and charging. |
+| `src/hardware/uefi.rs` | Control Center's UEFI variable, read and changed field by field. |
 | `src/hardware/status.rs`, `system.rs` | Temperatures, loads, memory and battery readings; touchpad, startup task and registry. |
 | `src/shell/` | The pop-up (Direct2D on a layered window) and the tray icon and menu. |
 | `ui/*.slint` | The window, in Slint; `power.slint` has the Performance, Battery and Monitor pages. |

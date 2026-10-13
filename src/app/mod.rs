@@ -3,6 +3,7 @@
 //! Everything here runs on the UI thread; the effects, EC, hotkey, monitor and brightness-watching threads post back
 //! to it with slint::invoke_from_event_loop.
 
+mod bios;
 mod monitor;
 mod power;
 
@@ -330,6 +331,7 @@ pub struct App {
     exiting: bool,
     power: power::Power,
     monitor: monitor::Monitor,
+    bios: bios::Bios,
 }
 
 fn colors_model(colors: &[Rgb]) -> Rc<VecModel<slint::Color>> {
@@ -436,6 +438,7 @@ impl App {
             exiting: false,
             power,
             monitor: monitor::Monitor::new(),
+            bios: bios::Bios::default(),
         };
         APP.with(|cell| *cell.borrow_mut() = Some(app));
         connect_callbacks(ui);
@@ -450,9 +453,11 @@ impl App {
                 ui.set_curve(ModelRc::from(app.power.curve_model.clone()));
             }
             app.refresh_power();
+            app.refresh_bios();
             if !demo {
                 app.start_brightness_watcher();
                 app.connect_ec();
+                app.read_bios();
             }
         });
         crate::lighting::keyhook::drop_raw_keyboard_input();
@@ -1045,6 +1050,7 @@ impl App {
             if !app.demo {
                 app.check_hotkeys();
                 app.check_power_owner();
+                app.refresh_bios();
             }
             if app.settings_dirty && !app.demo {
                 app.store_settings();
@@ -1738,6 +1744,15 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_select_curve_fan(|fan| with_app(move |app| app.select_curve_fan(fan.max(0) as usize)));
     ui.on_curve_duty(|step, duty| with_app(move |app| app.set_curve_duty(step.max(0) as usize, duty)));
     ui.on_reset_curve(|| with_app(|app| app.reset_curve()));
+    ui.on_set_custom_limits(|on| with_app(move |app| app.set_custom_limits(on)));
+    ui.on_limit_changed(|which, watts| with_app(move |app| app.set_limit(which.max(0) as usize, watts.round().clamp(0.0, 255.0) as u8)));
+    ui.on_set_tcc(|on| with_app(move |app| app.set_tcc(on)));
+    ui.on_tcc_changed(|degrees| with_app(move |app| app.set_tcc_offset(degrees.round().clamp(0.0, 127.0) as u8)));
+    ui.on_reset_tuning(|| with_app(|app| app.reset_tuning()));
+    ui.on_voltage_changed(|mv| with_app(move |app| app.set_voltage(mv.round() as i32)));
+    ui.on_save_voltage(|| with_app(|app| app.save_voltage()));
+    ui.on_save_startup(|device| with_app(move |app| app.save_startup(kind_of(device))));
+    ui.on_reset_startup(|device| with_app(move |app| app.reset_startup(kind_of(device))));
     ui.on_set_charge_mode(|index| with_app(move |app| app.set_charge_mode(ChargeMode::from_index(index.max(0) as usize))));
     ui.on_retry(|| with_app(|app| app.open_devices()));
     ui.on_format_hex(|color| Rgb::from_slint(color).hex().into());

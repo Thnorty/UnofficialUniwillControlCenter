@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::color::Rgb;
 use crate::hardware::battery::ChargeMode;
 use crate::hardware::fans::Table;
-use crate::hardware::performance::Mode;
+use crate::hardware::performance::{Mode, Tuning};
 use crate::lighting::device::MAX_LIGHT;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -24,11 +24,22 @@ pub struct Settings {
     pub flash_num_lock: bool,
     /// None until the app has read the EC, so the first run keeps the mode and battery care already set.
     pub power: Option<PowerSettings>,
+    /// The startup lighting the BIOS had before this app first changed it, by device ("Keyboard", "LightBar"): its
+    /// 08h and 1Ah commands in hex.
+    pub startup_lighting_backup: HashMap<String, String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { keyboard: None, light_bar: None, idle_timeout_seconds: 0, flash_caps_lock: true, flash_num_lock: true, power: None }
+        Settings {
+            keyboard: None,
+            light_bar: None,
+            idle_timeout_seconds: 0,
+            flash_caps_lock: true,
+            flash_num_lock: true,
+            power: None,
+            startup_lighting_backup: HashMap::new(),
+        }
     }
 }
 
@@ -43,6 +54,8 @@ pub struct PowerSettings {
     pub default_fan_tables: HashMap<String, Table>,
     /// Custom fan curves, by mode name.
     pub fan_curves: HashMap<String, FanCurve>,
+    /// CPU power limits and TCC offset, by mode name.
+    pub tuning: HashMap<String, Tuning>,
 }
 
 impl Default for PowerSettings {
@@ -53,6 +66,7 @@ impl Default for PowerSettings {
             charge_mode: ChargeMode::HighCapacity,
             default_fan_tables: HashMap::new(),
             fan_curves: HashMap::new(),
+            tuning: HashMap::new(),
         }
     }
 }

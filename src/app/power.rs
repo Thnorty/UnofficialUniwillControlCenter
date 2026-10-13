@@ -14,11 +14,11 @@ use super::{App, post, with_app};
 use crate::hardware::battery::{self, ChargeMode};
 use crate::hardware::ec::{Ec, Registers};
 use crate::hardware::fans::{self, Step, Table};
-use crate::hardware::performance::{self, Mode, PowerLimits};
+use crate::hardware::performance::{self, Defaults, Mode, PowerLimits, Ranges, Tuning};
 use crate::hardware::{hotkeys, status, system};
 use crate::settings::{FanCurve, PowerSettings};
 use crate::shell::osd;
-use crate::ui::CurvePoint;
+use crate::ui::{CurvePoint, TuningView};
 
 pub(super) struct Power {
     pub ec: Option<Ec>,
@@ -51,6 +51,11 @@ pub(super) struct Power {
     curve_timer: slint::Timer,
     /// Updated in place, so a point being dragged isn't recreated under the pointer.
     pub curve_model: Rc<VecModel<CurvePoint>>,
+    /// The highest power limits and TCC offset the BIOS allows; None if its table can't be read.
+    ranges: Option<Ranges>,
+    mode_defaults: [Option<Defaults>; 3],
+    pub tuning: [Tuning; 3],
+    tuning_timer: slint::Timer,
 }
 
 impl Power {
@@ -64,6 +69,7 @@ impl Power {
             }
         });
         let curves = std::array::from_fn(|i| settings.and_then(|s| s.fan_curves.get(Mode::from_index(i).name())).cloned());
+        let tuning = std::array::from_fn(|i| settings.and_then(|s| s.tuning.get(Mode::from_index(i).name())).copied().unwrap_or_default());
         Power {
             ec: None,
             shared_ec: Arc::new(Mutex::new(None)),
@@ -90,6 +96,10 @@ impl Power {
             custom_applied: false,
             curve_timer: slint::Timer::default(),
             curve_model: Rc::new(VecModel::default()),
+            ranges: demo.then_some(Ranges { pl1: 120, pl2: 120, pl4: 165, tcc: 5 }),
+            mode_defaults: std::array::from_fn(|i| demo.then(|| demo_defaults(Mode::from_index(i)))),
+            tuning,
+            tuning_timer: slint::Timer::default(),
         }
     }
 
@@ -113,7 +123,34 @@ impl Power {
             if let Some(curve) = &self.curves[mode.index()] {
                 stored.fan_curves.insert(mode.name().into(), curve.clone());
             }
+            stored.tuning.insert(mode.name().into(), self.tuning[mode.index()]);
         }
+    }
+
+    /// The BIOS's ranges, or if its table can't be read, the highest of the modes' own limits (no TCC offset then).
+    fn ranges(&self) -> Option<Ranges> {
+        self.ranges.or_else(|| {
+            let limits: Vec<PowerLimits> = self.mode_defaults.iter().flatten().map(|d| d.limits).collect();
+            let max = |f: fn(&PowerLimits) -> u8| limits.iter().map(f).max().unwrap_or(0);
+            let ranges = Ranges { pl1: max(|l| l.pl1), pl2: max(|l| l.pl2), pl4: max(|l| l.pl4), tcc: 0 };
+            (ranges.pl1 >= performance::MIN_LIMIT).then_some(ranges)
+        })
+    }
+
+    /// The tuning to send for `mode`, kept within the ranges; None leaves the mode's defaults.
+    fn tuning_for(&self, mode: Mode) -> Option<Tuning> {
+        let ranges = self.ranges()?;
+        let mut tuning = self.tuning[mode.index()];
+        tuning.limits = tuning.limits.checked(&ranges);
+        tuning.tcc_offset = tuning.tcc_offset.min(ranges.tcc);
+        tuning.tcc_enabled &= ranges.tcc > 0;
+        Some(tuning)
+    }
+
+    /// Back to each mode's defaults (after the BIOS reset the tuning, as Control Center's LoadDefault).
+    pub fn reset_all_tuning(&mut self) {
+        self.tuning = Default::default();
+        self.chosen = true;
     }
 
     /// The table the fans should follow in the current mode, if it's a custom one.
@@ -149,12 +186,20 @@ struct EcState {
     fan_tables: bool,
     safety: bool,
     limits: PowerLimits,
+    ranges: Option<Ranges>,
+    defaults: [Option<Defaults>; 3],
 }
 
 fn read_state(ec: &Registers) -> Result<EcState> {
     let support = performance::support(ec)?;
     let (mode, fan_boost) = performance::current(ec)?;
+    let mut defaults = [None; 3];
+    for mode in Mode::ALL {
+        defaults[mode.index()] = Some(performance::defaults(ec, mode)?);
+    }
     Ok(EcState {
+        ranges: performance::ranges().ok(),
+        defaults,
         turbo: support.turbo,
         default_mode: support.default_mode,
         mode,
@@ -255,6 +300,8 @@ impl App {
         power.fan_tables = state.fan_tables;
         power.safety = state.safety;
         power.limits = Some(state.limits);
+        power.ranges = state.ranges;
+        power.mode_defaults = state.defaults;
         power.ready = true;
         if !power.owned {
             // Control Center's choices, shown as they are.
@@ -291,9 +338,10 @@ impl App {
         let (mode, boost, charge, on_ac, fan_tables) = (self.power.mode, self.power.fan_boost, self.power.charge, self.power.on_ac, self.power.fan_tables);
         let table = self.power.custom_table();
         let custom = table.is_some();
+        let tuning = self.power.tuning_for(mode);
         ec.spawn(move |ec| {
             let result = (|| -> Result<PowerLimits> {
-                let limits = performance::apply(ec, mode, boost, on_ac)?;
+                let limits = performance::apply(ec, mode, boost, on_ac, tuning.as_ref())?;
                 battery::set(ec, charge)?;
                 if fan_tables {
                     apply_fan_table(ec, table.as_ref())?;
@@ -314,6 +362,110 @@ impl App {
             Err(reason) => self.set_status(&format!("Couldn't set the performance mode: {reason}"), true, false),
         }
         self.refresh_power();
+    }
+
+    // ---- CPU tuning -----------------------------------------------------------------------------------------------
+
+    /// Sends the current mode's power limits and TCC offset a moment after the last change.
+    fn queue_tuning(&mut self) {
+        self.power.chosen = true;
+        self.settings_dirty = true;
+        self.refresh_power();
+        self.power.tuning_timer.start(slint::TimerMode::SingleShot, Duration::from_millis(300), || with_app(|app| app.apply_tuning()));
+    }
+
+    fn apply_tuning(&mut self) {
+        self.power.on_ac = status::on_ac();
+        let Some(ec) = self.power.ec.clone() else { return };
+        if !self.power.owned || !self.power.ready {
+            return;
+        }
+        let (mode, on_ac) = (self.power.mode, self.power.on_ac);
+        let tuning = self.power.tuning_for(mode);
+        ec.spawn(move |ec| {
+            let result = performance::set_tuning(ec, mode, on_ac, tuning.as_ref()).map_err(error_text);
+            post(move |app| match result {
+                Ok(limits) => {
+                    app.power.limits = Some(limits);
+                    app.refresh_power();
+                }
+                Err(reason) => app.set_status(&format!("Couldn't set the CPU tuning: {reason}"), true, false),
+            });
+        });
+    }
+
+    fn can_tune(&self) -> bool {
+        self.power.available(self.demo) && self.power.ranges().is_some()
+    }
+
+    pub(super) fn set_custom_limits(&mut self, on: bool) {
+        if !self.can_tune() {
+            return;
+        }
+        let index = self.power.mode.index();
+        let defaults = self.power.mode_defaults[index].map(|d| d.limits).unwrap_or_default();
+        let tuning = &mut self.power.tuning[index];
+        if on && tuning.limits == PowerLimits::default() {
+            tuning.limits = defaults; // start from the mode's own
+        }
+        tuning.custom_limits = on;
+        self.queue_tuning();
+    }
+
+    /// `which`: 0 PL1, 1 PL2, 2 PL4.
+    pub(super) fn set_limit(&mut self, which: usize, watts: u8) {
+        let Some(ranges) = self.power.ranges() else { return };
+        if !self.can_tune() {
+            return;
+        }
+        let tuning = &mut self.power.tuning[self.power.mode.index()];
+        if !tuning.custom_limits {
+            return;
+        }
+        let limits = &mut tuning.limits;
+        match which {
+            0 => limits.pl1 = watts,
+            1 => limits.pl2 = watts,
+            _ => limits.pl4 = watts,
+        }
+        // Lowering a later limit below an earlier one lowers the earlier one with it.
+        limits.pl1 = limits.pl1.min(if which == 1 { limits.pl2 } else if which == 2 { limits.pl4 } else { limits.pl1 });
+        limits.pl2 = limits.pl2.min(if which == 2 { limits.pl4 } else { limits.pl2 });
+        *limits = limits.checked(&ranges);
+        self.queue_tuning();
+    }
+
+    pub(super) fn set_tcc(&mut self, on: bool) {
+        let Some(ranges) = self.power.ranges() else { return };
+        if !self.can_tune() || ranges.tcc == 0 {
+            return;
+        }
+        let index = self.power.mode.index();
+        let default = self.power.mode_defaults[index].map_or(0, |d| d.tcc);
+        let tuning = &mut self.power.tuning[index];
+        if on && !tuning.tcc_enabled && tuning.tcc_offset == 0 {
+            tuning.tcc_offset = default.min(ranges.tcc); // Control Center's profiles start there
+        }
+        tuning.tcc_enabled = on;
+        self.queue_tuning();
+    }
+
+    pub(super) fn set_tcc_offset(&mut self, degrees: u8) {
+        let Some(ranges) = self.power.ranges() else { return };
+        let tuning = &mut self.power.tuning[self.power.mode.index()];
+        if !tuning.tcc_enabled {
+            return;
+        }
+        tuning.tcc_offset = degrees.min(ranges.tcc);
+        self.queue_tuning();
+    }
+
+    pub(super) fn reset_tuning(&mut self) {
+        if !self.power.available(self.demo) {
+            return;
+        }
+        self.power.tuning[self.power.mode.index()] = Tuning::default();
+        self.queue_tuning();
     }
 
     fn note_custom(&mut self, custom: bool) {
@@ -595,11 +747,19 @@ impl App {
         ui.set_perf_mode(power.mode.index() as i32);
         ui.set_perf_turbo(power.turbo || power.mode == Mode::Turbo);
         ui.set_fan_boost(power.fan_boost);
-        ui.set_perf_limits(match power.limits {
+        // Demo mode sends nothing, so it shows what would be sent.
+        let limits = if self.demo {
+            let tuning = power.tuning_for(power.mode).filter(|t| t.custom_limits);
+            tuning.map(|t| t.limits).or(power.mode_defaults[power.mode.index()].map(|d| d.limits))
+        } else {
+            power.limits
+        };
+        ui.set_perf_limits(match limits {
             _ if !power.on_ac => "on battery".into(),
             Some(limits) if limits.pl1 > 0 => format!("CPU {} W sustained, {} W boost", limits.pl1, limits.pl2.max(limits.pl1)).into(),
             _ => "".into(),
         });
+        self.refresh_tuning(&ui, available);
         ui.set_battery_available(available);
         ui.set_battery_note(if available { "".into() } else { note.into() });
         ui.set_charge_mode(power.charge as i32);
@@ -646,6 +806,46 @@ impl App {
         ui.set_default_path(default_path.into());
     }
 
+    fn refresh_tuning(&self, ui: &crate::ui::AppWindow, available: bool) {
+        let power = &self.power;
+        let index = power.mode.index();
+        let ranges = power.ranges();
+        let tuning = power.tuning_for(power.mode).unwrap_or(power.tuning[index]);
+        let defaults = power.mode_defaults[index];
+        let shown = if tuning.custom_limits { tuning.limits } else { defaults.map(|d| d.limits).unwrap_or_default() };
+        let range = ranges.unwrap_or(Ranges { pl1: 0, pl2: 0, pl4: 0, tcc: 0 });
+        let note = if !available {
+            String::new()
+        } else if ranges.is_none() {
+            "The BIOS's power limit ranges couldn't be read, so the limits can't be changed.".into()
+        } else if power.ranges.is_none() {
+            "Control Center's ACPI driver isn't there to read the BIOS's ranges, so the limits go up to the highest mode's own and the TCC offset can't be changed.".into()
+        } else {
+            String::new()
+        };
+        ui.set_tuning(TuningView {
+            available: available && ranges.is_some(),
+            custom: tuning.custom_limits,
+            pl_min: performance::MIN_LIMIT as i32,
+            pl1_max: range.pl1 as i32,
+            pl2_max: range.pl2 as i32,
+            pl4_max: range.pl4 as i32,
+            defaults: match defaults {
+                Some(d) => format!("{} mode's own: {} W sustained, {} W boost, {} W peak.", power.mode.name(), d.limits.pl1, d.limits.pl2, d.limits.pl4).into(),
+                None => "".into(),
+            },
+            tcc_available: available && range.tcc > 0,
+            tcc_on: tuning.tcc_enabled,
+            tcc_max: range.tcc as i32,
+            note: note.into(),
+            ..ui.get_tuning()
+        });
+        ui.set_tune_pl1(shown.pl1 as f32);
+        ui.set_tune_pl2(shown.pl2 as f32);
+        ui.set_tune_pl4(shown.pl4 as f32);
+        ui.set_tune_tcc(if tuning.tcc_enabled { tuning.tcc_offset } else { defaults.map_or(0, |d| d.tcc).min(range.tcc) } as f32);
+    }
+
     /// Tray menu entries for the performance mode and Fan Boost.
     pub(super) fn power_menu(&self) -> Option<(Vec<(u32, &'static str, bool)>, bool)> {
         if !self.power.available(self.demo) {
@@ -686,6 +886,16 @@ fn curve_shape(steps: &[Step], defaults: &[Step]) -> (Vec<CurvePoint>, String) {
     }
     path += &format!(" L 1000 {}", v(1.0 - y(used - 1)));
     (points, path)
+}
+
+/// This laptop's defaults, for demo mode.
+fn demo_defaults(mode: Mode) -> Defaults {
+    let (pl1, pl2, pl4) = match mode {
+        Mode::Office => (35, 45, 120),
+        Mode::Gaming => (60, 60, 165),
+        Mode::Turbo => (80, 115, 165),
+    };
+    Defaults { limits: PowerLimits { pl1, pl2, pl4 }, tcc: 0 }
 }
 
 /// A plausible table for trying the editor in demo mode (the shape of this laptop's Gaming table).

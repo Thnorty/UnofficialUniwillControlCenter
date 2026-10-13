@@ -4,7 +4,7 @@ import { Glyph, InfoBar } from "controls.slint";
 import { KeyCap } from "preview.slint";
 import { ColorPicker } from "picker.slint";
 import { DeviceView, TileGroup, LightingPage, AlertsPage, SettingsPage } from "pages.slint";
-import { Metric, CurvePoint, Detail, PerformancePage, BatteryPage, MonitorPage } from "power.slint";
+import { Metric, CurvePoint, Detail, TuningView, PerformancePage, BatteryPage, MonitorPage } from "power.slint";
 
 export { Theme, KeyCap, DeviceView, TileGroup, Metric, CurvePoint, Detail }
 
@@ -82,6 +82,7 @@ export component AppWindow inherits Window {
     in property <[KeyCap]> keys;
     in-out property <float> kb-light;
     in-out property <float> kb-speed;
+    in property <string> kb-startup;
 
     // The light bar.
     in property <DeviceView> lb-view;
@@ -92,6 +93,8 @@ export component AppWindow inherits Window {
     in property <[color]> lb-leds;
     in-out property <float> lb-light;
     in-out property <float> lb-speed;
+    in property <string> lb-startup;
+    in property <bool> startup-available;
 
     // Timer & alerts.
     in property <bool> timer-running;
@@ -128,6 +131,12 @@ export component AppWindow inherits Window {
     in property <[CurvePoint]> curve;
     in property <string> curve-path;
     in property <string> default-path;
+    in property <TuningView> tuning;
+    in-out property <float> tune-pl1;
+    in-out property <float> tune-pl2;
+    in-out property <float> tune-pl4;
+    in-out property <float> tune-tcc;
+    in-out property <float> tune-voltage;
 
     // Battery.
     in property <bool> battery-available;
@@ -169,6 +178,15 @@ export component AppWindow inherits Window {
     callback select-curve-fan(int);
     callback curve-duty(int, int);
     callback reset-curve();
+    callback set-custom-limits(bool);
+    callback limit-changed(int, float);
+    callback set-tcc(bool);
+    callback tcc-changed(float);
+    callback reset-tuning();
+    callback voltage-changed(float);
+    callback save-voltage();
+    callback save-startup(int);
+    callback reset-startup(int);
     callback set-charge-mode(int);
     pure callback format-hex(color) -> string;
     pure callback parse-hex(string) -> color;
@@ -310,6 +328,10 @@ export component AppWindow inherits Window {
                         remove-color(i) => { root.remove-color(0, i); }
                         reset-palette => { root.reset-palette(0); }
                         set-all-zones(c) => { root.color-edited(0, 2, 0, c); }
+                        startup: root.kb-startup;
+                        startup-available: root.startup-available;
+                        save-startup => { root.save-startup(0); }
+                        reset-startup => { root.reset-startup(0); }
                     }
                     if root.page == 1: LightingPage {
                         is-light-bar: true;
@@ -335,6 +357,10 @@ export component AppWindow inherits Window {
                         }
                         remove-color(i) => { root.remove-color(1, i); }
                         reset-palette => { root.reset-palette(1); }
+                        startup: root.lb-startup;
+                        startup-available: root.startup-available;
+                        save-startup => { root.save-startup(1); }
+                        reset-startup => { root.reset-startup(1); }
                     }
                     if root.page == 2: AlertsPage {
                         has-light-bar: root.has-light-bar;
@@ -372,6 +398,19 @@ export component AppWindow inherits Window {
                         select-curve-fan(i) => { root.select-curve-fan(i); }
                         curve-duty(i, duty) => { root.curve-duty(i, duty); }
                         reset-curve => { root.reset-curve(); }
+                        tuning: root.tuning;
+                        pl1 <=> root.tune-pl1;
+                        pl2 <=> root.tune-pl2;
+                        pl4 <=> root.tune-pl4;
+                        tcc <=> root.tune-tcc;
+                        voltage <=> root.tune-voltage;
+                        set-custom-limits(on) => { root.set-custom-limits(on); }
+                        limit-changed(i, v) => { root.limit-changed(i, v); }
+                        set-tcc(on) => { root.set-tcc(on); }
+                        tcc-changed(v) => { root.tcc-changed(v); }
+                        reset-tuning => { root.reset-tuning(); }
+                        voltage-changed(v) => { root.voltage-changed(v); }
+                        save-voltage => { root.save-voltage(); }
                     }
                     if root.page == 5: BatteryPage {
                         available: root.battery-available;

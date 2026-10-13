@@ -1,5 +1,5 @@
 import { Theme, Glyphs } from "theme.slint";
-import { BodyStrong, Caption, Card, FluentButton, Glyph, LinkButton, SectionHeader, Segmented, SettingRow, Title, ToggleSwitch } from "controls.slint";
+import { BodyStrong, Caption, Card, FluentButton, FluentSlider, Glyph, LinkButton, SectionHeader, Segmented, SettingRow, Title, ToggleSwitch } from "controls.slint";
 
 /// A reading on the Monitor page.
 export struct Metric {
@@ -300,6 +300,58 @@ component FanCurve inherits Rectangle {
     }
 }
 
+/// The CPU tuning controls, set from Rust; the slider values are separate in-out properties.
+export struct TuningView {
+    available: bool,
+    custom: bool,
+    pl-min: int,
+    pl1-max: int,
+    pl2-max: int,
+    pl4-max: int,
+    defaults: string,
+    tcc-available: bool,
+    tcc-on: bool,
+    tcc-max: int,
+    note: string,
+    voltage-available: bool,
+    voltage-min: int,
+    voltage-max: int,
+    voltage-saved: int,
+    voltage-changed: bool,
+    voltage-note: string,
+}
+
+/// A setting row with a slider and its value.
+component SliderRow inherits SettingRow {
+    in property <float> minimum;
+    in property <float> maximum;
+    in property <float> step: 1;
+    in-out property <float> value;
+    in property <string> unit;
+    in property <bool> signed;
+    in property <bool> enabled: true;
+    callback changed(float);
+    HorizontalLayout {
+        spacing: 12px;
+        width: 320px;
+        FluentSlider {
+            minimum: root.minimum;
+            maximum: root.maximum;
+            step: root.step;
+            enabled: root.enabled;
+            value <=> root.value;
+            changed(v) => { root.changed(v); }
+        }
+        Text {
+            text: (root.signed && root.value > 0 ? "+" : "") + Math.round(root.value) + " " + root.unit;
+            width: 64px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            color: Theme.text-secondary;
+        }
+    }
+}
+
 /// Performance modes, Fan Boost and the fan curve.
 export component PerformancePage inherits VerticalLayout {
     in property <bool> available;
@@ -318,12 +370,26 @@ export component PerformancePage inherits VerticalLayout {
     in property <[CurvePoint]> curve;
     in property <string> curve-path;
     in property <string> default-path;
+    in property <TuningView> tuning;
+    in-out property <float> pl1;
+    in-out property <float> pl2;
+    in-out property <float> pl4;
+    in-out property <float> tcc;
+    in-out property <float> voltage;
     callback set-mode(int);
     callback set-fan-boost(bool);
     callback set-curve-enabled(bool);
     callback select-curve-fan(int);
     callback curve-duty(int, int);
     callback reset-curve();
+    // which: 0 PL1, 1 PL2, 2 PL4
+    callback set-custom-limits(bool);
+    callback limit-changed(int, float);
+    callback set-tcc(bool);
+    callback tcc-changed(float);
+    callback reset-tuning();
+    callback voltage-changed(float);
+    callback save-voltage();
 
     property <[string]> mode-names: ["Office", "Gaming", "Turbo"];
 
@@ -386,6 +452,136 @@ export component PerformancePage inherits VerticalLayout {
     }
     Caption {
         text: "The performance key on the keyboard switches modes too. On battery the laptop sets its own power limits.";
+    }
+
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "CPU tuning for " + root.mode-names[root.mode] + " mode";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        if root.tuning.note != "": Caption {
+            text: root.tuning.note;
+        }
+        SettingRow {
+            icon: Glyphs.chip;
+            title: "Custom power limits";
+            description: root.tuning.custom ? "Used on the charger in this mode; on battery the laptop sets its own. Each limit is at least the one before it." : root.tuning.defaults;
+            ToggleSwitch {
+                checked: root.tuning.custom;
+                enabled: root.tuning.available;
+                toggled(on) => { root.set-custom-limits(on); }
+            }
+        }
+        if root.tuning.custom: SliderRow {
+            title: "Sustained (PL1)";
+            description: "What the CPU can draw for as long as it runs.";
+            minimum: root.tuning.pl-min;
+            maximum: root.tuning.pl1-max;
+            unit: "W";
+            enabled: root.tuning.available;
+            value <=> root.pl1;
+            changed(v) => { root.limit-changed(0, v); }
+        }
+        if root.tuning.custom: SliderRow {
+            title: "Boost (PL2)";
+            description: "What it can draw in bursts, for up to about a minute.";
+            minimum: root.tuning.pl-min;
+            maximum: root.tuning.pl2-max;
+            unit: "W";
+            enabled: root.tuning.available;
+            value <=> root.pl2;
+            changed(v) => { root.limit-changed(1, v); }
+        }
+        if root.tuning.custom: SliderRow {
+            title: "Peak (PL4)";
+            description: "The limit it never goes over, even for an instant.";
+            minimum: root.tuning.pl-min;
+            maximum: root.tuning.pl4-max;
+            unit: "W";
+            enabled: root.tuning.available;
+            value <=> root.pl4;
+            changed(v) => { root.limit-changed(2, v); }
+        }
+        if root.tuning.tcc-available: SettingRow {
+            icon: Glyphs.fan;
+            title: "TCC offset";
+            description: !root.tuning.tcc-on ? "Off: the CPU slows down only at its maximum temperature." : Math.round(root.tcc) == 0 ? "At 0 °C nothing changes yet. Each degree makes the CPU start slowing down that much below its maximum temperature, so it runs cooler." : "The CPU starts slowing down " + Math.round(root.tcc) + " °C below its maximum temperature, so it runs cooler.";
+            HorizontalLayout {
+                spacing: 12px;
+                if root.tuning.tcc-on: FluentSlider {
+                    width: 180px;
+                    minimum: 0;
+                    maximum: root.tuning.tcc-max;
+                    value <=> root.tcc;
+                    changed(v) => { root.tcc-changed(v); }
+                }
+                if root.tuning.tcc-on: Text {
+                    text: Math.round(root.tcc) + " °C";
+                    width: 40px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    color: Theme.text-secondary;
+                }
+                ToggleSwitch {
+                    checked: root.tuning.tcc-on;
+                    enabled: root.tuning.available;
+                    toggled(on) => { root.set-tcc(on); }
+                }
+            }
+        }
+        SettingRow {
+            icon: Glyphs.turbo;
+            title: "Core voltage offset (all modes)";
+            description: root.tuning.voltage-note;
+            HorizontalLayout {
+                spacing: 12px;
+                width: 400px;
+                FluentSlider {
+                    minimum: root.tuning.voltage-min;
+                    maximum: root.tuning.voltage-max;
+                    step: 5;
+                    enabled: root.tuning.voltage-available;
+                    value <=> root.voltage;
+                    changed(v) => { root.voltage-changed(v); }
+                }
+                Text {
+                    text: (root.voltage > 0 ? "+" : "") + Math.round(root.voltage) + " mV";
+                    width: 64px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    color: Theme.text-secondary;
+                }
+                FluentButton {
+                    text: "Save to BIOS";
+                    icon: Glyphs.save;
+                    enabled: root.tuning.voltage-available && root.tuning.voltage-changed;
+                    clicked => { root.save-voltage(); }
+                }
+            }
+        }
+        HorizontalLayout {
+            padding-top: 4px;
+            spacing: 10px;
+            Glyph {
+                text: Glyphs.warning;
+                color: Theme.caution;
+                width: 16px;
+                font-size: 14px;
+                vertical-alignment: top;
+            }
+            Caption {
+                text: "Higher limits make the laptop hotter and louder. A voltage offset can make Windows crash or the laptop fail to start; if it fails to start, the BIOS starts without the tuning next time, and this app then sets everything here back to the defaults.";
+                horizontal-stretch: 1;
+            }
+            LinkButton {
+                text: "Reset this mode";
+                vertical-alignment: top;
+                clicked => { root.reset-tuning(); }
+            }
+        }
     }
 
     VerticalLayout {

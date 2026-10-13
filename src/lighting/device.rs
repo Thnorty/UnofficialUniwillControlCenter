@@ -39,6 +39,7 @@ const CONTROL_USAGE: u16 = 0x0001;
 const CMD_SET_EFFECT: u8 = 0x08;
 const CMD_SET_BRIGHTNESS: u8 = 0x09;
 const CMD_SET_COLOR: u8 = 0x14;
+const CMD_SET_TIMEOUT: u8 = 0x1A; // HID_Set_TimeOut_1AH: how long the startup effect shows
 const CMD_GET_FIRMWARE_VERSION: u8 = 0x80;
 const CMD_GET_EFFECT: u8 = 0x88;
 const CMD_SET_ROW: u8 = 0x12; // HID_Set_RowIndex_12H: the next output report fills this row of user-mode LEDs
@@ -51,10 +52,13 @@ pub const LIGHT_BAR_LEDS: usize = 23;
 
 const CONTROL_OFF: u8 = 1;
 const CONTROL_LIGHTING: u8 = 2;
+const CONTROL_STARTUP: u8 = 3; // the effect shown while the laptop starts ("welcome")
 const CONTROL_RESET: u8 = 5;
 const COLOR_INDEX_SLOT1: u8 = 1; // effect uses the single color in slot 1
 const COLOR_INDEX_PALETTE: u8 = 8; // effect reads the circular palette loaded into slots 1..n
 const PALETTE_SLOTS: usize = 7;
+const STARTUP_SLOT: u8 = 9; // the startup effect's colors are in slots 9-15
+const STARTUP_TIMEOUT: u8 = 4; // what Control Center sends
 
 /// Highest firmware brightness. Control Center's four levels are 8, 22, 36 and 50.
 pub const MAX_LIGHT: u8 = 50;
@@ -192,6 +196,32 @@ impl Device {
         }
         state.last_known_light = light as i32;
         Ok(())
+    }
+
+    /// Loads the colors for showing `effect` while the laptop starts into the controller's startup slots, and returns
+    /// the two commands the BIOS sends it at boot: the effect (08h) and how long it shows (1Ah). As
+    /// LM_ITE_RGB.Set_Welcome_Effect; the running effect needs sending again afterwards.
+    pub fn set_startup(&self, effect: &Effect, colors: &[Rgb], direction: u8, light: u8, speed: u8) -> Result<([u8; 8], [u8; 8])> {
+        let _state = self.lock();
+        self.send(&[CMD_SET_EFFECT, CONTROL_RESET])?;
+        let slots: Vec<Rgb> = match self.kind {
+            _ if effect.is_rainbow() && self.kind == Kind::Keyboard => effects::KEYBOARD_RAINBOW.to_vec(),
+            _ if effect.is_rainbow() => effects::LIGHT_BAR_RAINBOW.to_vec(),
+            _ if colors.is_empty() => Vec::new(),
+            // One color, not a palette: every startup slot.
+            Kind::Keyboard if colors.len() == 1 => vec![colors[0]; PALETTE_SLOTS],
+            _ if effect.colors == EffectColors::Palette => (0..PALETTE_SLOTS.max(colors.len())).map(|i| colors[i % colors.len()]).collect(),
+            _ => colors.to_vec(),
+        };
+        for (i, color) in slots.iter().take(PALETTE_SLOTS).enumerate() {
+            self.set_color(STARTUP_SLOT + i as u8, *color)?;
+        }
+        let light = light.min(MAX_LIGHT);
+        let direction = if effect.has_direction { direction } else { 0 };
+        let effect_command = [CMD_SET_EFFECT, CONTROL_STARTUP, effect.id, SPEED_VALUES[speed.min(4) as usize], light, COLOR_INDEX_PALETTE, direction, 1];
+        let timeout_command = [CMD_SET_TIMEOUT, effect.id, 1, STARTUP_TIMEOUT, 0, 0, 0, 0];
+        self.send(&[CMD_SET_TIMEOUT, 0, 1, STARTUP_TIMEOUT, 0, 0, 0, 1])?;
+        Ok((effect_command, timeout_command))
     }
 
     /// Switches the lights off (ILM_RGBKB_SetPower Off). Any later effect switches them back on.

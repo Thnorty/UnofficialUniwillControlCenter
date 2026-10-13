@@ -65,6 +65,8 @@ export component LightingPage inherits VerticalLayout {
     in property <[KeyCap]> keys;
     in-out property <float> light;
     in-out property <float> speed;
+    in property <string> startup;
+    in property <bool> startup-available;
     callback select-effect(int);
     callback light-changed(float);
     callback speed-changed(float);
@@ -77,6 +79,8 @@ export component LightingPage inherits VerticalLayout {
     callback remove-color(int);
     callback reset-palette();
     callback set-all-zones(color);
+    callback save-startup();
+    callback reset-startup();
 
     property <[string]> speed-names: ["Slowest", "Slow", "Medium", "Fast", "Fastest"];
     property <bool> show-effect: !root.is-light-bar || !root.view.linked;
@@ -396,6 +400,38 @@ export component LightingPage inherits VerticalLayout {
                 selected: root.view.direction;
                 changed(i) => { root.direction-changed(i); }
             }
+        }
+    }
+
+    // What the BIOS shows while the laptop starts.
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "While the laptop starts";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.save;
+            title: "Startup lighting";
+            description: root.startup;
+            HorizontalLayout {
+                spacing: 16px;
+                LinkButton {
+                    text: "Restore the laptop's own";
+                    vertical-alignment: center;
+                    clicked => { root.reset-startup(); }
+                }
+                FluentButton {
+                    text: "Save to BIOS";
+                    enabled: root.startup-available && root.view.on;
+                    clicked => { root.save-startup(); }
+                }
+            }
+        }
+        Caption {
+            text: "Saves this effect, its colors, brightness and speed as what the " + (root.is-light-bar ? "light bar" : "keyboard") + " shows before Windows starts. Effects animated by this app can't run then, so they leave " + (root.is-light-bar ? "their first color." : "the zone colors.");
         }
     }
 }

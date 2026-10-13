@@ -27,6 +27,13 @@ These work the way Control Center does them. The commands come from Control Cent
 - **White balance:** the same green and blue scaling Control Center applies, so colors look the same.
 - **Saved in the controller:** the final lighting is saved to the controller when the app exits, so it stays without
   the app running.
+- **Startup lighting (Save to BIOS):** Control Center's "Startup Mode". Saves the current effect, colors, brightness
+  and speed as what the keyboard shows before Windows starts: the colors go to the controller's startup slots (9–15,
+  command 14h) and the BIOS gets the 08h (control 3) and 1Ah commands it sends at boot, in the `RGBKeyboard08` and
+  `RGBKeyboard1A` fields of Control Center's UEFI variable (`UniWillVariable`
+  {9f33f85c-13ca-4fd1-9c4a-96217722c593}). Effects drawn by this app leave the zone colors. "Restore the laptop's
+  own" puts back what the BIOS had before (Mix on this laptop).
+
 ### Light bar
 - **On/off switch**, and the light bar's Fn toggle key (hotkey code 175), with a pop-up.
 - **Effects:** the firmware effects Control Center's light bar driver handles: Static color, Breathing, Wave
@@ -38,6 +45,8 @@ These work the way Control Center does them. The commands come from Control Cent
 - **Speed and brightness**, as on the keyboard.
 - **Color correction:** the light bar's own correction (`WKDColor.cheatRGB_HIDLightbar`).
 - **First run:** starts from what the light bar was showing (Control Center left it off, on Thinking).
+- **Startup lighting (Save to BIOS):** as on the keyboard, in the `SmartLightbar08` and `SmartLightbar1A` fields.
+  Effects drawn by this app leave their first color. The light bar's own is Thinking.
 
 ### Shared
 - **Idle timer:** switches the backlight and the light bar off after a chosen time without keyboard or mouse input (Never,
@@ -58,8 +67,27 @@ These work the way Control Center does them. The commands come from Control Cent
   or Office ↔ Gaming without Turbo), with a pop-up.
 - **Fan Boost:** a switch, the tray menu and the Fan Boost key (codes 167 and 172), with a pop-up.
 - **Set again** after sleep and when the charger is plugged in or out.
-- Left at the firmware's: the TCC offset and the fan switching speed. CPU voltage offsets, GPU overclocking and the
-  UEFI variables Control Center also writes (`PowerMode`) are left out on purpose.
+- Left at the firmware's: the fan switching speed. GPU overclocking and the `PowerMode` UEFI field Control Center
+  also writes are left out.
+
+### CPU tuning
+Control Center's CPU overclocking settings for Intel laptops:
+- **Custom power limits per mode:** PL1 (sustained), PL2 (boost) and PL4 (peak) on the charger, from 10 W up to what
+  the BIOS's Smart APC table allows (here 120, 120 and 165 W), read as Control Center does through its ACPI driver
+  (`\\.\ACPIDriver`, IOCTL 0x9C40A500). Each limit is kept at least the one before it. Without the driver the
+  limits go up to the highest mode's own.
+- **TCC offset per mode:** makes the CPU start throttling that many °C below its maximum temperature (EC 0x786,
+  0x80 | °C), up to the table's maximum (here 5 °C), starting from the mode's default (EC 0x7D8–0x7DA).
+- **Core voltage offset:** written to the UEFI variable (`ICpuCoreVoltageOffsetValue` and
+  `ICpuCoreVoltageOffsetNegativeValue`), so it takes effect after a restart. This BIOS allows 0 to +100 mV (range
+  type 0); there's no undervolting.
+- **Recovery:** if the laptop fails to start with the tuning, the BIOS starts without it and sets
+  `OverClockRecoveryFlag`; the app then sets every mode back to its defaults and the voltage offset to 0, clears the
+  flag and says so, as Control Center's `DetectRecoveryFlagFromBiosVariable` does.
+- **Safe writes to the UEFI variable:** it's read first, only the fields being changed are written, with the same
+  size (180 bytes) and attributes, and it's read back to check. Nothing is written while Control Center's service
+  runs, since it rewrites the whole variable from its own copy. Memory overclocking isn't offered: this BIOS reports
+  no support for it.
 
 ### Fans
 - **Custom fan curve per mode:** Control Center's fan table editor. The EC's own table for each mode is read once
@@ -144,8 +172,6 @@ These work the way Control Center does them. The commands come from Control Cent
 ## Still missing
 
 ### Keyboard lighting
-- **Save to BIOS:** Control Center's boot-time lighting effect, which writes the `RGBKeyboard08` UEFI variable and
-  the controller's "welcome" slots. Left out on purpose because it writes firmware variables.
 - **Separate brightness on charger and battery:** Control Center's service keeps one brightness for each and
   switches when the charger is plugged in or out. This app has one brightness.
 - **Aurora:** not the light bar. Control Center's Aurora switch hands all lighting over to a separate third-party
@@ -166,8 +192,9 @@ These work the way Control Center does them. The commands come from Control Cent
 Not implemented:
 - **Per-mode profiles:** Control Center keeps five profiles per mode with edited power limits; this app uses each
   mode's defaults. Application profiles that switch modes per game are missing too.
-- **CPU and GPU tuning:** custom power limits and temperature targets, CPU voltage offset, GPU overclocking, Dynamic
-  Boost and NVIDIA Whisper Mode. Left out on purpose: they're risky, and some write UEFI variables.
+- **GPU tuning:** GPU core and memory overclocking, configurable TGP (here up to 35 W over the 80 W base), Dynamic
+  Boost (15 W) and NVIDIA Whisper Mode. They go through the NVIDIA driver, and couldn't be built and tried without
+  the GPU.
 - **GPU modes:** dGPU mode (Hybrid, iGPU, Auto) and disabling NVIDIA Optimus.
 - **Battery:** battery calibration, USB-C power delivery priority, powered USB while off, automatic boot on AC.
 - **Display:** refresh rate, color modes and calibration, low blue light.
