@@ -14,8 +14,6 @@ pub enum EffectColors {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Drawn {
     Firmware,
-    /// The keyboard's Wave with the rainbow's colors, drawn smoothly (the keyboard's own Rainbow stands still).
-    RainbowWave,
     Music,
     Spectrum,
     StarSpark,
@@ -57,6 +55,7 @@ pub struct Effect {
     pub colors: EffectColors,
     pub has_speed: bool,
     pub has_direction: bool,
+    pub min_colors: usize,
     pub max_colors: usize,
     pub hint: &'static str,
     pub drawn: Drawn,
@@ -105,6 +104,7 @@ impl Effect {
             colors,
             has_speed,
             has_direction: false,
+            min_colors: 1,
             max_colors: 7,
             hint,
             drawn: Drawn::Firmware,
@@ -121,6 +121,7 @@ impl Effect {
             colors,
             has_speed,
             has_direction: false,
+            min_colors: 1,
             max_colors: 7,
             hint,
             drawn,
@@ -144,7 +145,7 @@ impl Effect {
     }
 }
 
-/// The keyboard's Wave, which Wave and Rainbow wave are drawn with.
+/// The keyboard's Wave, which the app draws smoothly.
 pub fn keyboard_wave() -> &'static Effect {
     &KEYBOARD[2]
 }
@@ -154,11 +155,10 @@ pub static KEYBOARD: &[Effect] = &[
     Effect::firmware("breathing", "Breathing", 2, EffectColors::Palette, true, "Fades in and out, one color at a time."),
     Effect { has_direction: true, ..Effect::firmware("wave", "Wave", WAVE_ID, EffectColors::Palette, true, "The colors flow smoothly across the zones.") },
     Effect::firmware("rainbow", "Rainbow", RAINBOW_ID, EffectColors::None, false,
-        "Red, green, blue and magenta, one per zone, standing still: the keyboard's own Rainbow doesn't move. Rainbow wave does."),
-    Effect { has_direction: true, ..Effect::app("rainbowwave", "Rainbow wave", Drawn::RainbowWave, Group::Lighting, EffectColors::None, true,
-        "Every color of the rainbow, flowing smoothly across the zones.") },
+        "Red, green, blue and magenta, one per zone. The keyboard's Rainbow doesn't move."),
     Effect::firmware("flash", "Flash", 18, EffectColors::Palette, true, "Flashes on and off, one color at a time."),
-    Effect::firmware("mix", "Mix", 19, EffectColors::Palette, true, "Mixes the colors across the zones."),
+    Effect { min_colors: 2, ..Effect::firmware("mix", "Mix", 19, EffectColors::Palette, true,
+        "The whole keyboard goes through the colors in turn, blending from one into the next.") },
     Effect::app("music", "Music", Drawn::Music, Group::Audio, EffectColors::Zones, true,
         "Pulses with the sound this PC plays. Brightness sets the peak; speed sets how fast it falls back."),
     Effect::app("spectrum", "Spectrum", Drawn::Spectrum, Group::Audio, EffectColors::Zones, true,
@@ -177,7 +177,7 @@ pub static LIGHT_BAR: &[Effect] = &[
     Effect::firmware("wave", "Wave", 32, EffectColors::Palette, true, "The colors flow along the bar."),
     Effect::firmware("rainbow", "Rainbow", RAINBOW_ID, EffectColors::None, true, "Every color of the rainbow, flowing along the bar."),
     Effect::firmware("flash", "Flash", 18, EffectColors::Palette, true, "Flashes on and off, one color at a time."),
-    Effect::firmware("mix", "Mix", 19, EffectColors::Palette, true, "Mixes the colors along the bar."),
+    Effect { min_colors: 2, ..Effect::firmware("mix", "Mix", 19, EffectColors::Palette, true, "Mixes the colors along the bar.") },
     Effect { max_colors: 9, default_colors: THINKING_PALETTE, ..Effect::firmware("thinking", "Thinking", 33, EffectColors::Palette, true, "Control Center's Thinking: waves of warm light.") },
     Effect::app("starspark", "Star Spark", Drawn::StarSpark, Group::Animated, EffectColors::Palette, true,
         "Every LED twinkles in its color (Control Center's Star Spark)."),

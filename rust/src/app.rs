@@ -166,7 +166,7 @@ impl Lighting {
             .iter()
             .map(|effect| match effect.colors {
                 EffectColors::Palette => match settings.palettes.get(effect.key) {
-                    Some(saved) if !saved.is_empty() && saved.len() <= effect.max_colors => saved.iter().map(|&c| Rgb::from_argb(c)).collect(),
+                    Some(saved) if (effect.min_colors..=effect.max_colors).contains(&saved.len()) => saved.iter().map(|&c| Rgb::from_argb(c)).collect(),
                     _ => effect.default_colors.to_vec(),
                 },
                 _ => Vec::new(),
@@ -252,15 +252,9 @@ fn smooth_wave(kind: Kind, effect: &Effect) -> bool {
     kind == Kind::Keyboard && effect.id == effects::WAVE_ID && effect.drawn == Drawn::Firmware
 }
 
-/// The colors the app flows across the keyboard's zones for Wave and Rainbow wave.
+/// The colors the app flows across the keyboard's zones for Wave.
 fn wave_colors(kind: Kind, plan: &Plan) -> Option<Vec<Rgb>> {
-    if smooth_wave(kind, plan.effect) {
-        Some(plan.colors.clone())
-    } else if kind == Kind::Keyboard && plan.effect.drawn == Drawn::RainbowWave {
-        Some(effects::LIGHT_BAR_RAINBOW.to_vec())
-    } else {
-        None
-    }
+    smooth_wave(kind, plan.effect).then(|| plan.colors.clone())
 }
 
 /// What the light bar shows for an effect this app draws.
@@ -276,8 +270,7 @@ fn scene_for(plan: &Plan) -> Box<dyn Scene> {
         Drawn::CpuLoad => Box::new(scenes::GaugeScene::new(Inputs::CPU_LOAD)),
         Drawn::CpuTemperature => Box::new(scenes::GaugeScene::new(Inputs::CPU_TEMPERATURE)),
         Drawn::GpuTemperature => Box::new(scenes::GaugeScene::new(Inputs::GPU_TEMPERATURE)),
-        // The keyboard's zones, linked (Rainbow wave links to the light bar's own Rainbow instead)
-        Drawn::Firmware | Drawn::RainbowWave => Box::new(scenes::StaticScene(scenes::zone_sections(&colors))),
+        Drawn::Firmware => Box::new(scenes::StaticScene(scenes::zone_sections(&colors))), // the keyboard's zones, linked
     }
 }
 
@@ -585,9 +578,7 @@ impl App {
         let effect = if source_effect.colors == EffectColors::Zones && !source_effect.drawn_by_app() {
             source_effect
         } else {
-            // Rainbow wave is the light bar's Rainbow, which moves on its own.
-            let key = if source_effect.drawn == Drawn::RainbowWave { "rainbow" } else { source_effect.key };
-            lighting.effects.iter().find(|e| e.key == key).unwrap_or(&lighting.effects[0])
+            lighting.effects.iter().find(|e| e.key == source_effect.key).unwrap_or(&lighting.effects[0])
         };
         if effect.colors == EffectColors::Palette {
             colors.truncate(effect.max_colors);
@@ -1181,6 +1172,7 @@ impl App {
                 EffectColors::Zones => 1,
                 EffectColors::Palette => 2,
             },
+            min_colors: effect.min_colors as i32,
             max_colors: effect.max_colors as i32,
             has_speed: effect.has_speed,
             has_direction: effect.has_direction,
@@ -1499,9 +1491,10 @@ impl App {
     fn remove_color(&mut self, kind: Kind, index: usize) {
         let Some(lighting) = self.lighting_mut(kind) else { return };
         let effect = lighting.effect;
+        let min = lighting.effects[effect].min_colors;
         let palette = &mut lighting.palettes[effect];
-        if palette.len() > 1 && index < palette.len() {
-            palette.remove(index); // an effect needs at least one color
+        if palette.len() > min && index < palette.len() {
+            palette.remove(index);
         }
         self.refresh_device(kind);
         self.queue_send(kind);

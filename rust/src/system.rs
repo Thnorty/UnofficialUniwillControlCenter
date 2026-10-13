@@ -114,8 +114,7 @@ fn process_running(name: &str) -> bool {
 }
 
 /// Starts the app at logon through Task Scheduler with highest privileges. The Run key can't start an app that needs
-/// administrator rights without a UAC prompt. The task has the same name as the earlier C# version's, so either one
-/// replaces the other.
+/// administrator rights without a UAC prompt. The task keeps the earlier C# version's name, so it replaces that one's.
 pub mod startup {
     use super::*;
 

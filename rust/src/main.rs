@@ -34,7 +34,6 @@ fn main() {
     let start_hidden = has("--tray");
 
     // Two instances would send interleaved commands to the same controllers; bring the running one forward instead.
-    // The C# version uses the same name, so only one of them runs at a time.
     if !demo {
         let _mutex = unsafe { CreateMutexW(None, true, w!("Local\\MonsterKeyboardRGB")) };
         if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {

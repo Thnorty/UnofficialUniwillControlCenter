@@ -1,5 +1,5 @@
-//! Last-used settings, kept in %APPDATA% because the controllers can't report colors back. The file is the same one
-//! the earlier C# version writes, so switching between them keeps everything.
+//! Last-used settings, kept in %APPDATA% because the controllers can't report colors back. The file's format comes from
+//! the app's earlier C# version, so its settings carry over.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -38,10 +38,9 @@ pub struct LightingSettings {
     /// Colors of each palette effect, by effect key.
     pub palettes: HashMap<String, Vec<i32>>,
     pub wave_direction: u8,
-    /// Firmware brightness, 0-50. The C# version reads only this.
+    /// Firmware brightness, 0-50 (all that earlier versions saved).
     pub light: u8,
-    /// The brightness in percent, which can fall between two firmware levels. Ignored if `light` no longer matches
-    /// it (the C# version changed it).
+    /// The brightness in percent, which can fall between two firmware levels. Ignored if `light` doesn't match it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub brightness_percent: Option<u8>,
     pub speed: u8,

@@ -3,7 +3,7 @@
 //! their real frames instead (see scenes::Live), and are imitated with made-up sound and readings in the tiles.
 
 use crate::color::{HEAT_SCALE, Rgb, gradient};
-use crate::effects::{Drawn, Effect, EffectColors, KEYBOARD_RAINBOW, LIGHT_BAR_RAINBOW, keyboard_wave};
+use crate::effects::{Drawn, Effect, EffectColors, KEYBOARD_RAINBOW, LIGHT_BAR_RAINBOW};
 use crate::ui::KeyCap;
 
 fn speed_rate(speed: u8, slowest: f64, fastest: f64) -> f64 {
@@ -48,9 +48,6 @@ fn cyclic(palette: &[Rgb], t: f64) -> Rgb {
 /// the light bar has 23 LEDs; the tiles use 8.
 pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f64, n: usize, zones_keyboard: bool) -> Vec<Rgb> {
     let fallback;
-    if effect.drawn == Drawn::RainbowWave {
-        return simulate(keyboard_wave(), &LIGHT_BAR_RAINBOW, direction, speed, t, n, zones_keyboard);
-    }
     let palette: &[Rgb] = if effect.is_rainbow() {
         if zones_keyboard { &KEYBOARD_RAINBOW } else { &LIGHT_BAR_RAINBOW }
     } else if colors.is_empty() {
@@ -62,7 +59,6 @@ pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f6
     let position = |i: usize| if n <= 1 { 0.5 } else { i as f64 / (n - 1) as f64 };
     let mut out = vec![Rgb::BLACK; n];
     match effect.drawn {
-        Drawn::RainbowWave => {} // drawn as Wave, above
         Drawn::Firmware => match effect.id {
             1 => {
                 // Static: the keyboard's zones, or one color.
@@ -98,6 +94,14 @@ pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f6
                 let cycle = t / period;
                 let color = palette[(cycle as usize) % palette.len()];
                 out.fill(if cycle.fract() < 0.5 { color } else { Rgb::BLACK });
+            }
+            19 if zones_keyboard => {
+                // The keyboard's Mix: the whole keyboard goes through the palette, blending from one color into the next.
+                let period = speed_rate(speed, 3.0, 0.8);
+                let cycle = t / period;
+                let k = cycle as usize;
+                let color = palette[k % palette.len()].lerp(palette[(k + 1) % palette.len()], (cycle.fract() as f32 * 1.5 - 0.25).clamp(0.0, 1.0));
+                out.fill(color);
             }
             19 => {
                 // Mix: the positions take different colors and crossfade through the palette.

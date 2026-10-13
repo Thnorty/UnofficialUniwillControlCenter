@@ -14,7 +14,7 @@ impl Rgb {
         Rgb { r, g, b }
     }
 
-    /// From .NET's Color.ToArgb(), which the settings file uses.
+    /// From a 32-bit ARGB value (.NET's Color.ToArgb()), which the settings file uses.
     pub fn from_argb(argb: i32) -> Self {
         let v = argb as u32;
         Rgb::new((v >> 16) as u8, (v >> 8) as u8, v as u8)

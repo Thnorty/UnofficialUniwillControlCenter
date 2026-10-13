@@ -65,7 +65,7 @@ pub struct Tray {
     tip: String,
 }
 
-/// The message a second launch broadcasts so the running instance shows itself (the same as the C# version's).
+/// The message a second launch broadcasts so the running instance shows itself.
 pub fn show_message() -> u32 {
     unsafe { RegisterWindowMessageW(w!("MonsterKeyboardRGB.Show")) }
 }

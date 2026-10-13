@@ -15,7 +15,8 @@ These work the way Control Center does them. The commands come from Control Cent
 
 ### Keyboard lighting (four-zone)
 - **Effects:** Static (four zone colors), Breathing, Wave, Rainbow, Flash, Mix and Music: the full list Control Center
-  offers for this keyboard.
+  offers for this keyboard. The keyboard's Rainbow is four fixed colors (red, green, blue, magenta) that don't move,
+  and its Mix shows one color on the whole keyboard, going through the colors in turn.
 - **Speed:** five steps, for every animated effect.
 - **Wave direction:** left → right or right → left.
 - **Effect colors:** Control Center's default seven-color palette for Breathing, Wave, Flash and Mix.
@@ -54,20 +55,26 @@ These work the way Control Center does them. The commands come from Control Cent
 ## Added beyond Control Center
 
 - **No Control Center needed:** no service, UWP app or broker. It is a single small exe.
-- **Fine brightness:** a 0–100% slider covering the controllers' full 0–50 range, for the keyboard and the light
-  bar. Control Center only uses five levels.
+- **Windows 11 interface:** a Settings-style window in the system's dark/light theme and accent color, with live
+  previews of the keyboard and the light bar, animated effect tiles and a color picker.
+- **Smooth Wave:** the keyboard's firmware moves Wave's colors a whole zone at a time; while the app runs it draws
+  Wave itself, blending the colors across the zones. After exit the firmware's Wave takes over again.
+- **Fine brightness:** a 0–100% slider in 1% steps for the keyboard and the light bar, sent as the nearest of the
+  controllers' 51 levels (0–50). Control Center only uses five levels.
 - **Smooth brightness:** every brightness change fades (about 0.18 s) instead of jumping: the slider, the Fn keys,
   and coming back from the idle timer.
-- **Fn keys step by 20%:** 10 of 50 per press. The cycle key wraps to off after full brightness.
+- **Fn key steps:** Off, 5%, 20%, 40%, 60%, 80% and 100%; from a value in between they go to the next step. The cycle
+  key wraps to off after full brightness.
 - **Editable effect colors:**
-  - each palette effect can have 1–7 colors;
-  - click a color to change it, right-click to remove it, **+** to add one, **Default** to reset;
+  - each palette effect can have 1–7 colors (Mix 2–7);
+  - click a color to change it, right-click or **×** to remove it, **+** to add one, **Reset to default colors**;
   - each effect remembers its own colors.
 - **Zone shortcuts:** "Set all" and ten quick color presets for the four zones.
 - **Music controls:** the brightness slider sets the peak brightness, and the speed slider sets how fast the light
   falls back.
-- **Pop-up style:** a continuous bar with a percentage. It follows the light/dark theme, doesn't take focus or
-  block clicks, and appears on the screen with the mouse pointer.
+- **Pop-up style:** drawn like the Windows 11 volume and brightness flyout: a rounded card above the taskbar with an
+  icon, a bar in the accent color and the value, sliding up and fading in. It follows the light/dark theme, doesn't
+  take focus or block clicks, and appears on the screen with the mouse pointer.
 - **Tray icon colors:** the tray and window icon show the current effect's colors.
 - **Tray quick menu:** keyboard effect and brightness, light bar on/off, "Same as keyboard" and effect, and the timer,
   without opening the window.
@@ -91,8 +98,7 @@ These work the way Control Center does them. The commands come from Control Cent
   and a notification.
 - **Restore on start:**
   - restores all settings when it starts;
-  - keeps a brightness changed with the Fn keys while the app was closed;
-  - migrates settings from older versions of this app.
+  - keeps a brightness changed with the Fn keys while the app was closed.
 - **Brightness kept on exit:** about a second after the Fn keys are handed back, the embedded controller sets its
   own brightness. Control Center leaves the keyboard that way; this app puts your brightness back.
 - **Fn keys handed back safely:** they go back to the firmware even if the app crashes, and are taken over again
@@ -109,7 +115,7 @@ These work the way Control Center does them. The commands come from Control Cent
   RGB program called Aurora, which isn't installed here. Not implemented.
 - **Effects drawn by this app stop with it:** Music, Spectrum, Star Spark, Star Hitting, Typing and the status
   effects need the app running. When it exits, the keyboard keeps their static zone colors and the light bar their
-  first color (or cyan).
+  first color (or cyan). Wave goes back to the firmware's zone-by-zone Wave.
 - **Night Light:** removed. It had no visible effect on this laptop, and Control Center doesn't offer it for this
   model.
 - **Fn keys while the app is closed:** they still need several presses. The embedded controller counts from a hidden
@@ -142,17 +148,9 @@ None of this is implemented. I haven't checked which of these Control Center act
 
 ## Building
 
-```
-dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish
-```
+The app is written in Rust, in `rust\`. Build it with `cargo build --release` there; the output is
+`rust	argetelease\KeyboardRGB.exe`, a single exe with nothing to install. See `rust\README.md` for the demo
+mode and a map of the code. Settings are kept in `%APPDATA%\MonsterKeyboardRGB\settings.json`. Scripts that were
+used to test the embedded controller behavior are in `tools\`.
 
-The output is `publish\MonsterKeyboardRGB.exe`, which needs the .NET 10 Desktop Runtime. Settings are kept in
-`%APPDATA%\MonsterKeyboardRGB\settings.json`. Scripts that were used to test the embedded controller behavior are
-in `tools\`.
-
-## Rust version (2.0)
-
-`rust\` holds a Rust rewrite with the same features, the same settings file, startup task and single-instance lock,
-and a new interface: a Windows 11 Settings-style window (Slint, drawn with Skia) with live previews of the keyboard
-and the light bar, animated effect tiles and a color picker, and pop-ups drawn like the Windows 11 volume and
-brightness flyout. Build it with `cargo build --release` in `rust\`; see `rust\README.md`.
+Version 1 was written in C#; it's in the git history.

@@ -1,6 +1,7 @@
-# Keyboard RGB 2.0 (Rust)
+# Keyboard RGB 2.0
 
-The Rust version of the app in the folder above, with the same features and a new interface:
+Lighting for the Monster Tulpar T5 V21.4's keyboard and light bar, replacing Control Center's lighting pages. The
+feature list is in `..\FEATURES.md`. The interface:
 
 - **Windows 11 look:** a navigation pane (Keyboard, Light bar, Timer & alerts, Settings), Settings-style cards and rows,
   toggle switches, sliders and a color picker, in your dark/light theme and accent color. The title bar blends
@@ -15,8 +16,8 @@ The Rust version of the app in the folder above, with the same features and a ne
   its bar follows changes smoothly, then it fades out.
 - **Settings save** every few seconds after a change, not only on exit.
 
-It uses the same settings file (`%APPDATA%\MonsterKeyboardRGB\settings.json`), the same startup task and the same
-single-instance lock as the C# version, so they can replace each other but never run at the same time.
+Settings are kept in `%APPDATA%\MonsterKeyboardRGB\settings.json`. The format, the startup task and the
+single-instance lock are the earlier C# version's, so settings carry over and the startup task is replaced.
 
 ## Building
 
@@ -27,7 +28,7 @@ cargo build --release
 ```
 
 The app is `target\release\KeyboardRGB.exe`, a single file with nothing else to install. It asks for administrator
-rights, like the C# version (the Fn keys go through the BIOS WMI interface).
+rights, because the Fn keys go through the BIOS WMI interface.
 
 To look at the window without touching the hardware:
 

@@ -12,6 +12,7 @@ export struct DeviceView {
     hint: string,
     // 0: no colors, 1: the keyboard's four zones, 2: a palette
     colors-kind: int,
+    min-colors: int,
     max-colors: int,
     has-speed: bool,
     has-direction: bool,
@@ -273,8 +274,8 @@ export component LightingPage inherits VerticalLayout {
                             }
                             right-clicked => { root.remove-color(i); }
                         }
-                        // A small remove button on hover, when there's more than one color.
-                        if (swatch.hovered || remove.has-hover) && root.palette.length > 1: Rectangle {
+                        // A small remove button on hover, when the effect can do with fewer colors.
+                        if (swatch.hovered || remove.has-hover) && root.palette.length > root.view.min-colors: Rectangle {
                             x: parent.width - 14px;
                             y: -6px;
                             width: 20px;
@@ -293,7 +294,7 @@ export component LightingPage inherits VerticalLayout {
                             y: -6px;
                             width: 20px;
                             height: 20px;
-                            enabled: root.palette.length > 1;
+                            enabled: root.palette.length > root.view.min-colors;
                             mouse-cursor: pointer;
                             clicked => { root.remove-color(i); }
                         }
@@ -317,7 +318,9 @@ export component LightingPage inherits VerticalLayout {
                 HorizontalLayout {
                     spacing: 16px;
                     Caption {
-                        text: root.view.max-colors == 1 ? "Click the color to change it." : "Click a color to change it. Up to " + root.view.max-colors + " colors; the effect goes through them in order.";
+                        text: root.view.max-colors == 1 ? "Click the color to change it."
+                            : "Click a color to change it. " + (root.view.min-colors > 1 ? root.view.min-colors + " to " + root.view.max-colors : "Up to " + root.view.max-colors)
+                                + " colors; the effect goes through them in order.";
                         horizontal-stretch: 1;
                         vertical-alignment: center;
                     }
