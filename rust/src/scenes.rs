@@ -573,7 +573,7 @@ impl KeyboardWave {
 
     /// The four zone colors at `time` seconds.
     pub fn frame(colors: &[Rgb], direction: u8, speed: u8, time: f64) -> [Rgb; 4] {
-        let zones = crate::preview::simulate(&crate::effects::KEYBOARD[2], colors, direction, speed, time, 4, true);
+        let zones = crate::preview::simulate(crate::effects::keyboard_wave(), colors, direction, speed, time, 4, true);
         std::array::from_fn(|i| zones[i])
     }
 }

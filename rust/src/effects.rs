@@ -14,6 +14,8 @@ pub enum EffectColors {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Drawn {
     Firmware,
+    /// The keyboard's Wave with the rainbow's colors, drawn smoothly (the keyboard's own Rainbow stands still).
+    RainbowWave,
     Music,
     Spectrum,
     StarSpark,
@@ -142,11 +144,19 @@ impl Effect {
     }
 }
 
+/// The keyboard's Wave, which Wave and Rainbow wave are drawn with.
+pub fn keyboard_wave() -> &'static Effect {
+    &KEYBOARD[2]
+}
+
 pub static KEYBOARD: &[Effect] = &[
     Effect::firmware("static", "Static", STATIC_ID, EffectColors::Zones, false, "Each of the four zones glows in its own color."),
     Effect::firmware("breathing", "Breathing", 2, EffectColors::Palette, true, "Fades in and out, one color at a time."),
     Effect { has_direction: true, ..Effect::firmware("wave", "Wave", WAVE_ID, EffectColors::Palette, true, "The colors flow smoothly across the zones.") },
-    Effect::firmware("rainbow", "Rainbow", RAINBOW_ID, EffectColors::None, true, "Every color of the rainbow, flowing across the keyboard."),
+    Effect::firmware("rainbow", "Rainbow", RAINBOW_ID, EffectColors::None, false,
+        "Red, green, blue and magenta, one per zone, standing still: the keyboard's own Rainbow doesn't move. Rainbow wave does."),
+    Effect { has_direction: true, ..Effect::app("rainbowwave", "Rainbow wave", Drawn::RainbowWave, Group::Lighting, EffectColors::None, true,
+        "Every color of the rainbow, flowing smoothly across the zones.") },
     Effect::firmware("flash", "Flash", 18, EffectColors::Palette, true, "Flashes on and off, one color at a time."),
     Effect::firmware("mix", "Mix", 19, EffectColors::Palette, true, "Mixes the colors across the zones."),
     Effect::app("music", "Music", Drawn::Music, Group::Audio, EffectColors::Zones, true,

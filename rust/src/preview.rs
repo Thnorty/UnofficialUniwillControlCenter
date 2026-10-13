@@ -3,7 +3,7 @@
 //! their real frames instead (see scenes::Live), and are imitated with made-up sound and readings in the tiles.
 
 use crate::color::{HEAT_SCALE, Rgb, gradient};
-use crate::effects::{Drawn, Effect, EffectColors, KEYBOARD_RAINBOW, LIGHT_BAR_RAINBOW};
+use crate::effects::{Drawn, Effect, EffectColors, KEYBOARD_RAINBOW, LIGHT_BAR_RAINBOW, keyboard_wave};
 use crate::ui::KeyCap;
 
 fn speed_rate(speed: u8, slowest: f64, fastest: f64) -> f64 {
@@ -48,6 +48,9 @@ fn cyclic(palette: &[Rgb], t: f64) -> Rgb {
 /// the light bar has 23 LEDs; the tiles use 8.
 pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f64, n: usize, zones_keyboard: bool) -> Vec<Rgb> {
     let fallback;
+    if effect.drawn == Drawn::RainbowWave {
+        return simulate(keyboard_wave(), &LIGHT_BAR_RAINBOW, direction, speed, t, n, zones_keyboard);
+    }
     let palette: &[Rgb] = if effect.is_rainbow() {
         if zones_keyboard { &KEYBOARD_RAINBOW } else { &LIGHT_BAR_RAINBOW }
     } else if colors.is_empty() {
@@ -59,6 +62,7 @@ pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f6
     let position = |i: usize| if n <= 1 { 0.5 } else { i as f64 / (n - 1) as f64 };
     let mut out = vec![Rgb::BLACK; n];
     match effect.drawn {
+        Drawn::RainbowWave => {} // drawn as Wave, above
         Drawn::Firmware => match effect.id {
             1 => {
                 // Static: the keyboard's zones, or one color.
@@ -73,6 +77,12 @@ pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f6
                 let color = palette[(cycle as usize) % palette.len()];
                 let level = (std::f64::consts::PI * cycle.fract()).sin().powi(2) as f32;
                 out.fill(color.scale(level));
+            }
+            5 if zones_keyboard => {
+                // The keyboard's Rainbow stands still: one color per zone.
+                for (i, o) in out.iter_mut().enumerate() {
+                    *o = palette[i * palette.len() / n];
+                }
             }
             3 | 32 | 5 => {
                 // Wave and Rainbow: the colors flow across.

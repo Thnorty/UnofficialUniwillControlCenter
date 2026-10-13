@@ -252,6 +252,17 @@ fn smooth_wave(kind: Kind, effect: &Effect) -> bool {
     kind == Kind::Keyboard && effect.id == effects::WAVE_ID && effect.drawn == Drawn::Firmware
 }
 
+/// The colors the app flows across the keyboard's zones for Wave and Rainbow wave.
+fn wave_colors(kind: Kind, plan: &Plan) -> Option<Vec<Rgb>> {
+    if smooth_wave(kind, plan.effect) {
+        Some(plan.colors.clone())
+    } else if kind == Kind::Keyboard && plan.effect.drawn == Drawn::RainbowWave {
+        Some(effects::LIGHT_BAR_RAINBOW.to_vec())
+    } else {
+        None
+    }
+}
+
 /// What the light bar shows for an effect this app draws.
 fn scene_for(plan: &Plan) -> Box<dyn Scene> {
     let (colors, speed) = (plan.colors.clone(), plan.speed);
@@ -265,7 +276,8 @@ fn scene_for(plan: &Plan) -> Box<dyn Scene> {
         Drawn::CpuLoad => Box::new(scenes::GaugeScene::new(Inputs::CPU_LOAD)),
         Drawn::CpuTemperature => Box::new(scenes::GaugeScene::new(Inputs::CPU_TEMPERATURE)),
         Drawn::GpuTemperature => Box::new(scenes::GaugeScene::new(Inputs::GPU_TEMPERATURE)),
-        Drawn::Firmware => Box::new(scenes::StaticScene(scenes::zone_sections(&colors))), // the keyboard's zones, linked
+        // The keyboard's zones, linked (Rainbow wave links to the light bar's own Rainbow instead)
+        Drawn::Firmware | Drawn::RainbowWave => Box::new(scenes::StaticScene(scenes::zone_sections(&colors))),
     }
 }
 
@@ -573,7 +585,9 @@ impl App {
         let effect = if source_effect.colors == EffectColors::Zones && !source_effect.drawn_by_app() {
             source_effect
         } else {
-            lighting.effects.iter().find(|e| e.key == source_effect.key).unwrap_or(&lighting.effects[0])
+            // Rainbow wave is the light bar's Rainbow, which moves on its own.
+            let key = if source_effect.drawn == Drawn::RainbowWave { "rainbow" } else { source_effect.key };
+            lighting.effects.iter().find(|e| e.key == key).unwrap_or(&lighting.effects[0])
         };
         if effect.colors == EffectColors::Palette {
             colors.truncate(effect.max_colors);
@@ -619,13 +633,18 @@ impl App {
                     let renderer = LightBarRenderer::new(device.clone(), scene_for(&plan), lighting.overlays.clone(), lighting.live.clone());
                     lighting.renderer = Some(engine.play(kind, Box::new(renderer)));
                 }
-            } else if smooth_wave(kind, plan.effect) && !save {
-                // Drawn on the static effect, starting from the first frame so nothing jumps.
-                let first = scenes::KeyboardWave::frame(&plan.colors, plan.direction, plan.speed, 0.0);
-                device.set_effect(&effects::KEYBOARD[0], &first, 0, light, plan.speed, false)?;
-                if !lighting.idle_off {
-                    let wave = scenes::KeyboardWave::new(device.clone(), plan.colors.clone(), plan.direction, plan.speed, lighting.live.clone());
-                    engine.play(kind, Box::new(wave));
+            } else if let Some(colors) = wave_colors(kind, &plan) {
+                if save {
+                    // The firmware's Wave keeps it moving without the app, a zone at a time.
+                    device.set_effect(effects::keyboard_wave(), &colors, plan.direction, light, plan.speed, true)?;
+                } else {
+                    // Drawn on the static effect, starting from the first frame so nothing jumps.
+                    let first = scenes::KeyboardWave::frame(&colors, plan.direction, plan.speed, 0.0);
+                    device.set_effect(&effects::KEYBOARD[0], &first, 0, light, plan.speed, false)?;
+                    if !lighting.idle_off {
+                        let wave = scenes::KeyboardWave::new(device.clone(), colors, plan.direction, plan.speed, lighting.live.clone());
+                        engine.play(kind, Box::new(wave));
+                    }
                 }
             } else {
                 // The keyboard's effects drawn by this app run on the static zones (what stays once the app exits);
