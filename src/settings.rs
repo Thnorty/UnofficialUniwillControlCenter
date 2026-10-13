@@ -37,6 +37,40 @@ pub struct Settings {
     /// Programs that switch to a setup while they run; the first running one wins.
     pub app_profiles: Vec<AppProfile>,
     pub app_profiles_enabled: bool,
+    /// The Display page's color modes.
+    pub display: DisplaySettings,
+}
+
+/// Whole-screen color modes: whether one is on, which, and each mode's values (missing ones are the mode's own).
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct DisplaySettings {
+    pub on: bool,
+    pub mode: usize,
+    pub modes: Vec<DisplayValues>,
+}
+
+/// One color mode's adjustments, in percent except the color temperature (kelvin).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct DisplayValues {
+    pub saturation: i32,
+    pub contrast: i32,
+    pub temperature: i32,
+    pub red: i32,
+    pub green: i32,
+    pub blue: i32,
+}
+
+impl DisplayValues {
+    /// No change to the screen's colors.
+    pub const NEUTRAL: DisplayValues = DisplayValues { saturation: 100, contrast: 100, temperature: 6500, red: 100, green: 100, blue: 100 };
+}
+
+impl Default for DisplayValues {
+    fn default() -> Self {
+        DisplayValues::NEUTRAL
+    }
 }
 
 /// The lighting of both devices with the performance mode and Fan Boost, saved under a name.
@@ -82,6 +116,7 @@ impl Default for Settings {
             setups: Vec::new(),
             app_profiles: Vec::new(),
             app_profiles_enabled: true,
+            display: DisplaySettings::default(),
         }
     }
 }

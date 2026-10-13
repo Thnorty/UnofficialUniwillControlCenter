@@ -1,0 +1,154 @@
+import { Theme, Glyphs } from "theme.slint";
+import { Caption, FluentSlider, LinkButton, SectionHeader, Segmented, SettingRow, Title, ToggleSwitch } from "controls.slint";
+
+/// A slider row with its value on the right.
+component ValueRow inherits SettingRow {
+    in property <float> minimum;
+    in property <float> maximum;
+    in property <float> step: 1;
+    in property <string> unit: "%";
+    in-out property <float> value;
+    callback changed(float);
+    HorizontalLayout {
+        spacing: 12px;
+        width: 300px;
+        FluentSlider {
+            minimum: root.minimum;
+            maximum: root.maximum;
+            step: root.step;
+            value <=> root.value;
+            changed(v) => { root.changed(v); }
+        }
+        Text {
+            text: Math.round(root.value) + root.unit;
+            width: 56px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            color: Theme.text-secondary;
+        }
+    }
+}
+
+/// Whole-screen color modes, as Control Center's Display page.
+export component DisplayPage inherits VerticalLayout {
+    in property <bool> demo;
+    in property <bool> on;
+    in property <int> mode;
+    in property <bool> changed;
+    in-out property <float> saturation;
+    in-out property <float> contrast;
+    in-out property <float> temperature;
+    in-out property <float> red;
+    in-out property <float> green;
+    in-out property <float> blue;
+    callback set-on(bool);
+    callback set-mode(int);
+    callback set-value(int, float);
+    callback reset();
+    property <[string]> modes: ["Vibrant", "Cinema", "Low blue light", "Custom"];
+
+    spacing: 4px;
+    VerticalLayout {
+        padding-bottom: 16px;
+        spacing: 4px;
+        Title {
+            text: "Display";
+        }
+        Caption {
+            text: root.demo ? "Demo mode doesn't change the screen's colors." : "Color modes for the whole screen. They're applied while Tulpar Control runs, and the screen goes back to its own colors when it closes.";
+        }
+    }
+
+    SettingRow {
+        icon: Glyphs.display;
+        title: "Color mode";
+        description: root.on ? root.modes[root.mode] + " is on." : "Off: the screen shows its own colors.";
+        ToggleSwitch {
+            checked: root.on;
+            toggled(on) => { root.set-on(on); }
+        }
+    }
+    SettingRow {
+        icon: Glyphs.color;
+        title: "Mode";
+        Segmented {
+            options: root.modes;
+            selected: root.on ? root.mode : -1;
+            changed(i) => { root.set-mode(i); }
+        }
+    }
+
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        HorizontalLayout {
+            SectionHeader {
+                text: "Adjust " + root.modes[root.mode];
+                height: 28px;
+                vertical-alignment: top;
+                horizontal-stretch: 1;
+            }
+            if root.changed: LinkButton {
+                text: "Reset " + root.modes[root.mode];
+                clicked => { root.reset(); }
+            }
+        }
+        ValueRow {
+            icon: Glyphs.color;
+            title: "Saturation";
+            description: "100% leaves colors as they are; 0% is black and white.";
+            minimum: 0;
+            maximum: 200;
+            step: 5;
+            value <=> root.saturation;
+            changed(v) => { root.set-value(0, v); }
+        }
+        ValueRow {
+            icon: Glyphs.contrast;
+            title: "Contrast";
+            minimum: 50;
+            maximum: 150;
+            step: 5;
+            value <=> root.contrast;
+            changed(v) => { root.set-value(1, v); }
+        }
+        ValueRow {
+            icon: Glyphs.brightness;
+            title: "Color temperature";
+            description: "6500 K is neutral; lower is warmer, with less blue light.";
+            minimum: 3000;
+            maximum: 7500;
+            step: 100;
+            unit: " K";
+            value <=> root.temperature;
+            changed(v) => { root.set-value(2, v); }
+        }
+        ValueRow {
+            icon: Glyphs.color;
+            title: "Red";
+            minimum: 50;
+            maximum: 100;
+            value <=> root.red;
+            changed(v) => { root.set-value(3, v); }
+        }
+        ValueRow {
+            icon: Glyphs.color;
+            title: "Green";
+            minimum: 50;
+            maximum: 100;
+            value <=> root.green;
+            changed(v) => { root.set-value(4, v); }
+        }
+        ValueRow {
+            icon: Glyphs.color;
+            title: "Blue";
+            minimum: 50;
+            maximum: 100;
+            value <=> root.blue;
+            changed(v) => { root.set-value(5, v); }
+        }
+        Caption {
+            text: "Each mode keeps its own values. Changing one turns the color mode on.";
+        }
+    }
+}

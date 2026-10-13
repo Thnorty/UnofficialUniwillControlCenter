@@ -1,5 +1,6 @@
 //! The tray icon, the pop-ups, the single-instance lock, and opening files and folders.
 
+pub mod display;
 pub mod instance;
 pub mod osd;
 pub mod tray;

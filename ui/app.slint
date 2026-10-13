@@ -7,6 +7,7 @@ import { DeviceView, TileGroup, LightingPage, AlertsPage, SettingsPage } from "p
 import { Metric, CurvePoint, Detail, TuningView, PerformancePage, BatteryPage, MonitorPage } from "power.slint";
 import { PluginSettingView, PluginActionView, PluginView, PluginsPage } from "plugins.slint";
 import { SetupView, AppProfileView, SetupsPage } from "setups.slint";
+import { DisplayPage } from "display.slint";
 
 export { Theme, KeyCap, DeviceView, TileGroup, Metric, CurvePoint, Detail }
 
@@ -159,6 +160,17 @@ export component AppWindow inherits Window {
     // Plugins.
     in property <[PluginView]> plugins;
     in property <string> plugins-note;
+    // Display.
+    in property <bool> display-demo;
+    in property <bool> display-on;
+    in property <int> display-mode;
+    in property <bool> display-changed;
+    in-out property <float> display-saturation;
+    in-out property <float> display-contrast;
+    in-out property <float> display-temperature;
+    in-out property <float> display-red;
+    in-out property <float> display-green;
+    in-out property <float> display-blue;
     // Setups.
     in property <[SetupView]> setups;
     in property <[string]> setup-names;
@@ -219,6 +231,10 @@ export component AppWindow inherits Window {
     callback remove-app-profile(int);
     callback set-app-profile-setup(int, int);
     callback set-app-profiles-on(bool);
+    callback set-display-on(bool);
+    callback set-display-mode(int);
+    callback set-display-value(int, float);
+    callback reset-display-mode();
     callback plugin-toggled(string, bool);
     callback plugin-expand(string);
     callback plugin-action(string, string);
@@ -284,6 +300,12 @@ export component AppWindow inherits Window {
                 label: "Light bar";
                 selected: root.page == 1;
                 clicked => { root.page = 1; }
+            }
+            NavItem {
+                icon: Glyphs.display;
+                label: "Display";
+                selected: root.page == 9;
+                clicked => { root.page = 9; }
             }
             NavItem {
                 icon: Glyphs.performance;
@@ -485,6 +507,22 @@ export component AppWindow inherits Window {
                     if root.page == 6: MonitorPage {
                         metrics: root.metrics;
                         note: root.monitor-note;
+                    }
+                    if root.page == 9: DisplayPage {
+                        demo: root.display-demo;
+                        on: root.display-on;
+                        mode: root.display-mode;
+                        changed: root.display-changed;
+                        saturation <=> root.display-saturation;
+                        contrast <=> root.display-contrast;
+                        temperature <=> root.display-temperature;
+                        red <=> root.display-red;
+                        green <=> root.display-green;
+                        blue <=> root.display-blue;
+                        set-on(on) => { root.set-display-on(on); }
+                        set-mode(i) => { root.set-display-mode(i); }
+                        set-value(which, v) => { root.set-display-value(which, v); }
+                        reset => { root.reset-display-mode(); }
                     }
                     if root.page == 8: SetupsPage {
                         setups: root.setups;

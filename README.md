@@ -41,7 +41,7 @@ target-demo\release\TulparControl.exe --demo
 
 `--demo` opens no devices, sends nothing to the embedded controller, shows made-up readings and saves nothing.
 `--page N` opens on a page (0 Keyboard, 1 Light bar, 2 Timer & alerts, 3 Settings, 4 Performance, 5 Battery,
-6 Monitor, 7 Plugins, 8 Setups), `--tray` starts in the tray, `--osd-test` shows the pop-ups once. `cargo test` checks the fan curve rules, the BIOS variable edits and the plugins (every bundled script included).
+6 Monitor, 7 Plugins, 8 Setups, 9 Display), `--tray` starts in the tray, `--osd-test` shows the pop-ups once. `cargo test` checks the fan curve rules, the BIOS variable edits and the plugins (every bundled script included).
 
 ## Code
 
@@ -62,7 +62,8 @@ target-demo\release\TulparControl.exe --demo
 | `src/app/plugins.rs` | The Plugins page: starting and stopping plugins, their settings, importing and removing them. |
 | `src/app/setups.rs` | Saved setups and app profiles: saving, applying, and switching while a program runs. |
 | `src/app/backup.rs` | Backing up all settings to a file and restoring them. |
+| `src/app/display.rs`, `src/shell/display.rs` | The Display page's color modes, and their color matrix put over the screen. |
 | `src/plugins/` | The plugin manifest (`manifest.rs`), the plugins folder and imports (`store.rs`), the script thread and its API (`host.rs`), the light bar layers (`layers.rs`), the local events server (`server.rs`), Windows readings for scripts (`readings.rs`: temperatures, media, volume, notifications), and what permissions allow (`claude.rs`, `downloads.rs`). |
 | `plugins/` | The plugins that come with the app: Claude Code, Downloads with its browser extension, Example, Focus timer, Media, Notifications and Temperature alert. |
-| `ui/*.slint` | The window, in Slint; `power.slint` has the Performance, Battery and Monitor pages, `plugins.slint` the Plugins page, `setups.slint` the Setups page. |
+| `ui/*.slint` | The window, in Slint; `power.slint` has the Performance, Battery and Monitor pages, `plugins.slint` the Plugins page, `setups.slint` the Setups page, `display.slint` the Display page. |
 | `tools/` | PowerShell scripts used to test the embedded controller's behavior. |

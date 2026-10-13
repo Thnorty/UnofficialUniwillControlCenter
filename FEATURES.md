@@ -117,6 +117,10 @@ Control Center's CPU overclocking settings for Intel laptops:
 - **Tray:** runs in the tray and can start with Windows. The tray menu has the performance mode and Fan Boost.
 - **Coexists with Control Center:** steps back and leaves the Fn keys, the modes, the fans and battery care alone
   while Control Center's service is running; the Performance and Battery pages then only show what it set.
+- **Display color modes:** Control Center's Display page (Display page): Vibrant (1.5× saturation, as Control
+  Center), Cinema, Low blue light and Custom, each with its own saturation, contrast, color temperature and red,
+  green and blue levels. Like Control Center, a color matrix over the whole screen through the Magnification API
+  (`MagSetFullscreenColorEffect`). Windows removes it when the app exits, even after a crash.
 - **Back up and restore:** all settings in one JSON file (Settings page). Restoring checks the file, asks first, and
   restarts the app with the restored settings.
 - **App profiles:** Control Center's per-game profiles, by setup: a program (picked as its `.exe`) switches to a saved
@@ -236,7 +240,9 @@ Not implemented:
 - **Battery:** battery calibration. USB-C power delivery priority and starting up when the charger is connected
   aren't supported on this laptop: Control Center's own flags (`TypeCSupport`, `AcRecoverySwitchSupport`) say so and
   it hides them.
-- **Display:** refresh rate, color modes and calibration, low blue light.
+- **Display:** refresh rate, color calibration, and Control Center's Video, Internet and Photo modes (color-space
+  conversions for a calibrated panel). Gamma isn't adjustable: Control Center sets it with gamma ramps, which stay
+  after the app exits and clash with Night light.
 - **Monitoring:** In-Game OSD and Quick Information Box.
 - **Keys:**
   - Fn Lock;

@@ -5,6 +5,7 @@
 
 mod backup;
 mod bios;
+mod display;
 mod monitor;
 mod plugins;
 mod power;
@@ -470,6 +471,8 @@ impl App {
             }
             app.start_plugins();
             app.bind_setups();
+            app.apply_display();
+            app.refresh_display();
             app.refresh_power();
             app.refresh_bios();
             if !demo {
@@ -1399,6 +1402,7 @@ impl App {
                 TrayEvent::Open => with_app(|app| app.show_window()),
                 TrayEvent::Command(id) => with_app(move |app| app.tray_command(id)),
                 TrayEvent::Resumed => with_app(|app| {
+                    app.apply_display();
                     if !app.demo {
                         app.check_hotkeys();
                         app.apply_power(); // the EC forgets some of it in sleep
@@ -1850,6 +1854,10 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_remove_app_profile(|i| with_app(move |app| app.remove_app_profile(i.max(0) as usize)));
     ui.on_set_app_profile_setup(|i, s| with_app(move |app| app.set_app_profile_setup(i.max(0) as usize, s.max(0) as usize)));
     ui.on_set_app_profiles_on(|on| with_app(move |app| app.set_app_profiles_on(on)));
+    ui.on_set_display_on(|on| with_app(move |app| app.set_display_on(on)));
+    ui.on_set_display_mode(|i| with_app(move |app| app.set_display_mode(i.max(0) as usize)));
+    ui.on_set_display_value(|which, v| with_app(move |app| app.set_display_value(which, v)));
+    ui.on_reset_display_mode(|| with_app(|app| app.reset_display_mode()));
     ui.on_import_settings(|| with_app(|app| app.import_settings()));
     ui.on_retry(|| with_app(|app| app.open_devices()));
     ui.on_format_hex(|color| Rgb::from_slint(color).hex().into());
