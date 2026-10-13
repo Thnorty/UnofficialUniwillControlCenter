@@ -88,6 +88,16 @@ pub fn simulate(effect: &Effect, colors: &[Rgb], direction: u8, speed: u8, t: f6
                     *o = cyclic(palette, position(i) * 0.8 + sign * t * cycles_per_second);
                 }
             }
+            18 if zones_keyboard => {
+                // The keyboard's Flash: each color flashes five times, then a short pause before the next color.
+                const FLASHES: f64 = 5.0;
+                const PAUSE: f64 = 1.0; // extra dark time after a color's flashes, in flashes
+                let flash = speed_rate(speed, 0.6, 0.18);
+                let group = flash * (FLASHES + PAUSE);
+                let color = palette[((t / group) as usize) % palette.len()];
+                let within = t.rem_euclid(group) / flash;
+                out.fill(if within < FLASHES && within.fract() < 0.5 { color } else { Rgb::BLACK });
+            }
             18 => {
                 // Flash: on and off, one color at a time.
                 let period = speed_rate(speed, 1.6, 0.45);

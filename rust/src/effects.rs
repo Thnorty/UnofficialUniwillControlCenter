@@ -156,7 +156,7 @@ pub static KEYBOARD: &[Effect] = &[
     Effect { has_direction: true, ..Effect::firmware("wave", "Wave", WAVE_ID, EffectColors::Palette, true, "The colors flow smoothly across the zones.") },
     Effect::firmware("rainbow", "Rainbow", RAINBOW_ID, EffectColors::None, false,
         "Red, green, blue and magenta, one per zone. The keyboard's Rainbow doesn't move."),
-    Effect::firmware("flash", "Flash", 18, EffectColors::Palette, true, "Flashes on and off, one color at a time."),
+    Effect::firmware("flash", "Flash", 18, EffectColors::Palette, true, "Flashes each color five times, then moves on to the next."),
     Effect { min_colors: 2, ..Effect::firmware("mix", "Mix", 19, EffectColors::Palette, true,
         "The whole keyboard goes through the colors in turn, blending from one into the next.") },
     Effect::app("music", "Music", Drawn::Music, Group::Audio, EffectColors::Zones, true,
