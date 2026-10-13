@@ -45,6 +45,7 @@ pub const OFFICE_GLYPH: char = '\u{E821}'; // Work
 pub const GAMING_GLYPH: char = '\u{E7FC}'; // Game
 pub const TURBO_GLYPH: char = '\u{E945}'; // LightningBolt
 pub const FAN_GLYPH: char = '\u{E9CA}'; // Frigid
+pub const SETUP_GLYPH: char = '\u{E8F1}'; // Library
 
 // Layout in logical pixels, as Windows 11 draws its flyout.
 const CARD_HEIGHT: f32 = 48.0;

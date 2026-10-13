@@ -94,6 +94,23 @@ pub fn control_center_running() -> bool {
     process_running("GCUService.exe")
 }
 
+/// The file names of the running programs, lowercase ("explorer.exe").
+pub fn running_programs() -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    unsafe {
+        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { return names };
+        let mut entry = PROCESSENTRY32W { dwSize: size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+        let mut ok = Process32FirstW(snapshot, &mut entry).is_ok();
+        while ok {
+            let length = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+            names.insert(String::from_utf16_lossy(&entry.szExeFile[..length]).to_lowercase());
+            ok = Process32NextW(snapshot, &mut entry).is_ok();
+        }
+        let _ = CloseHandle(snapshot);
+    }
+    names
+}
+
 fn process_running(name: &str) -> bool {
     unsafe {
         let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { return false };

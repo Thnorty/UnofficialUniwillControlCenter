@@ -119,6 +119,9 @@ Control Center's CPU overclocking settings for Intel laptops:
   while Control Center's service is running; the Performance and Battery pages then only show what it set.
 - **Back up and restore:** all settings in one JSON file (Settings page). Restoring checks the file, asks first, and
   restarts the app with the restored settings.
+- **App profiles:** Control Center's per-game profiles, by setup: a program (picked as its `.exe`) switches to a saved
+  setup while it runs, checked every two seconds. When it closes, what was on before it started comes back; if
+  several are running, the one higher in the list wins. They can all be turned off with one switch (Setups page).
 
 ## Added beyond Control Center
 
@@ -182,6 +185,9 @@ Control Center's CPU overclocking settings for Intel laptops:
   line of its last minute. It only reads while the page is open.
 - **Battery details:** health (full charge against design capacity), capacities, charge or discharge rate, time
   left, voltage and charge cycles.
+- **Saved setups:** the keyboard's and the light bar's lighting with the performance mode and Fan Boost, saved under
+  a name and applied in one go from the Setups page or the tray's Setups menu, with a pop-up. Update saves what's on
+  now into a setup.
 - **Plugins:** small scripts that show things on the light bar, over the current effect (`PLUGINS.md`):
   - **Claude Code:** a sweep while Claude works, its task list filling the bar, a pulse when it needs you and a flash
     when it's done, through Claude Code's HTTP hooks (added and removed with one button, with a backup).
@@ -215,7 +221,7 @@ Control Center's CPU overclocking settings for Intel laptops:
 
 Not implemented:
 - **Per-mode profiles:** Control Center keeps five profiles per mode with edited power limits; this app uses each
-  mode's defaults. Application profiles that switch modes per game are missing too.
+  mode's defaults. (Switching per game is covered by app profiles, which switch saved setups.)
 - **GPU tuning:** GPU core and memory overclocking, configurable TGP (here up to 35 W over the 80 W base), Dynamic
   Boost (15 W) and NVIDIA Whisper Mode. They go through the NVIDIA driver, and couldn't be built and tried without
   the GPU.

@@ -32,6 +32,31 @@ pub struct Settings {
     pub startup_lighting_backup: HashMap<String, String>,
     /// Plugins by id: whether they're on, and their settings. Plugins that come with the app are on unless turned off.
     pub plugins: HashMap<String, PluginSettings>,
+    /// Saved setups, in the order shown.
+    pub setups: Vec<Setup>,
+    /// Programs that switch to a setup while they run; the first running one wins.
+    pub app_profiles: Vec<AppProfile>,
+    pub app_profiles_enabled: bool,
+}
+
+/// The lighting of both devices with the performance mode and Fan Boost, saved under a name.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct Setup {
+    pub name: String,
+    pub keyboard: LightingSettings,
+    pub light_bar: Option<LightingSettings>,
+    /// None leaves the mode and Fan Boost as they are (saved while they couldn't be set).
+    pub mode: Option<Mode>,
+    pub fan_boost: bool,
+}
+
+/// A program, by its file name ("game.exe"), and the setup it switches to.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct AppProfile {
+    pub program: String,
+    pub setup: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -54,6 +79,9 @@ impl Default for Settings {
             power: None,
             startup_lighting_backup: HashMap::new(),
             plugins: HashMap::new(),
+            setups: Vec::new(),
+            app_profiles: Vec::new(),
+            app_profiles_enabled: true,
         }
     }
 }

@@ -6,6 +6,7 @@ import { ColorPicker } from "picker.slint";
 import { DeviceView, TileGroup, LightingPage, AlertsPage, SettingsPage } from "pages.slint";
 import { Metric, CurvePoint, Detail, TuningView, PerformancePage, BatteryPage, MonitorPage } from "power.slint";
 import { PluginSettingView, PluginActionView, PluginView, PluginsPage } from "plugins.slint";
+import { SetupView, AppProfileView, SetupsPage } from "setups.slint";
 
 export { Theme, KeyCap, DeviceView, TileGroup, Metric, CurvePoint, Detail }
 
@@ -158,7 +159,14 @@ export component AppWindow inherits Window {
     // Plugins.
     in property <[PluginView]> plugins;
     in property <string> plugins-note;
-    property <length> plugins-overflow;
+    // Setups.
+    in property <[SetupView]> setups;
+    in property <[string]> setup-names;
+    in property <[AppProfileView]> app-profiles;
+    in property <bool> app-profiles-on;
+    in property <string> app-profile-status;
+    // How far a page of repeated rows reaches past its reported height (see PluginsPage).
+    property <length> page-overflow;
 
     // device: 0 = keyboard, 1 = light bar
     callback select-effect(int, int);
@@ -203,6 +211,14 @@ export component AppWindow inherits Window {
     callback set-usb-power(bool);
     callback export-settings();
     callback import-settings();
+    callback save-setup(string);
+    callback apply-setup(int);
+    callback update-setup(int);
+    callback delete-setup(int);
+    callback add-app-profile();
+    callback remove-app-profile(int);
+    callback set-app-profile-setup(int, int);
+    callback set-app-profiles-on(bool);
     callback plugin-toggled(string, bool);
     callback plugin-expand(string);
     callback plugin-action(string, string);
@@ -294,6 +310,12 @@ export component AppWindow inherits Window {
                 clicked => { root.page = 2; }
             }
             NavItem {
+                icon: Glyphs.setups;
+                label: "Setups";
+                selected: root.page == 8;
+                clicked => { root.page = 8; }
+            }
+            NavItem {
                 icon: Glyphs.plugin;
                 label: "Plugins";
                 selected: root.page == 7;
@@ -327,7 +349,7 @@ export component AppWindow inherits Window {
                     padding-left: scroll.side;
                     padding-right: scroll.side;
                     padding-top: 28px;
-                    padding-bottom: 36px + (root.page == 7 ? root.plugins-overflow : 0px);
+                    padding-bottom: 36px + (root.page == 7 || root.page == 8 ? root.page-overflow : 0px);
                     spacing: 16px;
                     if root.status-text != "": InfoBar {
                         message: root.status-text;
@@ -464,12 +486,30 @@ export component AppWindow inherits Window {
                         metrics: root.metrics;
                         note: root.monitor-note;
                     }
+                    if root.page == 8: SetupsPage {
+                        setups: root.setups;
+                        setup-names: root.setup-names;
+                        profiles: root.app-profiles;
+                        profiles-on: root.app-profiles-on;
+                        profile-status: root.app-profile-status;
+                        available-width: scroll.visible-width - 2 * scroll.side;
+                        init => { root.page-overflow = self.overflow; }
+                        changed overflow => { root.page-overflow = self.overflow; }
+                        save-setup(name) => { root.save-setup(name); }
+                        apply-setup(i) => { root.apply-setup(i); }
+                        update-setup(i) => { root.update-setup(i); }
+                        delete-setup(i) => { root.delete-setup(i); }
+                        add-profile => { root.add-app-profile(); }
+                        remove-profile(i) => { root.remove-app-profile(i); }
+                        set-profile-setup(i, s) => { root.set-app-profile-setup(i, s); }
+                        set-profiles-on(on) => { root.set-app-profiles-on(on); }
+                    }
                     if root.page == 7: PluginsPage {
                         plugins: root.plugins;
                         note: root.plugins-note;
                         available-width: scroll.visible-width - 2 * scroll.side;
-                        init => { root.plugins-overflow = self.overflow; }
-                        changed overflow => { root.plugins-overflow = self.overflow; }
+                        init => { root.page-overflow = self.overflow; }
+                        changed overflow => { root.page-overflow = self.overflow; }
                         toggled(id, on) => { root.plugin-toggled(id, on); }
                         expand(id) => { root.plugin-expand(id); }
                         action(id, a) => { root.plugin-action(id, a); }

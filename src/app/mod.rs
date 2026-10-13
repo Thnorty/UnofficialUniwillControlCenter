@@ -8,6 +8,7 @@ mod bios;
 mod monitor;
 mod plugins;
 mod power;
+mod setups;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -96,6 +97,7 @@ const CMD_TIMER: u32 = 500;
 const CMD_TIMER_CANCEL: u32 = 599;
 const CMD_MODE: u32 = 600;
 const CMD_FAN_BOOST: u32 = 610;
+const CMD_SETUP: u32 = 700;
 const CMD_OPEN: u32 = 900;
 const CMD_EXIT: u32 = 999;
 
@@ -339,6 +341,7 @@ pub struct App {
     monitor: monitor::Monitor,
     bios: bios::Bios,
     plugins: plugins::Plugins,
+    setups: setups::Setups,
 }
 
 fn colors_model(colors: &[Rgb]) -> Rc<VecModel<slint::Color>> {
@@ -450,6 +453,7 @@ impl App {
             monitor: monitor::Monitor::new(),
             bios: bios::Bios::default(),
             plugins: plugins::Plugins::default(),
+            setups: setups::Setups::default(),
         };
         APP.with(|cell| *cell.borrow_mut() = Some(app));
         connect_callbacks(ui);
@@ -465,6 +469,7 @@ impl App {
                 ui.set_plugins(ModelRc::from(app.plugins.model.clone()));
             }
             app.start_plugins();
+            app.bind_setups();
             app.refresh_power();
             app.refresh_bios();
             if !demo {
@@ -1071,6 +1076,7 @@ impl App {
             app.update_monitor_wanted();
         });
         every(33, |app| app.update_preview());
+        every(2000, |app| app.check_app_profiles());
         every(5000, |app| {
             if !app.demo {
                 app.check_hotkeys();
@@ -1470,6 +1476,11 @@ impl App {
             items.push(MenuItem::check(CMD_FAN_BOOST, "Fan Boost", fan_boost, true));
             menu.push(MenuItem::Submenu { text: "Performance".into(), enabled: true, items });
         }
+        let setups = self.setup_menu();
+        if !setups.is_empty() {
+            let items = setups.into_iter().map(|(i, name, on)| MenuItem::check(CMD_SETUP + i as u32, name, on, true)).collect();
+            menu.push(MenuItem::Submenu { text: "Setups".into(), enabled: true, items });
+        }
         menu.push(MenuItem::Separator);
         menu.push(MenuItem::item(CMD_OPEN, "Open Tulpar Control"));
         menu.push(MenuItem::item(CMD_EXIT, "Exit"));
@@ -1485,6 +1496,7 @@ impl App {
             CMD_TIMER_CANCEL => self.cancel_timer(),
             CMD_FAN_BOOST => self.set_fan_boost(!self.power.fan_boost),
             _ if (CMD_MODE..CMD_MODE + 3).contains(&id) => self.set_mode(Mode::from_index((id - CMD_MODE) as usize)),
+            _ if (CMD_SETUP..CMD_SETUP + 100).contains(&id) => self.apply_setup((id - CMD_SETUP) as usize),
             _ if (CMD_KEYBOARD_EFFECT..CMD_KEYBOARD_EFFECT + 100).contains(&id) => self.select_effect(Kind::Keyboard, (id - CMD_KEYBOARD_EFFECT) as usize),
             _ if (CMD_KEYBOARD_LIGHT..CMD_KEYBOARD_LIGHT + FN_KEY_STOPS.len() as u32).contains(&id) => {
                 self.set_light(Kind::Keyboard, FN_KEY_STOPS[(id - CMD_KEYBOARD_LIGHT) as usize]);
@@ -1638,6 +1650,7 @@ impl App {
         self.timers.clear();
         self.fade_timer.stop();
         self.watch.stop.store(true, Ordering::Release);
+        self.leave_app_profile();
         if self.idle_off {
             self.wake_from_idle();
         }
@@ -1829,6 +1842,14 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_set_charge_mode(|index| with_app(move |app| app.set_charge_mode(ChargeMode::from_index(index.max(0) as usize))));
     ui.on_set_usb_power(|on| with_app(move |app| app.set_usb_power(on)));
     ui.on_export_settings(|| with_app(|app| app.export_settings()));
+    ui.on_save_setup(|name| with_app(move |app| app.save_setup(&name)));
+    ui.on_apply_setup(|i| with_app(move |app| app.apply_setup(i.max(0) as usize)));
+    ui.on_update_setup(|i| with_app(move |app| app.update_setup(i.max(0) as usize)));
+    ui.on_delete_setup(|i| with_app(move |app| app.delete_setup(i.max(0) as usize)));
+    ui.on_add_app_profile(|| with_app(|app| app.add_app_profile()));
+    ui.on_remove_app_profile(|i| with_app(move |app| app.remove_app_profile(i.max(0) as usize)));
+    ui.on_set_app_profile_setup(|i, s| with_app(move |app| app.set_app_profile_setup(i.max(0) as usize, s.max(0) as usize)));
+    ui.on_set_app_profiles_on(|on| with_app(move |app| app.set_app_profiles_on(on)));
     ui.on_import_settings(|| with_app(|app| app.import_settings()));
     ui.on_retry(|| with_app(|app| app.open_devices()));
     ui.on_format_hex(|color| Rgb::from_slint(color).hex().into());

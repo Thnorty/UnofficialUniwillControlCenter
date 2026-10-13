@@ -1,0 +1,147 @@
+import { ComboBox, LineEdit } from "std-widgets.slint";
+import { Theme, Glyphs } from "theme.slint";
+import { Caption, FluentButton, LinkButton, SectionHeader, SettingRow, Title, ToggleSwitch } from "controls.slint";
+
+export struct SetupView {
+    name: string,
+    summary: string,
+    active: bool,
+}
+
+export struct AppProfileView {
+    program: string,
+    setup: int,
+    running: bool,
+}
+
+/// Saved setups, and the apps that switch to one while they run.
+export component SetupsPage inherits VerticalLayout {
+    in property <[SetupView]> setups;
+    in property <[string]> setup-names;
+    in property <[AppProfileView]> profiles;
+    in property <bool> profiles-on;
+    in property <string> profile-status;
+    // The page's width, from outside: a repeated row is measured at its preferred width, which for wrapped text is one long line.
+    in property <length> available-width;
+    // How far the rows really reach past the height this page reports (see PluginsPage).
+    out property <length> overflow: Math.max(0px, end.y + end.height - root.min-height);
+    in-out property <string> new-name;
+    callback save-setup(string);
+    callback apply-setup(int);
+    callback update-setup(int);
+    callback delete-setup(int);
+    callback add-profile();
+    callback remove-profile(int);
+    callback set-profile-setup(int, int);
+    callback set-profiles-on(bool);
+
+    spacing: 4px;
+    VerticalLayout {
+        padding-bottom: 16px;
+        spacing: 4px;
+        Title {
+            text: "Setups";
+        }
+        Caption {
+            text: "A setup is the keyboard's and the light bar's lighting with the performance mode and Fan Boost, saved under a name. Apply one here or from the tray, or let an app switch to one while it runs.";
+        }
+    }
+
+    SectionHeader {
+        text: "Saved setups";
+        height: 28px;
+        vertical-alignment: top;
+    }
+    for s[i] in root.setups: SettingRow {
+        preferred-width: root.available-width;
+        icon: Glyphs.setups;
+        title: s.name + (s.active ? "  ·  applied last" : "");
+        description: s.summary;
+        FluentButton {
+            text: "Apply";
+            accent: true;
+            clicked => { root.apply-setup(i); }
+        }
+        FluentButton {
+            text: "Update";
+            clicked => { root.update-setup(i); }
+        }
+        LinkButton {
+            text: "Delete";
+            vertical-alignment: center;
+            clicked => { root.delete-setup(i); }
+        }
+    }
+    SettingRow {
+        icon: Glyphs.add;
+        title: "Save what's on now";
+        description: "As a new setup, or over the one with the same name.";
+        LineEdit {
+            width: 200px;
+            placeholder-text: "Name, such as Gaming";
+            text <=> root.new-name;
+            accepted(text) => {
+                root.save-setup(text);
+                root.new-name = "";
+            }
+        }
+        FluentButton {
+            text: "Save";
+            clicked => {
+                root.save-setup(root.new-name);
+                root.new-name = "";
+            }
+        }
+    }
+
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "App profiles";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.app;
+            title: "Switch setups for apps";
+            description: root.profile-status;
+            ToggleSwitch {
+                checked: root.profiles-on;
+                toggled(on) => { root.set-profiles-on(on); }
+            }
+        }
+    }
+    for p[i] in root.profiles: SettingRow {
+        preferred-width: root.available-width;
+        icon: p.running ? Glyphs.play : Glyphs.app;
+        title: p.program;
+        description: p.running ? "Running: its setup is on." : (p.setup < 0 ? "Its setup was deleted: pick another." : "");
+        ComboBox {
+            width: 200px;
+            model: root.setup-names;
+            current-index: p.setup;
+            selected => { root.set-profile-setup(i, self.current-index); }
+        }
+        LinkButton {
+            text: "Remove";
+            vertical-alignment: center;
+            clicked => { root.remove-profile(i); }
+        }
+    }
+    HorizontalLayout {
+        padding-top: 8px;
+        alignment: start;
+        FluentButton {
+            text: "Add an app…";
+            icon: Glyphs.add;
+            clicked => { root.add-profile(); }
+        }
+    }
+    Caption {
+        text: "When an app in the list starts, its setup comes on; when it closes, what was on before comes back. If several are running, the one higher in the list wins.";
+    }
+    end := Rectangle {
+        height: 0px;
+    }
+}
