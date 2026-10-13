@@ -161,7 +161,7 @@ impl App {
     }
 
     fn plugin_enabled(&self, id: &str) -> bool {
-        self.settings.plugins.get(id).map_or(store::is_builtin(id), |p| p.enabled)
+        self.settings.plugins.get(id).map_or(store::on_by_default(id), |p| p.enabled)
     }
 
     fn plugin_values(&self, plugin: &Installed) -> Map<String, Value> {
@@ -245,7 +245,7 @@ impl App {
     // ---- The page ---------------------------------------------------------------------------------------------------
 
     pub(super) fn set_plugin_enabled(&mut self, id: &str, on: bool) {
-        let entry = self.settings.plugins.entry(id.to_string()).or_insert_with(|| PluginSettings { enabled: store::is_builtin(id), values: Map::new() });
+        let entry = self.settings.plugins.entry(id.to_string()).or_insert_with(|| PluginSettings { enabled: store::on_by_default(id), values: Map::new() });
         entry.enabled = on;
         self.settings_dirty = true;
         if on {
@@ -277,7 +277,7 @@ impl App {
         let Some(plugin) = self.plugins.installed.iter().find(|p| p.manifest.id == id) else { return };
         let Some(setting) = plugin.manifest.settings.iter().find(|s| s.key == key) else { return };
         let value = setting.check(Some(&value));
-        let entry = self.settings.plugins.entry(id.to_string()).or_insert_with(|| PluginSettings { enabled: store::is_builtin(id), values: Map::new() });
+        let entry = self.settings.plugins.entry(id.to_string()).or_insert_with(|| PluginSettings { enabled: store::on_by_default(id), values: Map::new() });
         if entry.values.get(key) == Some(&value) {
             return;
         }

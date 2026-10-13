@@ -1,0 +1,17 @@
+{
+  "id": "example",
+  "name": "Example",
+  "version": "1.0.0",
+  "author": "Tulpar Control",
+  "description": "Fills the light bar again and again, to try plugins out and to start your own from: it uses every kind of setting and a button. Its files are in the plugins folder, and PLUGINS.md explains them.",
+  "settings": [
+    { "key": "color", "label": "Color", "type": "color", "default": "#AA55FF" },
+    { "key": "seconds", "label": "Seconds per fill", "type": "slider", "min": 2, "max": 30, "step": 1, "unit": "s", "default": 10 },
+    { "key": "style", "label": "Style", "description": "Progress fills the bar; Activity and Pulse are for work without a known end.", "type": "choice", "options": ["Progress", "Activity", "Pulse"], "default": "Progress" },
+    { "key": "show", "label": "Show on the light bar", "type": "toggle", "default": true },
+    { "key": "label", "label": "Label", "description": "Shown on this card, before the percentage.", "type": "text", "default": "Example" }
+  ],
+  "actions": [
+    { "id": "flash", "label": "Flash" }
+  ]
+}

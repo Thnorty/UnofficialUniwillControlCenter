@@ -36,7 +36,17 @@ const BUILTIN: &[(&str, &[(&str, &[u8])])] = &[
             ("extension/background.js", include_bytes!("../../plugins/downloads/extension/background.js")),
         ],
     ),
+    (
+        "example",
+        &[
+            ("plugin.json", include_bytes!("../../plugins/example/plugin.json")),
+            ("main.rhai", include_bytes!("../../plugins/example/main.rhai")),
+        ],
+    ),
 ];
+
+/// Plugins that come with the app but start off.
+const OFF_BY_DEFAULT: &[&str] = &["example"];
 
 const MAX_FILES: usize = 500;
 const MAX_BYTES: u64 = 20 << 20;
@@ -44,6 +54,11 @@ const MAX_MANIFEST: u64 = 256 << 10;
 
 pub fn is_builtin(id: &str) -> bool {
     BUILTIN.iter().any(|(builtin, _)| *builtin == id)
+}
+
+/// Whether a plugin is on before it's ever turned on or off.
+pub fn on_by_default(id: &str) -> bool {
+    is_builtin(id) && !OFF_BY_DEFAULT.contains(&id)
 }
 
 /// The plugins folder. Demo mode uses one in the temp folder, so it leaves the real one alone.

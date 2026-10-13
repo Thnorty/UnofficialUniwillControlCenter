@@ -173,6 +173,7 @@ Control Center's CPU overclocking settings for Intel laptops:
     when it's done, through Claude Code's HTTP hooks (added and removed with one button, with a backup).
   - **Downloads:** download progress from a Chrome/Edge extension, or a sweep while an unfinished download is in the
     Downloads folder.
+  - **Example:** off at first; it fills the bar and uses every kind of setting, as a template for new plugins.
   - Import more from a `.zip`. Each plugin's settings (colors, sliders, switches, lists, text) are on the Plugins
     page.
   - Plugins are sandboxed. They can't read files, use the network or start programs, beyond the permissions shown on

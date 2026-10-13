@@ -5,7 +5,7 @@ send an HTTP request. Plugins are small [Rhai](https://rhai.rs) scripts that run
 read files, use the network or start programs. Beyond the light bar and the app, it can only do what its listed
 permissions allow, and the window shows those permissions on the plugin's card.
 
-Two plugins come with the app:
+Three plugins come with the app:
 
 - **Claude Code:**
   - a sweep while Claude works;
@@ -22,6 +22,11 @@ Two plugins come with the app:
     2. Choose **Load unpacked**, and pick the folder that **Open the browser extension** opens.
   - Without the extension, a sweep runs while an unfinished download (`.crdownload`, `.part`, …) is in your
     Downloads folder.
+- **Example:**
+  - It's off until you turn it on. Then it fills the bar again and again.
+  - It uses every kind of setting and a button, so it's a way to try plugins out.
+  - Its files (`%APPDATA%\TulparControl\plugins\example\`) are a starting point for your own plugin. Copy the folder,
+    give it a new `id`, and import its `plugin.json`.
 
 ## The Plugins page
 
@@ -31,7 +36,7 @@ Two plugins come with the app:
   defaults**.
 - **Import plugin…** takes a `.zip`, or a folder's `plugin.json`. An imported plugin that asks for permissions starts
   off, so you see them before you turn it on. So does a new version that asks for more than before.
-- **Remove** deletes an imported plugin. The two that come with the app can only be turned off.
+- **Remove** deletes an imported plugin. The ones that come with the app can only be turned off.
 
 Plugins live in `%APPDATA%\TulparControl\plugins\<id>\`, and their settings are in the app's `settings.json`.
 

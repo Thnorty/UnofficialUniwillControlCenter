@@ -470,9 +470,13 @@ mod tests {
         host.send(Command::Start { id: id.into(), dir: std::env::temp_dir(), script, permissions, inert: false, settings: manifest.values(None) });
     }
 
+    /// What the plugin sends until it goes quiet, or for a second at most (a ticking plugin never does).
     fn settle(rx: &Receiver<String>) -> Vec<String> {
+        let until = Instant::now() + Duration::from_secs(1);
         let mut seen = Vec::new();
-        while let Ok(text) = rx.recv_timeout(Duration::from_millis(300)) {
+        while Instant::now() < until
+            && let Ok(text) = rx.recv_timeout(Duration::from_millis(300))
+        {
             seen.push(text);
         }
         seen
@@ -522,6 +526,20 @@ mod tests {
         assert!(log.iter().any(|l| l == "status a.iso: 30%"), "{log:?}");
         host.send(Command::Event { id: "downloads".into(), path: "/progress".into(), body: serde_json::json!({ "downloads": [] }) });
         let log = settle(&rx);
+        assert!(!log.iter().any(|l| l.starts_with("log true")), "{log:?}");
+    }
+
+    #[test]
+    fn example_plugin() {
+        let (host, layers, rx) = host();
+        bundled(&host, "example", vec![]);
+        let log = settle(&rx);
+        assert!(matches!(layers.top_layer(), Some((_, Layer::Progress { .. }))), "{log:?}");
+        assert!(log.iter().any(|l| l.starts_with("status Example: ")), "{log:?}");
+        host.send(Command::Action { id: "example".into(), action: "flash".into() });
+        host.send(Command::Settings { id: "example".into(), values: serde_json::from_str(r##"{ "color": "#00FF00", "seconds": 5, "style": "Pulse", "show": true, "label": "x" }"##).unwrap() });
+        let log = settle(&rx);
+        assert!(matches!(layers.top_layer(), Some((_, Layer::Pulse(_)))), "{log:?}");
         assert!(!log.iter().any(|l| l.starts_with("log true")), "{log:?}");
     }
 }

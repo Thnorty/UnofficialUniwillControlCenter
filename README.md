@@ -13,8 +13,8 @@ in `FEATURES.md`.
 - **Battery:** High capacity, Balanced and Stationary charging, with the battery's health and charge rate.
 - **Monitor:** CPU and GPU temperature, CPU load, fan speeds, memory and battery, with the last minute of each.
 - **Windows 11 pop-ups** for the Fn keys, the performance key and Fan Boost.
-- **Plugins:** small sandboxed scripts that show things on the light bar, with their own settings. Claude Code at work
-  and download progress come with the app; more can be imported from a `.zip`. See `PLUGINS.md`.
+- **Plugins:** small sandboxed scripts that show things on the light bar, with their own settings. Claude Code at work,
+  download progress and an example come with the app; more can be imported from a `.zip`. See `PLUGINS.md`.
 
 Settings are kept in `%APPDATA%\TulparControl\settings.json`; the first run reads the old
 `%APPDATA%\MonsterKeyboardRGB\settings.json` if there is one, and replaces Keyboard RGB's startup task.
