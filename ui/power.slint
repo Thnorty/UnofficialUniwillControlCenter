@@ -1,3 +1,4 @@
+import { ComboBox, LineEdit } from "std-widgets.slint";
 import { Theme, Glyphs } from "theme.slint";
 import { BodyStrong, Caption, Card, FluentButton, FluentSlider, Glyph, LinkButton, SectionHeader, Segmented, SettingRow, Title, ToggleSwitch } from "controls.slint";
 
@@ -376,6 +377,14 @@ export component PerformancePage inherits VerticalLayout {
     in-out property <float> pl4;
     in-out property <float> tcc;
     in-out property <float> voltage;
+    // The current mode's profiles.
+    in property <[string]> profile-names;
+    in-out property <int> profile-index;
+    in property <bool> profile-full;
+    in-out property <string> new-profile;
+    callback select-profile(int);
+    callback add-profile(string);
+    callback delete-profile();
     callback set-mode(int);
     callback set-fan-boost(bool);
     callback set-curve-enabled(bool);
@@ -452,6 +461,56 @@ export component PerformancePage inherits VerticalLayout {
     }
     Caption {
         text: "The performance key on the keyboard switches modes too. On battery the laptop sets its own power limits.";
+    }
+
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: root.mode-names[root.mode] + " mode profiles";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.setups;
+            title: "Profile";
+            description: "Each profile keeps its own CPU tuning and fan curve; changes below go into the one picked here.";
+            ComboBox {
+                width: 200px;
+                enabled: root.available;
+                model: root.profile-names;
+                current-index <=> root.profile-index;
+                selected => { root.select-profile(self.current-index); }
+            }
+            if root.profile-index > 0: LinkButton {
+                text: "Delete";
+                vertical-alignment: center;
+                clicked => { root.delete-profile(); }
+            }
+        }
+        SettingRow {
+            icon: Glyphs.add;
+            title: "New profile";
+            description: root.profile-full ? "This mode has five profiles, as many as it can have." : "Starts as a copy of the one picked above.";
+            LineEdit {
+                width: 200px;
+                enabled: root.available && !root.profile-full;
+                placeholder-text: "Name, such as Quiet";
+                text <=> root.new-profile;
+                accepted(text) => {
+                    root.add-profile(text);
+                    root.new-profile = "";
+                }
+            }
+            FluentButton {
+                text: "Add";
+                enabled: root.available && !root.profile-full;
+                clicked => {
+                    root.add-profile(root.new-profile);
+                    root.new-profile = "";
+                }
+            }
+        }
     }
 
     VerticalLayout {

@@ -165,6 +165,13 @@ export component AppWindow inherits Window {
     // Plugins.
     in property <[PluginView]> plugins;
     in property <string> plugins-note;
+    // Performance profiles.
+    in property <[string]> profile-names;
+    in-out property <int> profile-index;
+    in property <bool> profile-full;
+    callback select-profile(int);
+    callback add-profile(string);
+    callback delete-profile();
     // Display.
     in property <bool> display-demo;
     in property <bool> display-on;
@@ -549,6 +556,12 @@ export component AppWindow inherits Window {
                         reset-tuning => { root.reset-tuning(); }
                         voltage-changed(v) => { root.voltage-changed(v); }
                         save-voltage => { root.save-voltage(); }
+                        profile-names: root.profile-names;
+                        profile-index <=> root.profile-index;
+                        profile-full: root.profile-full;
+                        select-profile(i) => { root.select-profile(i); }
+                        add-profile(name) => { root.add-profile(name); }
+                        delete-profile => { root.delete-profile(); }
                     }
                     if root.page == 5: BatteryPage {
                         available: root.battery-available;

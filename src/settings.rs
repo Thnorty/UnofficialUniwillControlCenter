@@ -139,6 +139,20 @@ pub struct PowerSettings {
     pub tuning: HashMap<String, Tuning>,
     /// USB charging while the laptop is off; None leaves it as it is.
     pub usb_power: Option<bool>,
+    /// Each mode's profiles, by mode name, "Standard" first. The active one's values are also in `tuning` and
+    /// `fan_curves`.
+    pub profiles: HashMap<String, Vec<ModeProfile>>,
+    /// The active profile of each mode, by mode name.
+    pub active_profiles: HashMap<String, usize>,
+}
+
+/// One of a mode's profiles (Control Center keeps five per mode): its CPU tuning and fan curve, under a name.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct ModeProfile {
+    pub name: String,
+    pub tuning: Tuning,
+    pub fan_curve: Option<FanCurve>,
 }
 
 impl Default for PowerSettings {
@@ -151,6 +165,8 @@ impl Default for PowerSettings {
             fan_curves: HashMap::new(),
             tuning: HashMap::new(),
             usb_power: None,
+            profiles: HashMap::new(),
+            active_profiles: HashMap::new(),
         }
     }
 }

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
-use slint::{Model, VecModel};
+use slint::{Model, SharedString, VecModel};
 
 use super::{App, post, with_app};
 use crate::hardware::battery::{self, ChargeMode};
@@ -16,7 +16,7 @@ use crate::hardware::ec::{Ec, Registers};
 use crate::hardware::fans::{self, Step, Table};
 use crate::hardware::performance::{self, Defaults, Mode, PowerLimits, Ranges, Tuning};
 use crate::hardware::{hotkeys, status, system};
-use crate::settings::{FanCurve, PowerSettings};
+use crate::settings::{FanCurve, ModeProfile, PowerSettings};
 use crate::shell::osd;
 use crate::ui::{CurvePoint, TuningView};
 
@@ -56,6 +56,11 @@ pub(super) struct Power {
     mode_defaults: [Option<Defaults>; 3],
     pub tuning: [Tuning; 3],
     tuning_timer: slint::Timer,
+    /// Each mode's profiles, "Standard" first, and the active one, whose values are `tuning` and `curves`.
+    profiles: [Vec<ModeProfile>; 3],
+    active_profile: [usize; 3],
+    /// The current mode's profile names, for the page.
+    pub profile_model: Rc<VecModel<SharedString>>,
     /// USB charging while off: whether the laptop has it, whether it's on, and whether the user chose that.
     usb_supported: bool,
     usb_power: bool,
@@ -74,6 +79,17 @@ impl Power {
         });
         let curves = std::array::from_fn(|i| settings.and_then(|s| s.fan_curves.get(Mode::from_index(i).name())).cloned());
         let tuning = std::array::from_fn(|i| settings.and_then(|s| s.tuning.get(Mode::from_index(i).name())).copied().unwrap_or_default());
+        let profiles: [Vec<ModeProfile>; 3] = std::array::from_fn(|i| {
+            let mut list = settings.and_then(|s| s.profiles.get(Mode::from_index(i).name())).cloned().unwrap_or_default();
+            if list.is_empty() {
+                list.push(ModeProfile { name: STANDARD_PROFILE.into(), ..Default::default() });
+            }
+            list.truncate(MAX_PROFILES);
+            list
+        });
+        let active_profile = std::array::from_fn(|i| {
+            settings.and_then(|s| s.active_profiles.get(Mode::from_index(i).name())).copied().unwrap_or(0).min(profiles[i].len() - 1)
+        });
         Power {
             ec: None,
             shared_ec: Arc::new(Mutex::new(None)),
@@ -104,6 +120,9 @@ impl Power {
             mode_defaults: std::array::from_fn(|i| demo.then(|| demo_defaults(Mode::from_index(i)))),
             tuning,
             tuning_timer: slint::Timer::default(),
+            profiles,
+            active_profile,
+            profile_model: Rc::new(VecModel::default()),
             usb_supported: demo,
             usb_power: settings.and_then(|s| s.usb_power).unwrap_or(false),
             usb_chosen: settings.is_some_and(|s| s.usb_power.is_some()),
@@ -131,6 +150,8 @@ impl Power {
                 stored.fan_curves.insert(mode.name().into(), curve.clone());
             }
             stored.tuning.insert(mode.name().into(), self.tuning[mode.index()]);
+            stored.profiles.insert(mode.name().into(), self.profiles_now(mode));
+            stored.active_profiles.insert(mode.name().into(), self.active_profile[mode.index()]);
         }
         if self.usb_chosen {
             stored.usb_power = Some(self.usb_power);
@@ -160,7 +181,21 @@ impl Power {
     /// Back to each mode's defaults (after the BIOS reset the tuning, as Control Center's LoadDefault).
     pub fn reset_all_tuning(&mut self) {
         self.tuning = Default::default();
+        for profile in self.profiles.iter_mut().flatten() {
+            profile.tuning = Tuning::default();
+        }
         self.chosen = true;
+    }
+
+    /// A mode's profiles with the active one holding what's set now.
+    fn profiles_now(&self, mode: Mode) -> Vec<ModeProfile> {
+        let i = mode.index();
+        let mut list = self.profiles[i].clone();
+        if let Some(active) = list.get_mut(self.active_profile[i]) {
+            active.tuning = self.tuning[i];
+            active.fan_curve = self.curves[i].clone();
+        }
+        list
     }
 
     /// The table the fans should follow in the current mode, if it's a custom one.
@@ -222,6 +257,11 @@ fn read_state(ec: &Registers) -> Result<EcState> {
         usb_power: battery::usb_power(ec)?,
     })
 }
+
+/// The profile every mode starts with, which can't be deleted.
+const STANDARD_PROFILE: &str = "Standard";
+/// As many profiles per mode as Control Center keeps.
+const MAX_PROFILES: usize = 5;
 
 fn error_text(e: anyhow::Error) -> String {
     format!("{e:#}")
@@ -771,6 +811,70 @@ impl App {
         }
     }
 
+    // ---- Profiles -------------------------------------------------------------------------------------------------
+
+    /// Switches the current mode to another of its profiles, keeping what's set now in the one it leaves.
+    pub(super) fn select_profile(&mut self, index: usize) {
+        let i = self.power.mode.index();
+        if !self.power.available(self.demo) || index >= self.power.profiles[i].len() || index == self.power.active_profile[i] {
+            return;
+        }
+        self.power.profiles[i] = self.power.profiles_now(self.power.mode);
+        let profile = self.power.profiles[i][index].clone();
+        self.power.tuning[i] = profile.tuning;
+        self.power.curves[i] = profile.fan_curve;
+        self.power.active_profile[i] = index;
+        self.power.chosen = true;
+        self.power.curve_error = None;
+        self.settings_dirty = true;
+        self.apply_power();
+        self.osd.show_text(mode_glyph(self.power.mode), &format!("{}: {}", self.power.mode.name(), profile.name));
+    }
+
+    /// A new profile for the current mode, starting as a copy of what's set now; it becomes the active one.
+    pub(super) fn add_profile(&mut self, name: &str) {
+        let name = name.trim();
+        let i = self.power.mode.index();
+        if !self.power.available(self.demo) {
+            return;
+        }
+        if name.is_empty() {
+            self.set_status("Give the profile a name first.", true, false);
+            return;
+        }
+        if self.power.profiles[i].len() >= MAX_PROFILES {
+            self.set_status(&format!("A mode has at most {MAX_PROFILES} profiles: delete one first."), true, false);
+            return;
+        }
+        if self.power.profiles[i].iter().any(|p| p.name.eq_ignore_ascii_case(name)) {
+            self.set_status(&format!("{} mode already has a profile called \"{name}\".", self.power.mode.name()), true, false);
+            return;
+        }
+        self.power.profiles[i] = self.power.profiles_now(self.power.mode);
+        self.power.profiles[i].push(ModeProfile { name: name.to_string(), tuning: self.power.tuning[i], fan_curve: self.power.curves[i].clone() });
+        self.power.active_profile[i] = self.power.profiles[i].len() - 1;
+        self.power.chosen = true;
+        self.settings_dirty = true;
+        self.refresh_power();
+    }
+
+    /// Deletes the current mode's active profile and goes back to its Standard one.
+    pub(super) fn delete_profile(&mut self) {
+        let i = self.power.mode.index();
+        let active = self.power.active_profile[i];
+        if !self.power.available(self.demo) || active == 0 {
+            return; // Standard stays
+        }
+        self.power.profiles[i].remove(active);
+        let standard = self.power.profiles[i][0].clone();
+        self.power.tuning[i] = standard.tuning;
+        self.power.curves[i] = standard.fan_curve;
+        self.power.active_profile[i] = 0;
+        self.power.chosen = true;
+        self.settings_dirty = true;
+        self.apply_power();
+    }
+
     // ---- The pages ------------------------------------------------------------------------------------------------
 
     pub(super) fn refresh_power(&self) {
@@ -806,6 +910,12 @@ impl App {
             _ => "".into(),
         });
         self.refresh_tuning(&ui, available);
+        let names: Vec<SharedString> = power.profiles[power.mode.index()].iter().map(|p| SharedString::from(p.name.as_str())).collect();
+        if power.profile_model.iter().ne(names.iter().cloned()) {
+            power.profile_model.set_vec(names);
+        }
+        ui.set_profile_index(power.active_profile[power.mode.index()] as i32);
+        ui.set_profile_full(power.profiles[power.mode.index()].len() >= MAX_PROFILES);
         ui.set_battery_available(available);
         ui.set_battery_note(if available { "".into() } else { note.into() });
         ui.set_charge_mode(power.charge as i32);

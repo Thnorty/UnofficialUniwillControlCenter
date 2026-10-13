@@ -467,6 +467,7 @@ impl App {
             app.start_monitor();
             if let Some(ui) = app.ui() {
                 ui.set_curve(ModelRc::from(app.power.curve_model.clone()));
+                ui.set_profile_names(ModelRc::from(app.power.profile_model.clone()));
                 ui.set_plugins(ModelRc::from(app.plugins.model.clone()));
             }
             app.start_plugins();
@@ -1861,6 +1862,9 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_set_display_mode(|i| with_app(move |app| app.set_display_mode(i.max(0) as usize)));
     ui.on_set_display_value(|which, v| with_app(move |app| app.set_display_value(which, v)));
     ui.on_reset_display_mode(|| with_app(|app| app.reset_display_mode()));
+    ui.on_select_profile(|i| with_app(move |app| app.select_profile(i.max(0) as usize)));
+    ui.on_add_profile(|name| with_app(move |app| app.add_profile(&name)));
+    ui.on_delete_profile(|| with_app(|app| app.delete_profile()));
     ui.on_nav_collapsed_changed(|on| {
         with_app(move |app| {
             app.settings.nav_collapsed = on;
