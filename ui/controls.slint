@@ -57,8 +57,9 @@ export component SettingRow inherits Rectangle {
     border-radius: 8px;
     border-width: 1px;
     border-color: Theme.card-stroke;
-    min-height: 68px;
-    HorizontalLayout {
+    // At least as tall as its content: a fixed min-height would let a squeezed page cut wrapped text off.
+    min-height: Math.max(68px, row.min-height);
+    row := HorizontalLayout {
         padding-left: 16px;
         padding-right: 16px;
         padding-top: 12px;

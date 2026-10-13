@@ -171,6 +171,7 @@ export component PluginsPage inherits VerticalLayout {
         if plugin.expanded: VerticalLayout {
             spacing: 4px;
             for s[j] in plugin.settings: SettingRow {
+                preferred-width: root.available-width;
                 title: s.label;
                 description: s.description;
                 if s.kind == 0: ToggleSwitch {
