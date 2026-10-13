@@ -90,7 +90,7 @@ export component LightingPage inherits VerticalLayout {
             text: root.is-light-bar ? "Light bar" : "Keyboard";
         }
         Caption {
-            text: !root.view.on ? "Off" : root.view.linked ? "Same as the keyboard · " + Math.round(root.light * 2) + "% brightness" : root.view.effect-name + " · " + Math.round(root.light * 2) + "% brightness";
+            text: !root.view.on ? "Off" : root.view.linked ? "Same as the keyboard · " + root.light + "% brightness" : root.view.effect-name + " · " + root.light + "% brightness";
         }
     }
 
@@ -343,19 +343,19 @@ export component LightingPage inherits VerticalLayout {
         SettingRow {
             icon: Glyphs.brightness;
             title: root.view.music && !root.is-light-bar ? "Peak brightness" : "Brightness";
-            description: root.is-light-bar ? "" : "The Fn keys change it in 20% steps.";
+            description: root.is-light-bar ? "" : "The Fn keys step through 5%, 20%, 40%, 60%, 80% and 100%.";
             HorizontalLayout {
                 spacing: 12px;
                 width: 300px;
                 FluentSlider {
                     minimum: 0;
-                    maximum: 50;
+                    maximum: 100;
                     step: 1;
                     value <=> root.light;
                     changed(v) => { root.light-changed(v); }
                 }
                 Text {
-                    text: root.light == 0 ? "Off" : Math.round(root.light * 2) + "%";
+                    text: root.light == 0 ? "Off" : root.light + "%";
                     width: 40px;
                     horizontal-alignment: right;
                     vertical-alignment: center;

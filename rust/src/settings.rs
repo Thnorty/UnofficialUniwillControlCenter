@@ -38,8 +38,12 @@ pub struct LightingSettings {
     /// Colors of each palette effect, by effect key.
     pub palettes: HashMap<String, Vec<i32>>,
     pub wave_direction: u8,
-    /// Firmware brightness, 0-50.
+    /// Firmware brightness, 0-50. The C# version reads only this.
     pub light: u8,
+    /// The brightness in percent, which can fall between two firmware levels. Ignored if `light` no longer matches
+    /// it (the C# version changed it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brightness_percent: Option<u8>,
     pub speed: u8,
     /// The light bar shows the keyboard's effect, colors and speed.
     pub linked: bool,
@@ -55,6 +59,7 @@ impl Default for LightingSettings {
             palettes: HashMap::new(),
             wave_direction: 1,
             light: MAX_LIGHT,
+            brightness_percent: None,
             speed: 2,
             linked: false,
         }

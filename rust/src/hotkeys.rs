@@ -5,7 +5,6 @@
 //!
 //! WMI runs on two threads of its own: one for EC reads and writes, one waiting for hotkey events.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -28,6 +27,7 @@ pub const WIN_KEY_LOCKED: u32 = 64; // OSD_WINKEY_LOCK
 pub const WIN_KEY_UNLOCKED: u32 = 65; // OSD_WINKEY_UNLOCK
 
 enum Command {
+    TakeOver(Sender<Result<()>>),
     EnsureApExist,
     ToggleWinKeyLock,
     IsWinKeyLocked(Sender<Result<bool>>),
@@ -65,9 +65,20 @@ impl Hotkeys {
         listening_rx.recv().map_err(|_| anyhow!("The hotkey listener stopped"))??;
 
         active.store(true, Ordering::Release);
-        commands.send(Command::EnsureApExist).ok();
         *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(commands.clone());
-        Ok(Hotkeys { commands, active })
+        let hotkeys = Hotkeys { commands, active };
+        let (taken_tx, taken_rx) = mpsc::channel();
+        hotkeys.commands.send(Command::TakeOver(taken_tx)).ok();
+        match taken_rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(Ok(())) => Ok(hotkeys),
+            failed => {
+                hotkeys.abandon();
+                Err(match failed {
+                    Ok(Err(e)) => e,
+                    _ => anyhow!("The EC didn't answer"),
+                })
+            }
+        }
     }
 
     /// Sets the bit if something cleared it. GCUService re-sets it after resume from sleep, so this is called
@@ -129,15 +140,17 @@ struct Ec {
 impl Ec {
     fn connect() -> Result<Ec> {
         let wmi = WMIConnection::with_namespace_path("ROOT\\WMI").context("Can't open the BIOS WMI interface")?;
-        // AcpiTest_MULong.InstanceName='ACPI\PNP0C14\1_1' on this laptop; ask WMI for the exact path.
-        let rows: Vec<HashMap<String, Variant>> = wmi.raw_query("SELECT __RELPATH FROM AcpiTest_MULong").context("No EC interface (AcpiTest_MULong)")?;
-        let path = rows
-            .iter()
-            .find_map(|row| match row.get("__RELPATH") {
-                Some(Variant::String(path)) => Some(path.clone()),
-                _ => None,
-            })
-            .ok_or_else(|| anyhow!("No EC interface (AcpiTest_MULong)"))?;
+        // AcpiTest_MULong.InstanceName='ACPI\PNP0C14\1_1' on this laptop; ask WMI for the exact path. It's a system
+        // property, which the crate's query results leave out, so it's read from the object itself.
+        let instance = wmi
+            .exec_query("SELECT * FROM AcpiTest_MULong")
+            .context("No EC interface (AcpiTest_MULong)")?
+            .next()
+            .ok_or_else(|| anyhow!("No EC interface (AcpiTest_MULong)"))??;
+        let path = match instance.get_property("__RELPATH")? {
+            Variant::String(path) => path,
+            other => return Err(anyhow!("Unexpected EC interface path {other:?}")),
+        };
         Ok(Ec { wmi, path })
     }
 
@@ -179,6 +192,19 @@ fn ec_thread(commands: Receiver<Command>, ready: Sender<Result<()>>, active: Arc
     };
     for command in commands {
         match command {
+            Command::TakeOver(reply) => {
+                let result = (|| {
+                    let value = ec.read(AP_OEM_BYTE)?;
+                    if value & AP_EXIST_BIT == 0 {
+                        ec.write(AP_OEM_BYTE, value | AP_EXIST_BIT)?;
+                        if ec.read(AP_OEM_BYTE)? & AP_EXIST_BIT == 0 {
+                            return Err(anyhow!("The EC didn't keep the app-present bit"));
+                        }
+                    }
+                    Ok(())
+                })();
+                reply.send(result.context("Can't take the Fn keys over")).ok();
+            }
             Command::EnsureApExist => {
                 if active.load(Ordering::Acquire)
                     && let Ok(value) = ec.read(AP_OEM_BYTE)
@@ -210,6 +236,14 @@ fn ec_thread(commands: Receiver<Command>, ready: Sender<Result<()>>, active: Arc
     }
 }
 
+/// Only the code is read, so the event's other properties can't make it fail to convert.
+#[derive(serde::Deserialize)]
+#[serde(rename = "AcpiTest_EventULong")]
+struct HotkeyEvent {
+    #[serde(rename = "ULong")]
+    code: u32,
+}
+
 fn event_thread(pressed: impl Fn(u32), listening: Sender<Result<()>>, active: Arc<AtomicBool>) {
     let wmi = match WMIConnection::with_namespace_path("ROOT\\WMI").context("Can't open the BIOS WMI interface") {
         Ok(wmi) => wmi,
@@ -218,7 +252,7 @@ fn event_thread(pressed: impl Fn(u32), listening: Sender<Result<()>>, active: Ar
             return;
         }
     };
-    let events = wmi.raw_notification::<HashMap<String, Variant>>("SELECT * FROM AcpiTest_EventULong").context("Can't listen for hotkeys");
+    let events = wmi.raw_notification::<HotkeyEvent>("SELECT * FROM AcpiTest_EventULong").context("Can't listen for hotkeys");
     let events = match events {
         Ok(events) => {
             listening.send(Ok(())).ok();
@@ -237,13 +271,6 @@ fn event_thread(pressed: impl Fn(u32), listening: Sender<Result<()>>, active: Ar
             }
             continue;
         }
-        let code = match event.get("ULong") {
-            Some(Variant::UI4(v)) => *v,
-            Some(Variant::I4(v)) => *v as u32,
-            Some(Variant::UI8(v)) => *v as u32,
-            Some(Variant::String(s)) => s.parse().unwrap_or(0),
-            _ => continue,
-        };
-        pressed(code);
+        pressed(event.code);
     }
 }

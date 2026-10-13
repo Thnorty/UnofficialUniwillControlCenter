@@ -43,7 +43,18 @@ const IDLE_TIMEOUTS: &[(&str, u32)] = &[
     ("1 hour", 3600),
 ];
 
-const FN_KEY_STEP: u8 = 10; // keyboard brightness per Fn key press, out of MAX_LIGHT (20%)
+/// The keyboard brightness the Fn keys step through, in percent. From a value in between they go to the next one.
+const FN_KEY_STOPS: [u8; 7] = [0, 5, 20, 40, 60, 80, 100];
+
+/// The controllers have 51 brightness levels (0-50). The app works in percent and sends the nearest level, so two
+/// neighbouring percentages can look the same.
+fn to_level(percent: u8) -> u8 {
+    ((percent.min(100) as u16 * MAX_LIGHT as u16 + 50) / 100) as u8
+}
+
+fn to_percent(level: u8) -> u8 {
+    (level.min(MAX_LIGHT) as u16 * 100 / MAX_LIGHT as u16) as u8
+}
 const FADE_TIME: Duration = Duration::from_millis(180);
 const TIMER_MINUTES: &[u32] = &[5, 10, 15, 25, 30, 45, 60];
 const TIMER_COLOR: Rgb = Rgb::new(255, 110, 0);
@@ -124,7 +135,7 @@ struct Lighting {
     zones: [Rgb; 4],
     palettes: Vec<Vec<Rgb>>, // by effect index; empty for effects without a palette
     direction: u8,           // LM_ITE_RGB.Translate_ITE_DirectionValue: 1 = left to right, 2 = right to left
-    light: u8,
+    percent: u8, // brightness, 0-100
     speed: u8,
     linked: bool,
 
@@ -169,7 +180,10 @@ impl Lighting {
             zones,
             palettes,
             direction: if settings.wave_direction == 2 { 2 } else { 1 },
-            light: settings.light.min(MAX_LIGHT),
+            percent: match settings.brightness_percent {
+                Some(percent) if to_level(percent) == settings.light.min(MAX_LIGHT) => percent.min(100),
+                _ => to_percent(settings.light),
+            },
             speed: settings.speed.min(4),
             linked: kind == Kind::LightBar && settings.linked,
             shown_light: settings.light.min(MAX_LIGHT),
@@ -209,7 +223,8 @@ impl Lighting {
             .map(|(e, p)| (e.key.to_string(), p.iter().map(|c| c.to_argb()).collect()))
             .collect::<HashMap<_, _>>();
         settings.wave_direction = self.direction;
-        settings.light = self.light;
+        settings.light = to_level(self.percent);
+        settings.brightness_percent = Some(self.percent);
         settings.speed = self.speed;
         settings.linked = self.linked;
     }
@@ -462,7 +477,9 @@ impl App {
                     if let Ok(light) = device.read_light()
                         && light > 0
                     {
-                        self.keyboard.light = light;
+                        if to_level(self.keyboard.percent) != light {
+                            self.keyboard.percent = to_percent(light);
+                        }
                         self.keyboard.shown_light = light;
                     }
                     self.keyboard.device = Some(Arc::new(device));
@@ -575,7 +592,7 @@ impl App {
         let Some(device) = lighting.device.clone() else { return };
         lighting.pending = false;
         lighting.send_timer.stop();
-        let mut light = light_override.unwrap_or(lighting.light);
+        let mut light = light_override.unwrap_or(to_level(lighting.percent));
         lighting.fade = None; // a fade in progress would undo this
         engine.pause(kind); // the running effect must not change the lights while the new one is set
         lighting.renderer = None;
@@ -705,15 +722,15 @@ impl App {
         self.update_busy();
     }
 
-    fn set_light(&mut self, kind: Kind, light: u8) {
+    fn set_light(&mut self, kind: Kind, percent: u8) {
         let Some(lighting) = self.lighting_mut(kind) else { return };
-        let light = light.min(MAX_LIGHT);
-        if light == lighting.light && lighting.fade.is_none() {
+        let percent = percent.min(100);
+        if percent == lighting.percent && lighting.fade.is_none() {
             return;
         }
-        lighting.light = light;
+        lighting.percent = percent;
         self.settings_dirty = true;
-        self.fade_to(kind, light, FADE_TIME);
+        self.fade_to(kind, to_level(percent), FADE_TIME);
         self.refresh_device(kind);
     }
 
@@ -739,7 +756,7 @@ impl App {
         if needs || lighting.flash {
             self.apply(kind, false, None);
         } else {
-            let light = lighting.light;
+            let light = to_level(lighting.percent);
             self.fade_to(kind, light, Duration::from_millis(300));
         }
     }
@@ -761,7 +778,7 @@ impl App {
         lighting.send_timer.stop();
         lighting.fade = None;
         // The bar may be off or at zero brightness; flash at a moderate brightness then.
-        let light = if lighting.on && lighting.light > 0 { lighting.light } else { MAX_LIGHT * 3 / 5 };
+        let light = if lighting.on && lighting.percent > 0 { to_level(lighting.percent) } else { MAX_LIGHT * 3 / 5 };
         if let Err(e) = device.enter_user_mode(light) {
             self.device_failed(Kind::LightBar, e);
             return;
@@ -822,13 +839,15 @@ impl App {
             return;
         }
         self.last_hotkey_activity = Instant::now();
-        self.keyboard.light = light;
+        if to_level(self.keyboard.percent) != light {
+            self.keyboard.percent = to_percent(light);
+        }
         self.keyboard.shown_light = light;
         self.keyboard.changed = true;
         self.settings_dirty = true;
         self.refresh_device(Kind::Keyboard);
         if !system::control_center_running() {
-            self.osd.show_brightness(light as f32 / MAX_LIGHT as f32);
+            self.osd.show_brightness(self.keyboard.percent as f32 / 100.0);
         }
     }
 
@@ -914,16 +933,16 @@ impl App {
                 if self.idle_off {
                     self.wake_from_idle();
                 }
-                // The keys move the brightness by a fifth of the range (20%), from wherever the slider is.
-                let current = self.keyboard.light;
-                let light = match code {
-                    hotkeys::KEYBOARD_LIGHT_DOWN => current.saturating_sub(FN_KEY_STEP),
-                    hotkeys::KEYBOARD_LIGHT_UP => (current + FN_KEY_STEP).min(MAX_LIGHT),
-                    _ if current >= MAX_LIGHT => 0, // past the top wraps to off
-                    _ => (current + FN_KEY_STEP).min(MAX_LIGHT),
+                // The keys step through FN_KEY_STOPS from wherever the slider is.
+                let current = self.keyboard.percent;
+                let next_up = FN_KEY_STOPS.iter().copied().find(|&stop| stop > current);
+                let percent = match code {
+                    hotkeys::KEYBOARD_LIGHT_DOWN => FN_KEY_STOPS.iter().rev().copied().find(|&stop| stop < current).unwrap_or(0),
+                    hotkeys::KEYBOARD_LIGHT_UP => next_up.unwrap_or(100),
+                    _ => next_up.unwrap_or(0), // past the top wraps to off
                 };
-                self.set_light(Kind::Keyboard, light);
-                self.osd.show_brightness(light as f32 / MAX_LIGHT as f32);
+                self.set_light(Kind::Keyboard, percent);
+                self.osd.show_brightness(percent as f32 / 100.0);
             }
             hotkeys::LIGHT_BAR_TOGGLE => {
                 self.last_hotkey_activity = Instant::now();
@@ -1136,7 +1155,7 @@ impl App {
             music: effect.is_music(),
         };
         let palette = lighting.palettes[lighting.effect].clone();
-        let (light, speed) = (lighting.light as f32, lighting.speed as f32);
+        let (light, speed) = (lighting.percent as f32, lighting.speed as f32);
         match kind {
             Kind::Keyboard => {
                 ui.set_kb_view(view);
@@ -1206,7 +1225,7 @@ impl App {
         } else {
             preview::simulate(plan.effect, &plan.colors, plan.direction, plan.speed, t, 4, true)
         };
-        let shown = if self.demo { if keyboard.idle_off { 0 } else { keyboard.light } } else { keyboard.shown_light };
+        let shown = if self.demo { if keyboard.idle_off { 0 } else { to_level(keyboard.percent) } } else { keyboard.shown_light };
         let scale = if keyboard.on { preview::brightness_scale(shown) } else { 0.0 };
         for z in &mut zones {
             *z = z.scale(scale);
@@ -1223,7 +1242,7 @@ impl App {
                 preview::simulate(plan.effect, &plan.colors, plan.direction, plan.speed, t, crate::device::LIGHT_BAR_LEDS, false)
             };
             leds.resize(crate::device::LIGHT_BAR_LEDS, Rgb::BLACK);
-            let shown = if self.demo { if light_bar.idle_off { 0 } else { light_bar.light } } else { light_bar.shown_light };
+            let shown = if self.demo { if light_bar.idle_off { 0 } else { to_level(light_bar.percent) } } else { light_bar.shown_light };
             let scale = if light_bar.on { preview::brightness_scale(shown) } else { 0.0 };
             for led in &mut leds {
                 *led = led.scale(scale);
@@ -1313,11 +1332,12 @@ impl App {
         };
         let mut keyboard = effect_items(&self.keyboard, CMD_KEYBOARD_EFFECT, true);
         keyboard.push(MenuItem::Separator);
-        let brightness = (0..=5)
-            .map(|step| {
-                let light = step * FN_KEY_STEP;
-                let label = if step == 0 { "Off".to_string() } else { format!("{}%", step * 20) };
-                MenuItem::check(CMD_KEYBOARD_LIGHT + step as u32, label, self.keyboard.light == light, true)
+        let brightness = FN_KEY_STOPS
+            .iter()
+            .enumerate()
+            .map(|(i, &percent)| {
+                let label = if percent == 0 { "Off".to_string() } else { format!("{percent}%") };
+                MenuItem::check(CMD_KEYBOARD_LIGHT + i as u32, label, self.keyboard.percent == percent, true)
             })
             .collect();
         keyboard.push(MenuItem::Submenu { text: "Brightness".into(), enabled: true, items: brightness });
@@ -1356,8 +1376,8 @@ impl App {
             CMD_LIGHT_BAR_LINK => self.set_linked(!self.light_bar.as_ref().is_some_and(|l| l.linked)),
             CMD_TIMER_CANCEL => self.cancel_timer(),
             _ if (CMD_KEYBOARD_EFFECT..CMD_KEYBOARD_EFFECT + 100).contains(&id) => self.select_effect(Kind::Keyboard, (id - CMD_KEYBOARD_EFFECT) as usize),
-            _ if (CMD_KEYBOARD_LIGHT..CMD_KEYBOARD_LIGHT + 6).contains(&id) => {
-                self.set_light(Kind::Keyboard, (id - CMD_KEYBOARD_LIGHT) as u8 * FN_KEY_STEP);
+            _ if (CMD_KEYBOARD_LIGHT..CMD_KEYBOARD_LIGHT + FN_KEY_STOPS.len() as u32).contains(&id) => {
+                self.set_light(Kind::Keyboard, FN_KEY_STOPS[(id - CMD_KEYBOARD_LIGHT) as usize]);
             }
             _ if (CMD_LIGHT_BAR_EFFECT..CMD_LIGHT_BAR_EFFECT + 100).contains(&id) => self.select_effect(Kind::LightBar, (id - CMD_LIGHT_BAR_EFFECT) as usize),
             _ if (CMD_TIMER..CMD_TIMER + TIMER_MINUTES.len() as u32).contains(&id) => self.start_timer(TIMER_MINUTES[(id - CMD_TIMER) as usize]),
@@ -1542,7 +1562,7 @@ impl App {
     /// Center has the same behaviour). Wait for that and put the user's brightness back.
     fn restore_brightness_after_hand_over(&mut self) {
         let Some(keyboard) = self.keyboard.device.clone() else { return };
-        let light = self.keyboard.light;
+        let light = to_level(self.keyboard.percent);
         let deadline = Instant::now() + Duration::from_secs(3);
         while Instant::now() < deadline {
             match keyboard.read_light() {
