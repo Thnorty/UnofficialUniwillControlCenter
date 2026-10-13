@@ -2,9 +2,12 @@
 //! bar's Typing effect. Only key positions are looked at, nothing is recorded, and the hook is only installed while
 //! an effect needs it.
 //!
-//! The hook runs on a thread of its own with its own message loop. Windows calls a low-level hook on the thread that
-//! installed it and drops the hook if that thread is slow to answer; on the UI thread, busy drawing the window and
-//! handling its keys while it has focus, that happened while this window was in front.
+//! The hook runs on a thread of its own with its own message loop, so a busy UI thread can't make Windows skip it.
+//!
+//! Windows doesn't call low-level keyboard hooks at all while the foreground window belongs to a process that also
+//! registered for raw keyboard input, which winit does for its device events. Slint doesn't use those, so
+//! `drop_raw_keyboard_input` takes the registration back; without it, Typing went dark whenever this window had
+//! focus.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -110,6 +113,28 @@ unsafe extern "system" fn on_key(code: i32, message: WPARAM, data: LPARAM) -> LR
         });
     }
     unsafe { CallNextHookEx(None, code, message, data) }
+}
+
+/// Removes this process's raw keyboard input registration (winit's, for device events). Call after the event loop is
+/// created.
+pub fn drop_raw_keyboard_input() {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::Input::{RAWINPUTDEVICE, RIDEV_REMOVE, RegisterRawInputDevices};
+    // Generic desktop page, keyboard usage; removing needs no target window.
+    let keyboard = RAWINPUTDEVICE { usUsagePage: 1, usUsage: 6, dwFlags: RIDEV_REMOVE, hwndTarget: HWND::default() };
+    unsafe {
+        let _ = RegisterRawInputDevices(&[keyboard], size_of::<RAWINPUTDEVICE>() as u32);
+    }
+}
+
+/// Which of the keyboard's four zones a position from the hook is in (the zones are 5, 5, 5.25 and 3.75 keys wide).
+pub fn zone_of(position: f32) -> usize {
+    match position * WIDTH {
+        x if x < 5.0 => 0,
+        x if x < 10.0 => 1,
+        x if x < 15.25 => 2,
+        _ => 3,
+    }
 }
 
 fn positions() -> HashMap<u32, f32> {

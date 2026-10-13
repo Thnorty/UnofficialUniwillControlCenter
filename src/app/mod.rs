@@ -455,6 +455,7 @@ impl App {
                 app.connect_ec();
             }
         });
+        crate::lighting::keyhook::drop_raw_keyboard_input();
         if !start_hidden {
             show_window(ui);
         }
@@ -661,7 +662,13 @@ impl App {
             } else {
                 // The keyboard's effects drawn by this app run on the static zones (what stays once the app exits);
                 // those without colors start from the zone colors too.
-                let sent = if plan.effect.drawn_by_app() && plan.colors.is_empty() { lighting.zones.to_vec() } else { plan.colors.clone() };
+                let sent = match plan.effect.drawn {
+                    // Dark until a key is pressed; once the app exits, the static zone colors.
+                    Drawn::Typing if save => lighting.zones.to_vec(),
+                    Drawn::Typing => vec![Rgb::BLACK; 4],
+                    _ if plan.effect.drawn_by_app() && plan.colors.is_empty() => lighting.zones.to_vec(),
+                    _ => plan.colors.clone(),
+                };
                 device.set_effect(plan.effect, &sent, plan.direction, light, plan.speed, save)?;
                 if plan.effect.drawn_by_app() && !lighting.idle_off && !save {
                     let live = lighting.live.clone();
@@ -670,6 +677,7 @@ impl App {
                         Drawn::Spectrum if plan.colors.len() == 4 => {
                             Some(Box::new(scenes::KeyboardSpectrum::new(device.clone(), plan.colors.clone(), plan.speed, live)))
                         }
+                        Drawn::Typing => Some(Box::new(scenes::KeyboardTyping::new(device.clone(), plan.colors.clone(), plan.speed, live))),
                         Drawn::CpuTemperature => Some(Box::new(scenes::KeyboardTemperature::new(device.clone(), false, live))),
                         Drawn::GpuTemperature => Some(Box::new(scenes::KeyboardTemperature::new(device.clone(), true, live))),
                         _ => None,

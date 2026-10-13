@@ -110,8 +110,11 @@ These work the way Control Center does them. The commands come from Control Cent
   FFT, with automatic gain):
   - keyboard: each zone follows a range of pitches, bass on the left;
   - light bar: mirrored, bass in the middle and treble at the ends, colored from the first color to the last.
-- **Typing (light bar):** each key press sends a ripple out from the matching spot on the bar. A keyboard hook reads
-  only key positions, and it is only installed while this effect runs.
+- **Typing:** a keyboard hook reads only key positions, and it is only installed while a Typing effect runs. It works
+  while this app's window has focus too.
+  - light bar: each key press sends a ripple out from the matching spot on the bar;
+  - keyboard: each key press lights its zone in the next color, and the light spreads to the zones beside it as it
+    fades. Dark while you're not typing.
 - **Status on the lights:**
   - light bar: Battery (level bar, a pulse while charging), CPU load, CPU temperature and GPU temperature gauges;
   - keyboard: CPU temperature and GPU temperature colors, blue when cool to red when hot.

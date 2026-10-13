@@ -159,6 +159,8 @@ pub static KEYBOARD: &[Effect] = &[
     Effect::firmware("flash", "Flash", 18, EffectColors::Palette, true, "Flashes each color five times, then moves on to the next."),
     Effect { min_colors: 2, ..Effect::firmware("mix", "Mix", 19, EffectColors::Palette, true,
         "The whole keyboard goes through the colors in turn, blending from one into the next.") },
+    Effect::app("typing", "Typing", Drawn::Typing, Group::Animated, EffectColors::Palette, true,
+        "Each key press lights its zone, taking the colors in turn, and the light spreads to the zones beside it as it fades. Dark while you're not typing."),
     Effect::app("music", "Music", Drawn::Music, Group::Audio, EffectColors::Zones, true,
         "Pulses with the sound this PC plays. Brightness sets the peak; speed sets how fast it falls back."),
     Effect::app("spectrum", "Spectrum", Drawn::Spectrum, Group::Audio, EffectColors::Zones, true,
