@@ -1,0 +1,304 @@
+//! The Monitor page, the fan readings on the Performance page and the Battery page's status: a thread reads them
+//! once a second while one of those pages shows.
+
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use slint::{ComponentHandle, ModelRc, VecModel};
+use wmi::WMIConnection;
+
+use super::{App, post};
+use crate::hardware::ec::Ec;
+use crate::hardware::fans::{self, FanReading};
+use crate::hardware::status::{self, BatteryDetails, SystemStatus};
+use crate::lighting::engine::Inputs;
+use crate::ui::{Detail, Metric};
+
+const HISTORY: usize = 60;
+const PERFORMANCE_PAGE: i32 = 4;
+const BATTERY_PAGE: i32 = 5;
+const MONITOR_PAGE: i32 = 6;
+
+#[derive(Clone, Copy, Default)]
+pub(super) struct Sample {
+    cpu_temperature: Option<f32>,
+    cpu_load: Option<f32>,
+    gpu_temperature: Option<f32>,
+    fans: Option<(FanReading, FanReading)>,
+    memory: Option<(u64, u64)>,
+    battery_percent: Option<u8>,
+    charging: bool,
+    on_ac: bool,
+    battery: BatteryDetails,
+}
+
+pub(super) struct Monitor {
+    wanted: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    history: VecDeque<Sample>,
+}
+
+impl Monitor {
+    pub fn new() -> Monitor {
+        Monitor { wanted: Arc::new(AtomicBool::new(false)), stop: Arc::new(AtomicBool::new(false)), history: VecDeque::new() }
+    }
+
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Release);
+    }
+}
+
+impl App {
+    pub(super) fn start_monitor(&self) {
+        let (wanted, stop, ec, demo) = (self.monitor.wanted.clone(), self.monitor.stop.clone(), self.power.shared_ec.clone(), self.demo);
+        let _ = std::thread::Builder::new().name("Monitor".into()).spawn(move || monitor_thread(wanted, stop, ec, demo));
+    }
+
+    /// Reads only while a page that shows the readings is open.
+    pub(super) fn update_monitor_wanted(&mut self) {
+        let Some(ui) = self.ui() else { return };
+        let page = ui.get_page();
+        let wanted = ui.window().is_visible() && matches!(page, PERFORMANCE_PAGE | BATTERY_PAGE | MONITOR_PAGE);
+        self.monitor.wanted.store(wanted, Ordering::Release);
+        if wanted && page == PERFORMANCE_PAGE {
+            self.read_fan_defaults_if_needed();
+        }
+    }
+
+    fn monitor_sample(&mut self, sample: Sample) {
+        self.monitor.history.push_back(sample);
+        while self.monitor.history.len() > HISTORY {
+            self.monitor.history.pop_front();
+        }
+        self.refresh_monitor();
+    }
+
+    fn refresh_monitor(&self) {
+        let Some(ui) = self.ui() else { return };
+        let Some(last) = self.monitor.history.back().copied() else { return };
+        let history = &self.monitor.history;
+        let line = |value: &dyn Fn(&Sample) -> Option<f32>, low: f32, high: f32| history_path(history.iter().map(value), low, high);
+
+        let cpu_temperature = Metric {
+            icon: "\u{E950}".into(),
+            title: "CPU temperature".into(),
+            value: last.cpu_temperature.map_or("—".into(), |t| format!("{t:.0} °C")).into(),
+            detail: "The hottest of the laptop's thermal sensors".into(),
+            history: line(&|s| s.cpu_temperature, 30.0, 100.0).into(),
+            level: last.cpu_temperature.map_or(-1.0, |t| (t - 30.0) / 70.0),
+            warn: last.cpu_temperature.is_some_and(|t| t >= 90.0),
+        };
+        let cpu_load = Metric {
+            icon: "\u{E9D9}".into(),
+            title: "CPU load".into(),
+            value: last.cpu_load.map_or("—".into(), |l| format!("{:.0}%", l * 100.0)).into(),
+            detail: "All cores".into(),
+            history: line(&|s| s.cpu_load.map(|l| l * 100.0), 0.0, 100.0).into(),
+            level: last.cpu_load.unwrap_or(-1.0),
+            warn: false,
+        };
+        let gpu_temperature = Metric {
+            icon: "\u{E7F4}".into(),
+            title: "GPU temperature".into(),
+            value: last.gpu_temperature.map_or("—".into(), |t| format!("{t:.0} °C")).into(),
+            detail: if last.gpu_temperature.is_some() { "NVIDIA GPU" } else { "Not reported: the GPU is asleep, or has no NVIDIA driver" }.into(),
+            history: line(&|s| s.gpu_temperature, 30.0, 100.0).into(),
+            level: last.gpu_temperature.map_or(-1.0, |t| (t - 30.0) / 70.0),
+            warn: last.gpu_temperature.is_some_and(|t| t >= 87.0),
+        };
+        let fan = |name: &str, which: fn(&(FanReading, FanReading)) -> FanReading| {
+            let reading = last.fans.as_ref().map(which);
+            Metric {
+                icon: "\u{E9CA}".into(),
+                title: name.into(),
+                value: reading.map_or("—".into(), |r| if r.rpm == 0 && r.duty == 0 { "Stopped".into() } else { format!("{} RPM", thousands(r.rpm as u64)) }).into(),
+                detail: reading.map_or_else(
+                    || if self.demo { "".into() } else { "Needs the laptop's embedded controller".into() },
+                    |r| format!("{}% speed", r.duty),
+                )
+                .into(),
+                history: line(&|s| s.fans.as_ref().map(|f| which(f).duty as f32), 0.0, 100.0).into(),
+                level: reading.map_or(-1.0, |r| r.duty as f32 / 100.0),
+                warn: false,
+            }
+        };
+        let cpu_fan = fan("CPU fan", |f| f.0);
+        let gpu_fan = fan("GPU fan", |f| f.1);
+        let memory = Metric {
+            icon: "\u{EEA0}".into(),
+            title: "Memory".into(),
+            value: last.memory.map_or("—".into(), |(used, _)| gigabytes(used)).into(),
+            detail: last.memory.map_or("".into(), |(used, total)| format!("in use of {} ({:.0}%)", gigabytes(total), used as f64 * 100.0 / total.max(1) as f64)).into(),
+            history: line(&|s| s.memory.map(|(used, total)| used as f32 * 100.0 / total.max(1) as f32), 0.0, 100.0).into(),
+            level: last.memory.map_or(-1.0, |(used, total)| used as f32 / total.max(1) as f32),
+            warn: false,
+        };
+        let battery = Metric {
+            icon: "\u{E83F}".into(),
+            title: "Battery".into(),
+            value: last.battery_percent.map_or("—".into(), |p| format!("{p}%")).into(),
+            detail: battery_state(&last).into(),
+            history: line(&|s| s.battery_percent.map(|p| p as f32), 0.0, 100.0).into(),
+            level: last.battery_percent.map_or(-1.0, |p| p as f32 / 100.0),
+            warn: last.battery_percent.is_some_and(|p| p <= 15) && !last.on_ac,
+        };
+        let mode = Metric {
+            icon: "\u{EC4A}".into(),
+            title: "Performance".into(),
+            value: format!("{} mode", self.power.mode.name()).into(),
+            detail: ui.get_perf_limits(),
+            history: "".into(),
+            level: -1.0,
+            warn: false,
+        };
+        ui.set_fan_metrics(ModelRc::new(VecModel::from(vec![cpu_fan.clone(), gpu_fan.clone()])));
+        ui.set_metrics(ModelRc::new(VecModel::from(vec![cpu_temperature, cpu_load, gpu_temperature, memory, cpu_fan, gpu_fan, battery, mode])));
+
+        // The Battery page.
+        ui.set_battery_percent(last.battery_percent.map_or(-1, |p| p as i32));
+        ui.set_battery_state(battery_state(&last).into());
+        let details = &last.battery;
+        let mut rows = Vec::new();
+        if let (Some(full), Some(designed)) = (details.full, details.designed) {
+            rows.push(("Health", format!("{:.0}% of its design capacity", full as f64 * 100.0 / designed as f64)));
+        }
+        if let Some(full) = details.full {
+            rows.push(("Full charge capacity", watt_hours(full)));
+        }
+        if let Some(designed) = details.designed {
+            rows.push(("Design capacity", watt_hours(designed)));
+        }
+        if let Some(remaining) = details.remaining {
+            rows.push(("Remaining", watt_hours(remaining)));
+        }
+        if let Some(voltage) = details.voltage {
+            rows.push(("Voltage", format!("{:.1} V", voltage as f64 / 1000.0)));
+        }
+        if let Some(cycles) = details.cycles {
+            rows.push(("Charge cycles", cycles.to_string()));
+        }
+        let rows: Vec<Detail> = rows.into_iter().map(|(label, value)| Detail { label: label.into(), value: value.into() }).collect();
+        ui.set_battery_details(ModelRc::new(VecModel::from(rows)));
+    }
+}
+
+fn battery_state(sample: &Sample) -> String {
+    let rate = sample.battery.rate.filter(|&r| r != 0).map(|r| format!("{:.1} W", r.unsigned_abs() as f64 / 1000.0));
+    match (sample.battery_percent, sample.on_ac, sample.charging) {
+        (None, _, _) => "No battery".into(),
+        (_, true, true) => format!("Charging{}", rate.map_or(String::new(), |r| format!(" at {r}"))),
+        (_, true, false) => "Plugged in, not charging".into(),
+        (_, false, _) => {
+            let left = match (sample.battery.remaining, sample.battery.rate) {
+                (Some(remaining), Some(rate)) if rate < 0 => {
+                    let minutes = remaining as u64 * 60 / rate.unsigned_abs() as u64;
+                    format!(" · about {} h {:02} min left", minutes / 60, minutes % 60)
+                }
+                _ => String::new(),
+            };
+            format!("On battery{}{left}", rate.map_or(String::new(), |r| format!(", using {r}")))
+        }
+    }
+}
+
+fn thousands(value: u64) -> String {
+    let digits = value.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn gigabytes(bytes: u64) -> String {
+    format!("{:.1} GB", bytes as f64 / (1u64 << 30) as f64)
+}
+
+fn watt_hours(milliwatt_hours: u32) -> String {
+    format!("{:.1} Wh", milliwatt_hours as f64 / 1000.0)
+}
+
+/// A reading's last minute as path commands in a 1000 × 1000 view box, the newest at the right.
+fn history_path(values: impl ExactSizeIterator<Item = Option<f32>>, low: f32, high: f32) -> String {
+    let count = values.len();
+    let mut path = String::new();
+    let mut drawing = false;
+    for (i, value) in values.enumerate() {
+        let Some(value) = value else {
+            drawing = false;
+            continue;
+        };
+        let slot = HISTORY - count + i;
+        let x = (slot as f32 * 1000.0 / (HISTORY - 1) as f32).round();
+        let y = (950.0 - ((value - low) / (high - low)).clamp(0.0, 1.0) * 900.0).round();
+        path += &format!("{}{} {} ", if drawing { "L " } else { "M " }, x, y);
+        drawing = true;
+    }
+    path
+}
+
+fn monitor_thread(wanted: Arc<AtomicBool>, stop: Arc<AtomicBool>, ec: Arc<Mutex<Option<Ec>>>, demo: bool) {
+    let mut status = SystemStatus::default();
+    let mut wmi: Option<WMIConnection> = None;
+    let mut battery = BatteryDetails::default();
+    let mut battery_read: Option<Instant> = None;
+    let started = Instant::now();
+    while !stop.load(Ordering::Acquire) {
+        std::thread::sleep(Duration::from_millis(1000));
+        if !wanted.load(Ordering::Acquire) {
+            continue;
+        }
+        let sample = if demo {
+            demo_sample(started.elapsed().as_secs_f32())
+        } else {
+            status.update(Inputs::STATUS);
+            let ec = ec.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let fans = ec.and_then(|ec| ec.run_for(Duration::from_secs(2), fans::readings).ok());
+            if battery_read.is_none_or(|t| t.elapsed() >= Duration::from_secs(5)) {
+                if wmi.is_none() {
+                    wmi = WMIConnection::with_namespace_path("ROOT\\WMI").ok();
+                }
+                if let Some(wmi) = &wmi {
+                    battery = status::battery_details(wmi);
+                }
+                battery_read = Some(Instant::now());
+            }
+            Sample {
+                cpu_temperature: status.cpu_temperature,
+                cpu_load: status.cpu_load,
+                gpu_temperature: status.gpu_temperature,
+                fans,
+                memory: status::memory(),
+                battery_percent: status.battery_percent,
+                charging: status.charging,
+                on_ac: status.on_ac,
+                battery,
+            }
+        };
+        post(move |app| app.monitor_sample(sample));
+    }
+}
+
+/// Made-up readings for trying the page in demo mode.
+fn demo_sample(t: f32) -> Sample {
+    let wave = |period: f32, phase: f32| ((t / period + phase) * std::f32::consts::TAU).sin();
+    let temperature = 62.0 + 14.0 * wave(40.0, 0.0) + 3.0 * wave(7.0, 0.3);
+    let duty = (((temperature - 50.0) * 2.2).clamp(0.0, 100.0)) as u8;
+    let fan = |duty: u8| FanReading { duty, rpm: if duty == 0 { 0 } else { 1800 + duty as u16 * 32 } };
+    Sample {
+        cpu_temperature: Some(temperature),
+        cpu_load: Some((0.35 + 0.25 * wave(23.0, 0.1) + 0.1 * wave(3.0, 0.0)).clamp(0.0, 1.0)),
+        gpu_temperature: Some(temperature - 8.0),
+        fans: Some((fan(duty), fan(duty.saturating_sub(10)))),
+        memory: Some((11_400_000_000, 34_100_000_000)),
+        battery_percent: Some(82),
+        charging: true,
+        on_ac: true,
+        battery: BatteryDetails { designed: Some(62_000), full: Some(57_300), remaining: Some(47_000), rate: Some(24_800), voltage: Some(12_430), cycles: Some(143) },
+    }
+}

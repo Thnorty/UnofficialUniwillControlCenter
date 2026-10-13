@@ -1,6 +1,10 @@
 //! The app: the two lighting devices and what they show, the window, the tray, the Fn keys, the idle timer, the
-//! timer and the indicators. Everything here runs on the UI thread; the effects, hotkey and brightness-watching
-//! threads post back to it with slint::invoke_from_event_loop.
+//! timer and the indicators; the performance mode, fans and battery care (power.rs) and the readings (monitor.rs).
+//! Everything here runs on the UI thread; the effects, EC, hotkey, monitor and brightness-watching threads post back
+//! to it with slint::invoke_from_event_loop.
+
+mod monitor;
+mod power;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -19,7 +23,9 @@ use crate::color::Rgb;
 use crate::lighting::device::{Device, Kind, MAX_LIGHT};
 use crate::lighting::effects::{self, Drawn, Effect, EffectColors, Group};
 use crate::lighting::engine::{Engine, Inputs, Target};
+use crate::hardware::battery::ChargeMode;
 use crate::hardware::hotkeys::{self, Hotkeys};
+use crate::hardware::performance::Mode;
 use crate::lighting::keyhook::KeyboardHook;
 use crate::shell::osd::{self, OsdWindow};
 use crate::lighting::preview;
@@ -83,6 +89,8 @@ const CMD_LIGHT_BAR_LINK: u32 = 301;
 const CMD_LIGHT_BAR_EFFECT: u32 = 400;
 const CMD_TIMER: u32 = 500;
 const CMD_TIMER_CANCEL: u32 = 599;
+const CMD_MODE: u32 = 600;
+const CMD_FAN_BOOST: u32 = 610;
 const CMD_OPEN: u32 = 900;
 const CMD_EXIT: u32 = 999;
 
@@ -320,6 +328,8 @@ pub struct App {
     started: Instant,
     settings_dirty: bool,
     exiting: bool,
+    power: power::Power,
+    monitor: monitor::Monitor,
 }
 
 fn colors_model(colors: &[Rgb]) -> Rc<VecModel<slint::Color>> {
@@ -395,6 +405,7 @@ impl App {
         apply_theme(ui);
 
         let watch = Arc::new(Watch { keyboard: Mutex::new(None), busy: AtomicBool::new(false), stop: AtomicBool::new(false) });
+        let power = power::Power::new(settings.power.as_ref(), demo);
         let app = App {
             ui: ui.as_weak(),
             demo,
@@ -423,6 +434,8 @@ impl App {
             started: Instant::now(),
             settings_dirty: false,
             exiting: false,
+            power,
+            monitor: monitor::Monitor::new(),
         };
         APP.with(|cell| *cell.borrow_mut() = Some(app));
         connect_callbacks(ui);
@@ -432,8 +445,14 @@ impl App {
             app.refresh_device(Kind::Keyboard);
             app.refresh_settings_page();
             app.start_timers();
+            app.start_monitor();
+            if let Some(ui) = app.ui() {
+                ui.set_curve(ModelRc::from(app.power.curve_model.clone()));
+            }
+            app.refresh_power();
             if !demo {
                 app.start_brightness_watcher();
+                app.connect_ec();
             }
         });
         if !start_hidden {
@@ -889,10 +908,14 @@ impl App {
             self.set_fn_mode("Fn keys: handled by Control Center");
             return;
         }
+        let Some(ec) = self.power.ec.clone() else {
+            self.connect_ec(); // starts the hotkeys once connected
+            return;
+        };
         self.hotkeys_starting = true;
-        // WMI takes a moment to connect; do it off the UI thread.
+        // WMI takes a moment to start listening; do it off the UI thread.
         let _ = std::thread::Builder::new().name("Hotkey start".into()).spawn(|| {
-            let result = Hotkeys::start(|code| post(move |app| app.on_hotkey(code)));
+            let result = Hotkeys::start(ec, |code| post(move |app| app.on_hotkey(code)));
             let result = result.map_err(|e| format!("{e:#}"));
             post(move |app| app.hotkeys_started(result));
         });
@@ -986,7 +1009,7 @@ impl App {
                     self.osd.show_win_key(locked); // no pop-up when the click came from this window
                 }
             }
-            _ => {}
+            _ => self.on_power_hotkey(code),
         }
     }
 
@@ -1007,11 +1030,13 @@ impl App {
         every(250, |app| {
             app.check_indicators();
             app.refresh_touchpad();
+            app.update_monitor_wanted();
         });
         every(33, |app| app.update_preview());
         every(5000, |app| {
             if !app.demo {
                 app.check_hotkeys();
+                app.check_power_owner();
             }
             if app.settings_dirty && !app.demo {
                 app.store_settings();
@@ -1322,8 +1347,10 @@ impl App {
                 TrayEvent::Resumed => with_app(|app| {
                     if !app.demo {
                         app.check_hotkeys();
+                        app.apply_power(); // the EC forgets some of it in sleep
                     }
                 }),
+                TrayEvent::PowerChanged => with_app(|app| app.power_source_changed()),
                 TrayEvent::ThemeChanged => with_app(|app| {
                     if let Some(ui) = app.ui() {
                         apply_theme(&ui);
@@ -1389,6 +1416,12 @@ impl App {
             timer.push(MenuItem::check(CMD_TIMER + i as u32, format!("{minutes} minutes"), self.timer_end.is_some() && self.timer_length == *minutes, true));
         }
         menu.push(MenuItem::Submenu { text: "Timer".into(), enabled: true, items: timer });
+        if let Some((modes, fan_boost)) = self.power_menu() {
+            let mut items: Vec<MenuItem> = modes.into_iter().map(|(i, name, on)| MenuItem::check(CMD_MODE + i, name, on, true)).collect();
+            items.push(MenuItem::Separator);
+            items.push(MenuItem::check(CMD_FAN_BOOST, "Fan Boost", fan_boost, true));
+            menu.push(MenuItem::Submenu { text: "Performance".into(), enabled: true, items });
+        }
         menu.push(MenuItem::Separator);
         menu.push(MenuItem::item(CMD_OPEN, "Open Tulpar Control"));
         menu.push(MenuItem::item(CMD_EXIT, "Exit"));
@@ -1402,6 +1435,8 @@ impl App {
             CMD_LIGHT_BAR_POWER => self.set_light_bar_on(!self.light_bar.as_ref().is_some_and(|l| l.on)),
             CMD_LIGHT_BAR_LINK => self.set_linked(!self.light_bar.as_ref().is_some_and(|l| l.linked)),
             CMD_TIMER_CANCEL => self.cancel_timer(),
+            CMD_FAN_BOOST => self.set_fan_boost(!self.power.fan_boost),
+            _ if (CMD_MODE..CMD_MODE + 3).contains(&id) => self.set_mode(Mode::from_index((id - CMD_MODE) as usize)),
             _ if (CMD_KEYBOARD_EFFECT..CMD_KEYBOARD_EFFECT + 100).contains(&id) => self.select_effect(Kind::Keyboard, (id - CMD_KEYBOARD_EFFECT) as usize),
             _ if (CMD_KEYBOARD_LIGHT..CMD_KEYBOARD_LIGHT + FN_KEY_STOPS.len() as u32).contains(&id) => {
                 self.set_light(Kind::Keyboard, FN_KEY_STOPS[(id - CMD_KEYBOARD_LIGHT) as usize]);
@@ -1538,6 +1573,7 @@ impl App {
             self.settings.light_bar = Some(stored);
         }
         self.settings.idle_timeout_seconds = IDLE_TIMEOUTS[self.idle_index].1;
+        self.power.store(&mut self.settings.power);
     }
 
     // ---- Exit -----------------------------------------------------------------------------------------------------
@@ -1555,6 +1591,7 @@ impl App {
             self.wake_from_idle();
         }
         self.engine.shutdown();
+        self.monitor.stop();
         self.key_hook = None;
         if !self.demo {
             // Live changes skip the controllers' non-volatile save to avoid a flash write per slider step; commit
@@ -1566,6 +1603,7 @@ impl App {
             if self.light_bar.as_ref().is_some_and(|l| l.pending || l.changed) {
                 self.apply(Kind::LightBar, true, None);
             }
+            self.release_fans();
             if let Some(hotkeys) = self.hotkeys.take() {
                 if let Some(ui) = self.ui() {
                     let _ = ui.hide();
@@ -1683,6 +1721,13 @@ fn connect_callbacks(ui: &AppWindow) {
         })
     });
     ui.on_set_start_with_windows(|on| with_app(move |app| app.set_start_with_windows(on)));
+    ui.on_set_mode(|index| with_app(move |app| app.set_mode(Mode::from_index(index.max(0) as usize))));
+    ui.on_set_fan_boost(|on| with_app(move |app| app.set_fan_boost(on)));
+    ui.on_set_curve_enabled(|on| with_app(move |app| app.set_curve_enabled(on)));
+    ui.on_select_curve_fan(|fan| with_app(move |app| app.select_curve_fan(fan.max(0) as usize)));
+    ui.on_curve_duty(|step, duty| with_app(move |app| app.set_curve_duty(step.max(0) as usize, duty)));
+    ui.on_reset_curve(|| with_app(|app| app.reset_curve()));
+    ui.on_set_charge_mode(|index| with_app(move |app| app.set_charge_mode(ChargeMode::from_index(index.max(0) as usize))));
     ui.on_retry(|| with_app(|app| app.open_devices()));
     ui.on_format_hex(|color| Rgb::from_slint(color).hex().into());
     ui.on_parse_hex(|text| match Rgb::parse_hex(&text) {

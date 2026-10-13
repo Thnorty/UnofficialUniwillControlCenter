@@ -14,7 +14,6 @@ pub mod ui {
     slint::include_modules!();
 }
 
-use hardware::hotkeys;
 use shell::tray;
 use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
 use windows::Win32::System::Threading::CreateMutexW;
@@ -37,10 +36,10 @@ fn main() {
         std::mem::forget(_mutex); // held until the process ends
     }
 
-    // Never leave the firmware's hotkeys pointed at a process that is gone.
+    // Never leave the firmware's hotkeys pointed at a process that is gone, or the fans on a curve nothing watches.
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        hotkeys::release_current();
+        hardware::release_current();
         let message = format!("{info}");
         unsafe {
             MessageBoxW(None, &HSTRING::from(message), w!("Tulpar Control crashed"), MB_OK | MB_ICONERROR);
@@ -49,12 +48,12 @@ fn main() {
     }));
 
     if let Err(e) = run(demo, start_hidden) {
-        hotkeys::release_current();
+        hardware::release_current();
         unsafe {
             MessageBoxW(None, &HSTRING::from(format!("Tulpar Control couldn't start: {e}")), w!("Tulpar Control"), MB_OK | MB_ICONERROR);
         }
     }
-    hotkeys::release_current();
+    hardware::release_current();
 }
 
 fn run(demo: bool, start_hidden: bool) -> Result<(), slint::PlatformError> {

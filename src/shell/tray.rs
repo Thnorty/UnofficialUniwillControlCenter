@@ -24,6 +24,7 @@ const CALLBACK: u32 = WM_APP + 1;
 const NIN_SELECT: u32 = 0x400; // WM_USER: a click on the icon (NOTIFYICON_VERSION_4)
 const NIN_KEYSELECT: u32 = 0x401;
 const PBT_APMRESUMEAUTOMATIC: usize = 0x12;
+const PBT_APMPOWERSTATUSCHANGE: usize = 0x0A;
 
 pub enum MenuItem {
     Item { id: u32, text: String, checked: bool, enabled: bool },
@@ -46,6 +47,8 @@ pub enum TrayEvent {
     Open,
     Command(u32),
     Resumed,
+    /// The power adapter was plugged in or out, or the battery changed.
+    PowerChanged,
     ThemeChanged,
 }
 
@@ -260,6 +263,8 @@ unsafe extern "system" fn window_proc(hwnd: HWND, message: u32, wparam: WPARAM, 
         WM_POWERBROADCAST => {
             if wparam.0 == PBT_APMRESUMEAUTOMATIC {
                 emit(TrayEvent::Resumed);
+            } else if wparam.0 == PBT_APMPOWERSTATUSCHANGE {
+                emit(TrayEvent::PowerChanged);
             }
             LRESULT(1)
         }

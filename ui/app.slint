@@ -4,8 +4,9 @@ import { Glyph, InfoBar } from "controls.slint";
 import { KeyCap } from "preview.slint";
 import { ColorPicker } from "picker.slint";
 import { DeviceView, TileGroup, LightingPage, AlertsPage, SettingsPage } from "pages.slint";
+import { Metric, CurvePoint, Detail, PerformancePage, BatteryPage, MonitorPage } from "power.slint";
 
-export { Theme, KeyCap, DeviceView, TileGroup }
+export { Theme, KeyCap, DeviceView, TileGroup, Metric, CurvePoint, Detail }
 
 component NavItem inherits Rectangle {
     in property <string> icon;
@@ -110,6 +111,36 @@ export component AppWindow inherits Window {
     in property <string> about;
     in property <string> fn-keys;
 
+    // Performance.
+    in property <bool> perf-available;
+    in property <string> perf-note;
+    in property <int> perf-mode: 1;
+    in property <bool> perf-turbo;
+    in property <bool> fan-boost;
+    in property <string> perf-limits;
+    in property <[Metric]> fan-metrics;
+    in property <bool> curve-available;
+    in property <bool> curve-enabled;
+    in property <bool> curve-busy;
+    in property <string> curve-note;
+    in property <bool> fan-safety;
+    in property <int> curve-fan;
+    in property <[CurvePoint]> curve;
+    in property <string> curve-path;
+    in property <string> default-path;
+
+    // Battery.
+    in property <bool> battery-available;
+    in property <string> battery-note;
+    in property <int> charge-mode;
+    in property <int> battery-percent: -1;
+    in property <string> battery-state;
+    in property <[Detail]> battery-details;
+
+    // Monitor.
+    in property <[Metric]> metrics;
+    in property <string> monitor-note;
+
     // device: 0 = keyboard, 1 = light bar
     callback select-effect(int, int);
     callback light-changed(int, float);
@@ -132,6 +163,13 @@ export component AppWindow inherits Window {
     callback toggle-winkey();
     callback set-start-with-windows(bool);
     callback retry();
+    callback set-mode(int);
+    callback set-fan-boost(bool);
+    callback set-curve-enabled(bool);
+    callback select-curve-fan(int);
+    callback curve-duty(int, int);
+    callback reset-curve();
+    callback set-charge-mode(int);
     pure callback format-hex(color) -> string;
     pure callback parse-hex(string) -> color;
 
@@ -186,6 +224,24 @@ export component AppWindow inherits Window {
                 label: "Light bar";
                 selected: root.page == 1;
                 clicked => { root.page = 1; }
+            }
+            NavItem {
+                icon: Glyphs.performance;
+                label: "Performance";
+                selected: root.page == 4;
+                clicked => { root.page = 4; }
+            }
+            NavItem {
+                icon: Glyphs.battery;
+                label: "Battery";
+                selected: root.page == 5;
+                clicked => { root.page = 5; }
+            }
+            NavItem {
+                icon: Glyphs.monitor;
+                label: "Monitor";
+                selected: root.page == 6;
+                clicked => { root.page = 6; }
             }
             NavItem {
                 icon: Glyphs.timer;
@@ -292,6 +348,43 @@ export component AppWindow inherits Window {
                         cancel-timer => { root.cancel-timer(); }
                         set-flash-caps(on) => { root.set-flash-caps(on); }
                         set-flash-num(on) => { root.set-flash-num(on); }
+                    }
+                    if root.page == 4: PerformancePage {
+                        available: root.perf-available;
+                        note: root.perf-note;
+                        mode: root.perf-mode;
+                        turbo: root.perf-turbo;
+                        fan-boost: root.fan-boost;
+                        limits: root.perf-limits;
+                        fans: root.fan-metrics;
+                        curve-available: root.curve-available;
+                        curve-enabled: root.curve-enabled;
+                        curve-busy: root.curve-busy;
+                        curve-note: root.curve-note;
+                        safety: root.fan-safety;
+                        curve-fan: root.curve-fan;
+                        curve: root.curve;
+                        curve-path: root.curve-path;
+                        default-path: root.default-path;
+                        set-mode(m) => { root.set-mode(m); }
+                        set-fan-boost(on) => { root.set-fan-boost(on); }
+                        set-curve-enabled(on) => { root.set-curve-enabled(on); }
+                        select-curve-fan(i) => { root.select-curve-fan(i); }
+                        curve-duty(i, duty) => { root.curve-duty(i, duty); }
+                        reset-curve => { root.reset-curve(); }
+                    }
+                    if root.page == 5: BatteryPage {
+                        available: root.battery-available;
+                        note: root.battery-note;
+                        charge-mode: root.charge-mode;
+                        percent: root.battery-percent;
+                        state: root.battery-state;
+                        details: root.battery-details;
+                        set-charge-mode(m) => { root.set-charge-mode(m); }
+                    }
+                    if root.page == 6: MonitorPage {
+                        metrics: root.metrics;
+                        note: root.monitor-note;
                     }
                     if root.page == 3: SettingsPage {
                         idle-options: root.idle-options;

@@ -17,6 +17,7 @@ pub struct SystemStatus {
     /// Battery charge, 0-100.
     pub battery_percent: Option<u8>,
     pub charging: bool,
+    pub on_ac: bool,
     /// CPU use since the previous reading, 0-1.
     pub cpu_load: Option<f32>,
     /// The hottest ACPI thermal zone in °C. Control Center reads the same Windows counter ("Thermal Zone Information").
@@ -52,6 +53,7 @@ impl SystemStatus {
         // BatteryFlag 128: no system battery; 255: unknown. BatteryLifePercent 255: unknown.
         let has_battery = ok && power.BatteryFlag != 128 && power.BatteryFlag != 255 && power.BatteryLifePercent != 255;
         self.battery_percent = has_battery.then(|| power.BatteryLifePercent.min(100));
+        self.on_ac = ok && power.ACLineStatus == 1;
         self.charging = has_battery && power.ACLineStatus == 1 && power.BatteryLifePercent < 100;
     }
 
@@ -117,6 +119,60 @@ impl SystemStatus {
         if let Some(nvml) = &mut self.nvml {
             self.gpu_temperature = nvml.temperature();
         }
+    }
+}
+
+/// Whether the laptop runs on its power adapter.
+pub fn on_ac() -> bool {
+    let mut power = SYSTEM_POWER_STATUS::default();
+    unsafe { GetSystemPowerStatus(&mut power) }.is_ok() && power.ACLineStatus == 1
+}
+
+/// Physical memory in use and in total, in bytes.
+pub fn memory() -> Option<(u64, u64)> {
+    use windows::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status = MEMORYSTATUSEX { dwLength: size_of::<MEMORYSTATUSEX>() as u32, ..Default::default() };
+    unsafe { GlobalMemoryStatusEx(&mut status) }.ok()?;
+    Some((status.ullTotalPhys - status.ullAvailPhys, status.ullTotalPhys))
+}
+
+/// What the battery's driver reports (ROOT\WMI): capacities in mWh, the charge (+) or discharge (-) rate in mW.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BatteryDetails {
+    pub designed: Option<u32>,
+    pub full: Option<u32>,
+    pub remaining: Option<u32>,
+    pub rate: Option<i32>,
+    pub voltage: Option<u32>,
+    pub cycles: Option<u32>,
+}
+
+pub fn battery_details(wmi: &WMIConnection) -> BatteryDetails {
+    let first = |query: &str, field: &str| -> Option<u32> {
+        let rows: Vec<HashMap<String, Variant>> = wmi.raw_query(query).ok()?;
+        rows.iter().find_map(|row| match row.get(field)? {
+            Variant::UI4(v) => Some(*v),
+            Variant::I4(v) => Some(*v as u32),
+            Variant::UI2(v) => Some(*v as u32),
+            Variant::String(s) => s.parse().ok(),
+            _ => None,
+        })
+    };
+    let charging = first("SELECT ChargeRate FROM BatteryStatus", "ChargeRate");
+    let discharging = first("SELECT DischargeRate FROM BatteryStatus", "DischargeRate");
+    let rate = match (charging, discharging) {
+        (Some(c), _) if c > 0 => Some(c as i32),
+        (_, Some(d)) if d > 0 => Some(-(d as i32)),
+        (None, None) => None,
+        _ => Some(0),
+    };
+    BatteryDetails {
+        designed: first("SELECT DesignedCapacity FROM BatteryStaticData", "DesignedCapacity").filter(|&c| c > 0),
+        full: first("SELECT FullChargedCapacity FROM BatteryFullChargedCapacity", "FullChargedCapacity").filter(|&c| c > 0),
+        remaining: first("SELECT RemainingCapacity FROM BatteryStatus", "RemainingCapacity"),
+        rate,
+        voltage: first("SELECT Voltage FROM BatteryStatus", "Voltage").filter(|&v| v > 0),
+        cycles: first("SELECT CycleCount FROM BatteryCycleCount", "CycleCount").filter(|&c| c > 0),
     }
 }
 

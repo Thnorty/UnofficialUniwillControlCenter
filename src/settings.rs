@@ -7,6 +7,9 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::color::Rgb;
+use crate::hardware::battery::ChargeMode;
+use crate::hardware::fans::Table;
+use crate::hardware::performance::Mode;
 use crate::lighting::device::MAX_LIGHT;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -19,12 +22,46 @@ pub struct Settings {
     /// The light bar flashes when these change.
     pub flash_caps_lock: bool,
     pub flash_num_lock: bool,
+    /// None until the app has read the EC, so the first run keeps the mode and battery care already set.
+    pub power: Option<PowerSettings>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { keyboard: None, light_bar: None, idle_timeout_seconds: 0, flash_caps_lock: true, flash_num_lock: true }
+        Settings { keyboard: None, light_bar: None, idle_timeout_seconds: 0, flash_caps_lock: true, flash_num_lock: true, power: None }
     }
+}
+
+/// The performance mode, the fans and battery care.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct PowerSettings {
+    pub mode: Mode,
+    pub fan_boost: bool,
+    pub charge_mode: ChargeMode,
+    /// The EC's own fan table for each mode, by mode name, read once from the EC.
+    pub default_fan_tables: HashMap<String, Table>,
+    /// Custom fan curves, by mode name.
+    pub fan_curves: HashMap<String, FanCurve>,
+}
+
+impl Default for PowerSettings {
+    fn default() -> Self {
+        PowerSettings {
+            mode: Mode::Gaming,
+            fan_boost: false,
+            charge_mode: ChargeMode::HighCapacity,
+            default_fan_tables: HashMap::new(),
+            fan_curves: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct FanCurve {
+    pub enabled: bool,
+    pub table: Table,
 }
 
 /// The lighting of one device: the keyboard or the light bar.

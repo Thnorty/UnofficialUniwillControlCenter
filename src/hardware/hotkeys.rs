@@ -1,9 +1,8 @@
 //! Takes over the laptop's Fn hotkeys the way Control Center's GCUService does (App.InitalizeStartPerparation):
 //! setting the "AP exist" bit in the EC makes the firmware stop handling keyboard-light keys itself and report every
-//! hotkey as an AcpiTest_EventULong WMI event instead, so software can react instantly. EC access goes through the
-//! BIOS WMI method AcpiTest_MULong.GetSetULong, which needs administrator rights.
+//! hotkey as an AcpiTest_EventULong WMI event instead, so software can react instantly.
 //!
-//! WMI runs on two threads of its own: one for EC reads and writes, one waiting for hotkey events.
+//! The events arrive on a thread of their own; EC reads and writes go through the shared EC thread.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -11,7 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
-use wmi::{Variant, WMIConnection};
+use wmi::WMIConnection;
+
+use super::ec::Ec;
 
 // Define.ECSpec
 const AP_OEM_BYTE: u16 = 0x741; // ADDR_AP_OEM_BYTE
@@ -25,36 +26,25 @@ pub const KEYBOARD_LIGHT_CYCLE: u32 = 185;
 pub const LIGHT_BAR_TOGGLE: u32 = 175; // HIDLightbar.SetBrinessByScanCode
 pub const WIN_KEY_LOCKED: u32 = 64; // OSD_WINKEY_LOCK
 pub const WIN_KEY_UNLOCKED: u32 = 65; // OSD_WINKEY_UNLOCK
-
-enum Command {
-    TakeOver(Sender<Result<()>>),
-    EnsureApExist,
-    ToggleWinKeyLock,
-    IsWinKeyLocked(Sender<Result<bool>>),
-    Release(Sender<()>),
-}
+pub const MODE_SWITCH: u32 = 176; // MyFanManager.ModeSwitchChanged: the performance mode key
+pub const FAN_BOOST_CHANGED: u32 = 167; // FanBoostUpdate: the EC flipped Fan Boost (its Fn key)
+pub const FAN_BOOST_OFF: u32 = 172; // FanBoostOffFromEC
+pub const FAN_SAFETY: u32 = 187; // SafetyProtectionUpdate: the EC's fan safety protection changed
 
 pub struct Hotkeys {
-    commands: Sender<Command>,
+    ec: Ec,
     active: Arc<AtomicBool>,
 }
 
-/// The running instance's command channel, so a crash can give the hotkeys back. If the bit stayed set with nothing
-/// listening, the keyboard-light keys would do nothing until this app ran again.
-static CURRENT: Mutex<Option<Sender<Command>>> = Mutex::new(None);
+/// The running instance's EC, so a crash can give the hotkeys back. If the bit stayed set with nothing listening,
+/// the keyboard-light keys would do nothing until this app ran again.
+static CURRENT: Mutex<Option<Ec>> = Mutex::new(None);
 
 impl Hotkeys {
     /// Takes over the hotkeys, or returns why this machine or process can't. `pressed` is called on a background
     /// thread with the firmware's hotkey code.
-    pub fn start(pressed: impl Fn(u32) + Send + 'static) -> Result<Hotkeys> {
+    pub fn start(ec: Ec, pressed: impl Fn(u32) + Send + 'static) -> Result<Hotkeys> {
         let active = Arc::new(AtomicBool::new(false));
-        let (commands, receiver) = mpsc::channel();
-        let (ready_tx, ready_rx) = mpsc::channel();
-        let ec_active = active.clone();
-        std::thread::Builder::new()
-            .name("EC".into())
-            .spawn(move || ec_thread(receiver, ready_tx, ec_active))?;
-        ready_rx.recv().map_err(|_| anyhow!("The EC thread stopped"))??;
 
         // Listen before taking the keys over, so no press is lost.
         let (listening_tx, listening_rx) = mpsc::channel();
@@ -65,18 +55,23 @@ impl Hotkeys {
         listening_rx.recv().map_err(|_| anyhow!("The hotkey listener stopped"))??;
 
         active.store(true, Ordering::Release);
-        *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(commands.clone());
-        let hotkeys = Hotkeys { commands, active };
-        let (taken_tx, taken_rx) = mpsc::channel();
-        hotkeys.commands.send(Command::TakeOver(taken_tx)).ok();
-        match taken_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(Ok(())) => Ok(hotkeys),
-            failed => {
+        *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(ec.clone());
+        let hotkeys = Hotkeys { ec, active };
+        let taken = hotkeys.ec.run_for(Duration::from_secs(5), |ec| {
+            let value = ec.read(AP_OEM_BYTE)?;
+            if value & AP_EXIST_BIT == 0 {
+                ec.write(AP_OEM_BYTE, value | AP_EXIST_BIT)?;
+                if ec.read(AP_OEM_BYTE)? & AP_EXIST_BIT == 0 {
+                    return Err(anyhow!("The EC didn't keep the app-present bit"));
+                }
+            }
+            Ok(())
+        });
+        match taken {
+            Ok(()) => Ok(hotkeys),
+            Err(e) => {
                 hotkeys.abandon();
-                Err(match failed {
-                    Ok(Err(e)) => e,
-                    _ => anyhow!("The EC didn't answer"),
-                })
+                Err(e.context("Can't take the Fn keys over"))
             }
         }
     }
@@ -84,18 +79,33 @@ impl Hotkeys {
     /// Sets the bit if something cleared it. GCUService re-sets it after resume from sleep, so this is called
     /// periodically and on resume.
     pub fn ensure_ap_exist(&self) {
-        self.commands.send(Command::EnsureApExist).ok();
+        let active = self.active.clone();
+        self.ec.spawn(move |ec| {
+            if active.load(Ordering::Acquire)
+                && let Ok(value) = ec.read(AP_OEM_BYTE)
+                && value & AP_EXIST_BIT == 0
+            {
+                let _ = ec.write(AP_OEM_BYTE, value | AP_EXIST_BIT);
+            }
+        });
     }
 
     /// Asks the EC to flip the Windows key lock; it reports the result as a 64/65 hotkey event.
     pub fn toggle_win_key_lock(&self) {
-        self.commands.send(Command::ToggleWinKeyLock).ok();
+        let active = self.active.clone();
+        self.ec.spawn(move |ec| {
+            if active.load(Ordering::Acquire) {
+                let _ = ec.update(TRIGGER_BYTE, 0x01, 0x01);
+            }
+        });
     }
 
     /// Reads the Windows key lock on the EC thread; the answer arrives on the returned channel.
     pub fn query_win_key_lock(&self) -> Receiver<Result<bool>> {
         let (tx, rx) = mpsc::channel();
-        self.commands.send(Command::IsWinKeyLocked(tx)).ok();
+        self.ec.spawn(move |ec| {
+            tx.send(ec.bit(STATUS_BYTE, 0)).ok();
+        });
         rx
     }
 
@@ -107,7 +117,7 @@ impl Hotkeys {
 
     /// Hands the hotkeys back to the firmware and waits (briefly) until that's done.
     pub fn release(self) {
-        release_through(&self.commands);
+        release_through(&self.ec);
         self.active.store(false, Ordering::Release);
         clear_current();
     }
@@ -117,123 +127,31 @@ fn clear_current() {
     *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
-fn release_through(commands: &Sender<Command>) {
-    let (tx, rx) = mpsc::channel();
-    if commands.send(Command::Release(tx)).is_ok() {
-        let _ = rx.recv_timeout(Duration::from_secs(2));
-    }
+fn release_through(ec: &Ec) {
+    let _ = ec.run_for(Duration::from_secs(2), |ec| ec.update(AP_OEM_BYTE, AP_EXIST_BIT, 0));
 }
 
 /// Gives the hotkeys back if they're taken; for crash and exit handlers.
 pub fn release_current() {
     let current = CURRENT.lock().unwrap_or_else(|e| e.into_inner()).take();
-    if let Some(commands) = current {
-        release_through(&commands);
+    if let Some(ec) = current {
+        release_through(&ec);
     }
 }
 
-struct Ec {
-    wmi: WMIConnection,
-    path: String,
-}
-
-impl Ec {
-    fn connect() -> Result<Ec> {
-        let wmi = WMIConnection::with_namespace_path("ROOT\\WMI").context("Can't open the BIOS WMI interface")?;
-        // AcpiTest_MULong.InstanceName='ACPI\PNP0C14\1_1' on this laptop; ask WMI for the exact path. It's a system
-        // property, which the crate's query results leave out, so it's read from the object itself.
-        let instance = wmi
-            .exec_query("SELECT * FROM AcpiTest_MULong")
-            .context("No EC interface (AcpiTest_MULong)")?
-            .next()
-            .ok_or_else(|| anyhow!("No EC interface (AcpiTest_MULong)"))??;
-        let path = match instance.get_property("__RELPATH")? {
-            Variant::String(path) => path,
-            other => return Err(anyhow!("Unexpected EC interface path {other:?}")),
-        };
-        Ok(Ec { wmi, path })
+/// While the firmware's fan tables are read the EC must think no app is running (FanTable_Manager1p5.
+/// RefreshDefaultFanTableAll); this clears the bit for `job` and puts it back after. Fn key presses meanwhile go to
+/// the firmware.
+pub fn without_app_present<R>(ec: &super::ec::Registers, job: impl FnOnce() -> R) -> Result<R> {
+    let set = ec.bit(AP_OEM_BYTE, 0)?;
+    if set {
+        ec.update(AP_OEM_BYTE, AP_EXIST_BIT, 0)?;
     }
-
-    fn invoke(&self, data: u64) -> Result<u64> {
-        let class = self.wmi.get_object("AcpiTest_MULong")?;
-        let input = class.get_method("GetSetULong")?.ok_or_else(|| anyhow!("No GetSetULong method"))?.spawn_instance()?;
-        input.put_property("Data", data)?;
-        let output = self.wmi.exec_method(&self.path, "GetSetULong", Some(&input))?.ok_or_else(|| anyhow!("No answer from the EC"))?;
-        match output.get_property("Return")? {
-            Variant::UI8(v) => Ok(v),
-            Variant::I8(v) => Ok(v as u64),
-            Variant::UI4(v) => Ok(v as u64),
-            Variant::I4(v) => Ok(v as u64),
-            Variant::String(s) => Ok(s.parse()?),
-            other => Err(anyhow!("Unexpected EC answer {other:?}")),
-        }
+    let result = job();
+    if set {
+        ec.update(AP_OEM_BYTE, AP_EXIST_BIT, AP_EXIST_BIT)?;
     }
-
-    // WMIEC.WMIReadECRAM / WMIWriteECRAM: bit 40 selects a read; a write packs the value above the address.
-    fn read(&self, address: u16) -> Result<u8> {
-        Ok((self.invoke((1u64 << 40) + address as u64)? & 0xFF) as u8)
-    }
-
-    fn write(&self, address: u16, value: u8) -> Result<()> {
-        self.invoke(((value as u64) << 16) + address as u64).map(|_| ())
-    }
-}
-
-fn ec_thread(commands: Receiver<Command>, ready: Sender<Result<()>>, active: Arc<AtomicBool>) {
-    let ec = match Ec::connect().and_then(|ec| ec.read(AP_OEM_BYTE).map(|_| ec)) {
-        Ok(ec) => {
-            ready.send(Ok(())).ok();
-            ec
-        }
-        Err(e) => {
-            ready.send(Err(e)).ok();
-            return;
-        }
-    };
-    for command in commands {
-        match command {
-            Command::TakeOver(reply) => {
-                let result = (|| {
-                    let value = ec.read(AP_OEM_BYTE)?;
-                    if value & AP_EXIST_BIT == 0 {
-                        ec.write(AP_OEM_BYTE, value | AP_EXIST_BIT)?;
-                        if ec.read(AP_OEM_BYTE)? & AP_EXIST_BIT == 0 {
-                            return Err(anyhow!("The EC didn't keep the app-present bit"));
-                        }
-                    }
-                    Ok(())
-                })();
-                reply.send(result.context("Can't take the Fn keys over")).ok();
-            }
-            Command::EnsureApExist => {
-                if active.load(Ordering::Acquire)
-                    && let Ok(value) = ec.read(AP_OEM_BYTE)
-                    && value & AP_EXIST_BIT == 0
-                {
-                    let _ = ec.write(AP_OEM_BYTE, value | AP_EXIST_BIT);
-                }
-            }
-            Command::ToggleWinKeyLock => {
-                if active.load(Ordering::Acquire)
-                    && let Ok(value) = ec.read(TRIGGER_BYTE)
-                {
-                    let _ = ec.write(TRIGGER_BYTE, value | 0x01);
-                }
-            }
-            Command::IsWinKeyLocked(reply) => {
-                reply.send(ec.read(STATUS_BYTE).map(|v| v & 0x01 != 0)).ok();
-            }
-            Command::Release(reply) => {
-                if active.load(Ordering::Acquire)
-                    && let Ok(value) = ec.read(AP_OEM_BYTE)
-                {
-                    let _ = ec.write(AP_OEM_BYTE, value & !AP_EXIST_BIT);
-                }
-                reply.send(()).ok();
-                return;
-            }
-        }
-    }
+    Ok(result)
 }
 
 /// Only the code is read, so the event's other properties can't make it fail to convert.

@@ -1,0 +1,645 @@
+import { Theme, Glyphs } from "theme.slint";
+import { BodyStrong, Caption, Card, FluentButton, Glyph, LinkButton, SectionHeader, Segmented, SettingRow, Title, ToggleSwitch } from "controls.slint";
+
+/// A reading on the Monitor page.
+export struct Metric {
+    icon: string,
+    title: string,
+    value: string,
+    detail: string,
+    // Path commands for the last minute, in a 1000 × 1000 view box; empty for none.
+    history: string,
+    // 0-1 for a bar under the value; below 0 for none.
+    level: float,
+    warn: bool,
+}
+
+/// A step of a fan curve: where it's drawn (0-1 across and up the chart) and its values.
+export struct CurvePoint {
+    x: float,
+    y: float,
+    temp: int,
+    duty: int,
+}
+
+export struct Detail {
+    label: string,
+    value: string,
+}
+
+/// A selectable card with a radio mark, for choices that need a description.
+component ChoiceCard inherits Rectangle {
+    in property <string> icon;
+    in property <string> title;
+    in property <string> description;
+    in property <bool> selected;
+    in property <bool> enabled: true;
+    callback clicked;
+    border-radius: 8px;
+    background: touch.pressed ? Theme.subtle-pressed : touch.has-hover ? Theme.card-hover : Theme.card;
+    border-width: root.selected ? 2px : 1px;
+    border-color: root.selected ? Theme.accent : Theme.card-stroke;
+    opacity: root.enabled ? 1 : 0.5;
+    min-height: 108px;
+    animate border-color, background { duration: 120ms; }
+    VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 12px;
+            Glyph {
+                text: root.icon;
+                font-size: 20px;
+                width: 24px;
+                color: root.selected ? Theme.accent : Theme.text;
+            }
+            BodyStrong {
+                text: root.title;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            // The radio mark.
+            Rectangle {
+                width: 20px;
+                height: 20px;
+                border-radius: 10px;
+                border-width: root.selected ? 0px : 1px;
+                border-color: Theme.text-secondary;
+                background: root.selected ? Theme.accent : transparent;
+                Rectangle {
+                    width: root.selected ? 8px : 0px;
+                    height: self.width;
+                    border-radius: self.width / 2;
+                    background: Theme.on-accent;
+                    animate width { duration: 120ms; }
+                }
+            }
+        }
+        Caption {
+            text: root.description;
+        }
+    }
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+/// A line of a reading's last minute.
+component Sparkline inherits Rectangle {
+    in property <string> commands;
+    in property <color> stroke: Theme.accent;
+    if root.commands != "": Path {
+        width: root.width;
+        height: root.height;
+        viewbox-width: 1000;
+        viewbox-height: 1000;
+        fit: fill;
+        stroke: root.stroke;
+        stroke-width: 1.5px;
+        commands: root.commands;
+    }
+}
+
+component MetricCard inherits Rectangle {
+    in property <Metric> metric;
+    background: Theme.card;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.card-stroke;
+    clip: true;
+    // Beside the value, over the right half.
+    Sparkline {
+        x: parent.width * 0.5;
+        y: 44px;
+        width: parent.width * 0.5 - 16px;
+        height: 52px;
+        commands: root.metric.history;
+        stroke: (root.metric.warn ? Theme.caution : Theme.accent).transparentize(0.35);
+    }
+    VerticalLayout {
+        padding: 16px;
+        spacing: 4px;
+        alignment: start;
+        HorizontalLayout {
+            spacing: 10px;
+            Glyph {
+                text: root.metric.icon;
+                width: 18px;
+                font-size: 15px;
+                color: Theme.text-secondary;
+            }
+            Caption {
+                text: root.metric.title;
+                font-weight: 600;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+        }
+        Text {
+            text: root.metric.value;
+            font-family: Theme.display-font;
+            font-size: 28px;
+            font-weight: 600;
+            color: root.metric.warn ? Theme.caution : Theme.text;
+        }
+        Caption {
+            text: root.metric.detail;
+        }
+        if root.metric.level >= 0: Rectangle {
+            height: 4px;
+            border-radius: 2px;
+            background: Theme.subtle-selected;
+            Rectangle {
+                x: 0;
+                width: parent.width * Math.clamp(root.metric.level, 0, 1);
+                border-radius: 2px;
+                background: root.metric.warn ? Theme.caution : Theme.accent;
+                animate width { duration: 400ms; }
+            }
+        }
+    }
+}
+
+/// Cards in as many columns as fit.
+component MetricGrid inherits Rectangle {
+    in property <[Metric]> metrics;
+    property <length> gap: 12px;
+    property <int> columns: self.width > 620px ? 2 : 1;
+    property <length> card-width: (self.width - (self.columns - 1) * self.gap) / self.columns;
+    property <length> card-height: 148px;
+    preferred-height: Math.ceil(root.metrics.length / self.columns) * (self.card-height + self.gap) - self.gap;
+    min-height: self.preferred-height;
+    for m[i] in root.metrics: MetricCard {
+        x: Math.mod(i, root.columns) * (root.card-width + root.gap);
+        y: Math.floor(i / root.columns) * (root.card-height + root.gap);
+        width: root.card-width;
+        height: root.card-height;
+        metric: m;
+    }
+}
+
+/// A fan curve: the duty for each temperature step, with the default curve under it. Points can be dragged up and
+/// down; the app keeps them safe and rising.
+component FanCurve inherits Rectangle {
+    in property <[CurvePoint]> points;
+    in property <string> path;
+    in property <string> default-path;
+    in property <bool> enabled;
+    callback duty-changed(int, int);
+    property <length> pad-left: 44px;
+    property <length> pad-top: 12px;
+    property <length> pad-right: 16px;
+    property <length> pad-bottom: 28px;
+    property <length> plot-width: self.width - self.pad-left - self.pad-right;
+    property <length> plot-height: self.height - self.pad-top - self.pad-bottom;
+    property <int> active: -1;
+    height: 260px;
+
+    // Speed lines and labels.
+    for level in [0, 25, 50, 75, 100]: Rectangle {
+        x: root.pad-left;
+        y: root.pad-top + root.plot-height * (1 - level / 100);
+        width: root.plot-width;
+        height: 1px;
+        background: Theme.divider;
+        Text {
+            x: -root.pad-left;
+            y: -7px;
+            width: root.pad-left - 8px;
+            text: level + "%";
+            font-size: 11px;
+            color: Theme.text-tertiary;
+            horizontal-alignment: right;
+        }
+    }
+    // Temperature labels, 30-100 °C.
+    for t in [30, 40, 50, 60, 70, 80, 90, 100]: Text {
+        x: root.pad-left + root.plot-width * (t - 30) / 70 - 20px;
+        y: root.pad-top + root.plot-height + 8px;
+        width: 40px;
+        text: t + " °C";
+        font-size: 11px;
+        color: Theme.text-tertiary;
+        horizontal-alignment: center;
+    }
+    Path {
+        x: root.pad-left;
+        y: root.pad-top;
+        width: root.plot-width;
+        height: root.plot-height;
+        viewbox-width: 1000;
+        viewbox-height: 1000;
+        fit: fill;
+        stroke: Theme.text-tertiary;
+        stroke-width: 1px;
+        commands: root.default-path;
+    }
+    Path {
+        x: root.pad-left;
+        y: root.pad-top;
+        width: root.plot-width;
+        height: root.plot-height;
+        viewbox-width: 1000;
+        viewbox-height: 1000;
+        fit: fill;
+        stroke: root.enabled ? Theme.accent : Theme.text-secondary;
+        stroke-width: 2.5px;
+        commands: root.path;
+    }
+    for p[i] in root.points: handle := Rectangle {
+        x: root.pad-left + root.plot-width * p.x - 8px;
+        y: root.pad-top + root.plot-height * (1 - p.y) - 8px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: root.enabled ? Theme.accent : Theme.text-secondary;
+        border-width: 2px;
+        border-color: Theme.card;
+        drop-shadow-blur: touch.has-hover || touch.pressed ? 6px : 0px;
+        drop-shadow-color: #00000060;
+        touch := TouchArea {
+            enabled: root.enabled;
+            mouse-cursor: self.enabled ? MouseCursor.ns-resize : MouseCursor.default;
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    root.active = i;
+                }
+                if (event.kind == PointerEventKind.up) {
+                    root.active = -1;
+                }
+            }
+            moved => {
+                if (self.pressed) {
+                    // The pointer's height in the plot, from the handle's top.
+                    root.duty-changed(i, Math.round((1 - (handle.y + self.mouse-y - root.pad-top) / root.plot-height) * 100));
+                }
+            }
+        }
+        // The values while pointing at or dragging the point.
+        if touch.has-hover || root.active == i: Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: -34px;
+            width: label.preferred-width + 16px;
+            height: 26px;
+            border-radius: 4px;
+            background: Theme.dark ? #2c2c2c : #f9f9f9;
+            border-width: 1px;
+            border-color: Theme.control-stroke;
+            drop-shadow-blur: 8px;
+            drop-shadow-color: #00000040;
+            label := Text {
+                text: (i == 0 ? "Below " + root.points[1].temp : p.temp) + " °C · " + p.duty + "%";
+                font-size: 12px;
+                color: Theme.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
+/// Performance modes, Fan Boost and the fan curve.
+export component PerformancePage inherits VerticalLayout {
+    in property <bool> available;
+    in property <string> note;
+    in property <int> mode;
+    in property <bool> turbo;
+    in property <bool> fan-boost;
+    in property <string> limits;
+    in property <[Metric]> fans;
+    in property <bool> curve-available;
+    in property <bool> curve-enabled;
+    in property <bool> curve-busy;
+    in property <string> curve-note;
+    in property <bool> safety;
+    in property <int> curve-fan;
+    in property <[CurvePoint]> curve;
+    in property <string> curve-path;
+    in property <string> default-path;
+    callback set-mode(int);
+    callback set-fan-boost(bool);
+    callback set-curve-enabled(bool);
+    callback select-curve-fan(int);
+    callback curve-duty(int, int);
+    callback reset-curve();
+
+    property <[string]> mode-names: ["Office", "Gaming", "Turbo"];
+
+    spacing: 8px;
+    VerticalLayout {
+        padding-bottom: 12px;
+        spacing: 4px;
+        Title {
+            text: "Performance";
+        }
+        Caption {
+            text: root.mode-names[root.mode] + " mode" + (root.fan-boost ? " · Fan Boost on" : "") + (root.limits != "" ? " · " + root.limits : "");
+        }
+    }
+    if root.note != "": HorizontalLayout {
+        padding-bottom: 8px;
+        spacing: 10px;
+        Glyph {
+            text: Glyphs.info;
+            color: Theme.accent;
+            width: 16px;
+            font-size: 14px;
+            vertical-alignment: top;
+        }
+        Caption {
+            text: root.note;
+            horizontal-stretch: 1;
+        }
+    }
+
+    SectionHeader {
+        text: "Mode";
+    }
+    HorizontalLayout {
+        spacing: 12px;
+        ChoiceCard {
+            icon: Glyphs.office;
+            title: "Office";
+            description: "Quiet and cool, with lower CPU power limits. Good for work and battery life.";
+            selected: root.mode == 0;
+            enabled: root.available;
+            clicked => { root.set-mode(0); }
+        }
+        ChoiceCard {
+            icon: Glyphs.gaming;
+            title: "Gaming";
+            description: "The laptop's standard balance of performance and fan noise.";
+            selected: root.mode == 1;
+            enabled: root.available;
+            clicked => { root.set-mode(1); }
+        }
+        if root.turbo: ChoiceCard {
+            icon: Glyphs.turbo;
+            title: "Turbo";
+            description: "The highest power limits, with the fans running faster.";
+            selected: root.mode == 2;
+            enabled: root.available;
+            clicked => { root.set-mode(2); }
+        }
+    }
+    Caption {
+        text: "The performance key on the keyboard switches modes too. On battery the laptop sets its own power limits.";
+    }
+
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "Fans";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.fan;
+            title: "Fan Boost";
+            description: "Runs the fans at full speed for the most cooling, whatever the temperature. The Fan Boost key turns it on and off too.";
+            ToggleSwitch {
+                checked: root.fan-boost;
+                enabled: root.available;
+                toggled(on) => { root.set-fan-boost(on); }
+            }
+        }
+        HorizontalLayout {
+            padding-top: 4px;
+            spacing: 12px;
+            for m in root.fans: MetricCard {
+                height: 120px;
+                metric: m;
+            }
+        }
+    }
+
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 8px;
+        SectionHeader {
+            text: "Fan curve for " + root.mode-names[root.mode] + " mode";
+        }
+        Card {
+            opacity: root.curve-available ? 1 : 0.6;
+            VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+                HorizontalLayout {
+                    spacing: 16px;
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 2px;
+                        horizontal-stretch: 1;
+                        Text {
+                            text: "Custom fan curve";
+                            color: Theme.text;
+                        }
+                        Caption {
+                            text: root.curve-note != "" ? root.curve-note : root.curve-enabled ? "The fans follow your curve in " + root.mode-names[root.mode] + " mode." : "Off: the fans follow the laptop's own curve for this mode, shown here.";
+                        }
+                    }
+                    Segmented {
+                        width: 240px;
+                        options: ["CPU fan", "GPU fan"];
+                        selected: root.curve-fan;
+                        changed(i) => { root.select-curve-fan(i); }
+                    }
+                    ToggleSwitch {
+                        checked: root.curve-enabled;
+                        enabled: root.curve-available && root.available && !root.curve-busy && !root.safety;
+                        toggled(on) => { root.set-curve-enabled(on); }
+                    }
+                }
+                if root.safety: HorizontalLayout {
+                    spacing: 10px;
+                    Glyph {
+                        text: Glyphs.warning;
+                        color: Theme.caution;
+                        width: 16px;
+                        font-size: 14px;
+                    }
+                    Caption {
+                        text: "The laptop's fan safety protection is on, so the fans follow its own curve until it turns off.";
+                        horizontal-stretch: 1;
+                    }
+                }
+                FanCurve {
+                    points: root.curve;
+                    path: root.curve-path;
+                    default-path: root.default-path;
+                    enabled: root.curve-enabled && root.available && !root.curve-busy;
+                    duty-changed(i, duty) => { root.curve-duty(i, duty); }
+                }
+                HorizontalLayout {
+                    spacing: 16px;
+                    Caption {
+                        text: "Drag a point to set the fan speed from that temperature on; the thin line is the laptop's curve. Speeds stay at most 30% below it, and at or above it from 75 °C, so the laptop is always cooled enough.";
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                    }
+                    LinkButton {
+                        text: "Reset to default";
+                        vertical-alignment: center;
+                        clicked => { root.reset-curve(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Battery care and the battery's state.
+export component BatteryPage inherits VerticalLayout {
+    in property <bool> available;
+    in property <string> note;
+    in property <int> charge-mode;
+    in property <int> percent;
+    in property <string> state;
+    in property <[Detail]> details;
+    callback set-charge-mode(int);
+
+    spacing: 8px;
+    VerticalLayout {
+        padding-bottom: 12px;
+        Title {
+            text: "Battery";
+        }
+    }
+
+    Card {
+        HorizontalLayout {
+            padding: 20px;
+            spacing: 24px;
+            // A battery drawing filled to the charge.
+            VerticalLayout {
+                alignment: center;
+                spacing: 8px;
+                Rectangle {
+                    width: 120px;
+                    height: 56px;
+                    Rectangle {
+                        x: 0;
+                        width: 112px;
+                        border-radius: 8px;
+                        border-width: 2px;
+                        border-color: Theme.text-secondary;
+                        Rectangle {
+                            x: 5px;
+                            y: 5px;
+                            height: parent.height - 10px;
+                            width: (parent.width - 10px) * Math.clamp(root.percent / 100, 0, 1);
+                            border-radius: 4px;
+                            background: root.percent <= 15 ? Theme.critical : Theme.accent;
+                            animate width { duration: 400ms; }
+                        }
+                    }
+                    Rectangle {
+                        x: 114px;
+                        y: 18px;
+                        width: 6px;
+                        height: 20px;
+                        border-radius: 2px;
+                        background: Theme.text-secondary;
+                    }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 4px;
+                horizontal-stretch: 1;
+                Text {
+                    text: root.percent < 0 ? "No battery" : root.percent + "%";
+                    font-family: Theme.display-font;
+                    font-size: 34px;
+                    font-weight: 600;
+                    color: Theme.text;
+                }
+                Caption {
+                    text: root.state;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 6px;
+                for d in root.details: HorizontalLayout {
+                    spacing: 16px;
+                    Caption {
+                        text: d.label;
+                        width: 140px;
+                    }
+                    Text {
+                        text: d.value;
+                        color: Theme.text;
+                        font-size: 12px;
+                        min-width: 120px;
+                    }
+                }
+            }
+        }
+    }
+
+    VerticalLayout {
+        padding-top: 20px;
+        spacing: 8px;
+        SectionHeader {
+            text: "Battery care";
+        }
+        if root.note != "": Caption {
+            text: root.note;
+        }
+        HorizontalLayout {
+            spacing: 12px;
+            ChoiceCard {
+                icon: Glyphs.battery;
+                title: "High capacity";
+                description: "Charges fully. Best when you often use the laptop on battery.";
+                selected: root.charge-mode == 0;
+                enabled: root.available;
+                clicked => { root.set-charge-mode(0); }
+            }
+            ChoiceCard {
+                icon: Glyphs.battery;
+                title: "Balanced";
+                description: "A balance between battery time and battery wear.";
+                selected: root.charge-mode == 1;
+                enabled: root.available;
+                clicked => { root.set-charge-mode(1); }
+            }
+            ChoiceCard {
+                icon: Glyphs.plug;
+                title: "Stationary";
+                description: "Keeps the charge around 40% to 60%, for a laptop that's nearly always plugged in.";
+                selected: root.charge-mode == 2;
+                enabled: root.available;
+                clicked => { root.set-charge-mode(2); }
+            }
+        }
+        Caption {
+            text: "Kept by the laptop itself, also when this app isn't running. Charging stops early in Balanced and Stationary, which slows the battery's wear.";
+        }
+    }
+}
+
+/// Temperatures, loads and fan speeds, live.
+export component MonitorPage inherits VerticalLayout {
+    in property <[Metric]> metrics;
+    in property <string> note;
+
+    spacing: 8px;
+    VerticalLayout {
+        padding-bottom: 12px;
+        spacing: 4px;
+        Title {
+            text: "Monitor";
+        }
+        Caption {
+            text: root.note != "" ? root.note : "Updated every second while this page is open. The lines show the last minute.";
+        }
+    }
+    MetricGrid {
+        metrics: root.metrics;
+    }
+}
