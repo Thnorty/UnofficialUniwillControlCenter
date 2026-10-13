@@ -1,0 +1,20 @@
+{
+  "id": "claude-code",
+  "name": "Claude Code",
+  "version": "1.0.0",
+  "author": "Tulpar Control",
+  "description": "Shows Claude Code at work on the light bar: a sweep while it works, its task list filling the bar as tasks get done, a pulse when it needs you, and a flash when it's finished. Press Connect Claude Code once to add its hooks.",
+  "permissions": ["claude-hooks"],
+  "settings": [
+    { "key": "working_color", "label": "Working", "description": "While Claude works.", "type": "color", "default": "#D97757" },
+    { "key": "show_tasks", "label": "Show task progress", "description": "When Claude keeps a task list, the bar fills as the tasks get done.", "type": "toggle", "default": true },
+    { "key": "attention_color", "label": "Needs you", "description": "Claude asks for permission or waits for an answer.", "type": "color", "default": "#FFB000" },
+    { "key": "notify", "label": "Pop-up when Claude needs you", "type": "toggle", "default": false },
+    { "key": "done", "label": "When Claude finishes", "type": "choice", "options": ["Flash", "Stay lit until you reply", "Nothing"], "default": "Flash" },
+    { "key": "done_color", "label": "Finished", "type": "color", "default": "#4CAF50" }
+  ],
+  "actions": [
+    { "id": "connect", "label": "Connect Claude Code" },
+    { "id": "disconnect", "label": "Disconnect" }
+  ]
+}

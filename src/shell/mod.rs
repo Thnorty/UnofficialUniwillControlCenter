@@ -1,5 +1,49 @@
-//! The tray icon, the pop-ups and the single-instance lock.
+//! The tray icon, the pop-ups, the single-instance lock, and opening files and folders.
 
 pub mod instance;
 pub mod osd;
 pub mod tray;
+
+use std::path::{Path, PathBuf};
+
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::Controls::Dialogs::{GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW};
+use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+use windows::core::{HSTRING, PCWSTR, PWSTR, w};
+
+/// Opens a folder in File Explorer (or a file with its program).
+pub fn open_path(path: &Path) {
+    unsafe {
+        ShellExecuteW(None, w!("open"), &HSTRING::from(path.as_os_str()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
+    }
+}
+
+/// Asks for a file. `filter` is pairs of a description and patterns, such as ("Plugins", "*.zip;plugin.json").
+pub fn pick_file(owner: Option<HWND>, title: &str, filter: &[(&str, &str)]) -> Option<PathBuf> {
+    let mut filter_text: Vec<u16> = Vec::new();
+    for (name, patterns) in filter {
+        filter_text.extend(name.encode_utf16());
+        filter_text.push(0);
+        filter_text.extend(patterns.encode_utf16());
+        filter_text.push(0);
+    }
+    filter_text.push(0);
+    let title = HSTRING::from(title);
+    let mut file = vec![0u16; 1024];
+    let mut dialog = OPENFILENAMEW {
+        lStructSize: size_of::<OPENFILENAMEW>() as u32,
+        hwndOwner: owner.unwrap_or_default(),
+        lpstrFilter: PCWSTR(filter_text.as_ptr()),
+        lpstrFile: PWSTR(file.as_mut_ptr()),
+        nMaxFile: file.len() as u32,
+        lpstrTitle: PCWSTR(title.as_ptr()),
+        Flags: OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR,
+        ..Default::default()
+    };
+    if !unsafe { GetOpenFileNameW(&mut dialog) }.as_bool() {
+        return None;
+    }
+    let length = file.iter().position(|&c| c == 0).unwrap_or(file.len());
+    Some(PathBuf::from(String::from_utf16_lossy(&file[..length])))
+}

@@ -1,0 +1,240 @@
+import { ComboBox, LineEdit } from "std-widgets.slint";
+import { Theme, Glyphs } from "theme.slint";
+import { BodyStrong, Caption, Card, FluentButton, FluentSlider, Glyph, LinkButton, SectionHeader, SettingRow, Swatch, Title, ToggleSwitch } from "controls.slint";
+
+/// One setting a plugin declares. kind: 0 toggle, 1 slider, 2 color, 3 choice, 4 text.
+export struct PluginSettingView {
+    key: string,
+    label: string,
+    description: string,
+    kind: int,
+    on: bool,
+    number: float,
+    minimum: float,
+    maximum: float,
+    step: float,
+    unit: string,
+    color: color,
+    text: string,
+    options: [string],
+    choice: int,
+}
+
+export struct PluginActionView {
+    id: string,
+    label: string,
+}
+
+export struct PluginView {
+    id: string,
+    name: string,
+    version: string,
+    author: string,
+    description: string,
+    status: string,
+    error: string,
+    enabled: bool,
+    builtin: bool,
+    expanded: bool,
+    permissions: string,
+    url: string,
+    settings: [PluginSettingView],
+    actions: [PluginActionView],
+}
+
+/// The installed plugins: turning them on and off, their buttons and settings, importing and removing them.
+export component PluginsPage inherits VerticalLayout {
+    in property <[PluginView]> plugins;
+    in property <string> note;
+    // The page's width, from outside: a repeated card is measured at its preferred width, which for wrapped text is one long line.
+    in property <length> available-width;
+    // How far the cards really reach past the height this page reports. Slint undercounts a list of cards with
+    // wrapped text, while placing them right, so the end marker's place is what counts.
+    out property <length> overflow: Math.max(0px, end.y + end.height - root.min-height);
+    callback toggled(string, bool);
+    callback expand(string);
+    callback action(string, string);
+    callback remove(string);
+    callback reset(string);
+    callback bool-changed(string, string, bool);
+    callback number-changed(string, string, float);
+    callback text-changed(string, string, string);
+    callback choice-changed(string, string, int);
+    // plugin index, setting index, the color, where the picker opens
+    callback pick-color(int, int, color, length, length);
+    callback import();
+    callback open-folder();
+
+    spacing: 8px;
+    VerticalLayout {
+        padding-bottom: 12px;
+        spacing: 4px;
+        Title {
+            text: "Plugins";
+        }
+        Caption {
+            text: "Plugins show things on the light bar, such as Claude Code at work or a download's progress. They're small scripts that run inside this app: they can't read your files, use the network or change the laptop's settings, beyond the permissions listed on each.";
+        }
+    }
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+        FluentButton {
+            text: "Import plugin…";
+            icon: Glyphs.add;
+            accent: true;
+            clicked => { root.import(); }
+        }
+        FluentButton {
+            text: "Open plugins folder";
+            clicked => { root.open-folder(); }
+        }
+    }
+    if root.note != "": HorizontalLayout {
+        padding-top: 4px;
+        spacing: 10px;
+        Glyph {
+            text: Glyphs.info;
+            color: Theme.accent;
+            width: 16px;
+            font-size: 14px;
+            vertical-alignment: top;
+        }
+        Caption {
+            text: root.note;
+            horizontal-stretch: 1;
+        }
+    }
+
+    for plugin[i] in root.plugins: VerticalLayout {
+        preferred-width: root.available-width;
+        padding-top: 12px;
+        spacing: 4px;
+        Card {
+            VerticalLayout {
+                padding: 16px;
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    BodyStrong {
+                        text: plugin.name;
+                        vertical-alignment: center;
+                    }
+                    Caption {
+                        text: (plugin.version != "" ? "v" + plugin.version : "") + (plugin.author != "" ? " · " + plugin.author : "") + (plugin.builtin ? " · comes with the app" : "");
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    ToggleSwitch {
+                        checked: plugin.enabled;
+                        toggled(on) => { root.toggled(plugin.id, on); }
+                    }
+                }
+                Caption {
+                    text: plugin.description;
+                }
+                if plugin.permissions != "": Caption {
+                    text: plugin.permissions;
+                    color: Theme.caution;
+                }
+                Text {
+                    text: plugin.status;
+                    color: plugin.enabled ? Theme.accent : Theme.text-tertiary;
+                    wrap: word-wrap;
+                }
+                if plugin.error != "": Text {
+                    text: plugin.error;
+                    color: Theme.critical;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    for a in plugin.actions: FluentButton {
+                        text: a.label;
+                        enabled: plugin.enabled;
+                        clicked => { root.action(plugin.id, a.id); }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    if plugin.settings.length > 0: LinkButton {
+                        text: plugin.expanded ? "Hide settings" : "Settings";
+                        vertical-alignment: center;
+                        clicked => { root.expand(plugin.id); }
+                    }
+                    if !plugin.builtin: LinkButton {
+                        text: "Remove";
+                        vertical-alignment: center;
+                        clicked => { root.remove(plugin.id); }
+                    }
+                }
+            }
+        }
+        if plugin.expanded: VerticalLayout {
+            spacing: 4px;
+            for s[j] in plugin.settings: SettingRow {
+                title: s.label;
+                description: s.description;
+                if s.kind == 0: ToggleSwitch {
+                    checked: s.on;
+                    toggled(on) => { root.bool-changed(plugin.id, s.key, on); }
+                }
+                if s.kind == 1: HorizontalLayout {
+                    spacing: 12px;
+                    width: 300px;
+                    slider := FluentSlider {
+                        minimum: s.minimum;
+                        maximum: s.maximum;
+                        step: s.step;
+                        value: s.number;
+                        changed(v) => { root.number-changed(plugin.id, s.key, v); }
+                    }
+                    Text {
+                        text: (s.step >= 1 ? Math.round(slider.value) : Math.round(slider.value * 100) / 100) + (s.unit != "" ? " " + s.unit : "");
+                        width: 64px;
+                        horizontal-alignment: right;
+                        vertical-alignment: center;
+                        color: Theme.text-secondary;
+                    }
+                }
+                if s.kind == 2: swatch := Swatch {
+                    width: 56px;
+                    height: 32px;
+                    fill: s.color;
+                    clicked => { root.pick-color(i, j, s.color, swatch.absolute-position.x - 240px, swatch.absolute-position.y + 40px); }
+                }
+                if s.kind == 3: ComboBox {
+                    width: 260px;
+                    model: s.options;
+                    current-index: s.choice;
+                    selected => { root.choice-changed(plugin.id, s.key, self.current-index); }
+                }
+                if s.kind == 4: LineEdit {
+                    width: 300px;
+                    text: s.text;
+                    placeholder-text: "Press Enter to save";
+                    accepted(text) => { root.text-changed(plugin.id, s.key, text); }
+                }
+            }
+            HorizontalLayout {
+                padding-top: 4px;
+                spacing: 16px;
+                Caption {
+                    text: "Events for this plugin go to " + plugin.url;
+                    horizontal-stretch: 1;
+                }
+                LinkButton {
+                    text: "Reset to defaults";
+                    clicked => { root.reset(plugin.id); }
+                }
+            }
+        }
+    }
+    if root.plugins.length == 0: Caption {
+        text: "No plugins.";
+    }
+    end := Rectangle {
+        height: 0px;
+    }
+}

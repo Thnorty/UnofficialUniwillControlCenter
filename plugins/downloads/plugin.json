@@ -1,0 +1,17 @@
+{
+  "id": "downloads",
+  "name": "Downloads",
+  "version": "1.0.0",
+  "author": "Tulpar Control",
+  "description": "Shows downloads on the light bar. With the browser extension (Chrome or Edge) the bar fills as the download progresses; without it, a sweep runs while a browser writes an unfinished download to your Downloads folder.",
+  "permissions": ["downloads-folder"],
+  "settings": [
+    { "key": "color", "label": "Downloading", "type": "color", "default": "#2D9CDB" },
+    { "key": "watch_folder", "label": "Watch the Downloads folder", "description": "For browsers without the extension: a sweep while an unfinished download grows there.", "type": "toggle", "default": true },
+    { "key": "done_flash", "label": "Flash when a download finishes", "type": "toggle", "default": true },
+    { "key": "done_color", "label": "Finished", "type": "color", "default": "#4CAF50" }
+  ],
+  "actions": [
+    { "id": "extension", "label": "Open the browser extension" }
+  ]
+}

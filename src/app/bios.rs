@@ -184,7 +184,7 @@ impl App {
         let startup = startup_of(kind);
         if let Some(variable) = &self.bios.variable {
             let (old_effect, old_timeout) = variable.startup(startup);
-            self.settings.startup_lighting_backup.entry(backup_key(kind).into()).or_insert_with(|| hex(&old_effect) + &hex(&old_timeout));
+            self.settings.startup_lighting_backup.entry(backup_key(kind).into()).or_insert_with(|| format!("{}{}", hex(&old_effect), hex(&old_timeout)));
             self.settings_dirty = true;
         }
         let name = effect.name;

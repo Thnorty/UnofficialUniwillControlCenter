@@ -168,6 +168,15 @@ Control Center's CPU overclocking settings for Intel laptops:
   line of its last minute. It only reads while the page is open.
 - **Battery details:** health (full charge against design capacity), capacities, charge or discharge rate, time
   left, voltage and charge cycles.
+- **Plugins:** small scripts that show things on the light bar, over the current effect (`PLUGINS.md`):
+  - **Claude Code:** a sweep while Claude works, its task list filling the bar, a pulse when it needs you and a flash
+    when it's done, through Claude Code's HTTP hooks (added and removed with one button, with a backup).
+  - **Downloads:** download progress from a Chrome/Edge extension, or a sweep while an unfinished download is in the
+    Downloads folder.
+  - Import more from a `.zip`. Each plugin's settings (colors, sliders, switches, lists, text) are on the Plugins
+    page.
+  - Plugins are sandboxed. They can't read files, use the network or start programs, beyond the permissions shown on
+    their card. Events reach them through a local address (`127.0.0.1:47823`) that refuses web pages.
 
 ## Still missing
 

@@ -38,13 +38,20 @@ pub struct LightBarRenderer {
     overlays: Arc<Mutex<Vec<Overlay>>>,
     overlays_done: Option<Box<dyn FnMut() + Send>>,
     had_overlays: bool,
+    plugins: Option<Arc<crate::plugins::layers::Layers>>,
     last_sent: Option<Vec<Rgb>>,
     live: Live,
 }
 
 impl LightBarRenderer {
     pub fn new(light_bar: Arc<Device>, scene: Box<dyn Scene>, overlays: Arc<Mutex<Vec<Overlay>>>, live: Live) -> Self {
-        LightBarRenderer { light_bar, scene, overlays, overlays_done: None, had_overlays: false, last_sent: None, live }
+        LightBarRenderer { light_bar, scene, overlays, overlays_done: None, had_overlays: false, plugins: None, last_sent: None, live }
+    }
+
+    /// Draws what plugins show over the scene, under the flashes.
+    pub fn with_plugins(mut self, layers: Arc<crate::plugins::layers::Layers>) -> Self {
+        self.plugins = Some(layers);
+        self
     }
 
     /// Called (on the effects thread) once the flashes on top have finished.
@@ -61,6 +68,9 @@ impl Target for LightBarRenderer {
 
     fn tick(&mut self, frame: &Frame) -> anyhow::Result<()> {
         let mut leds = self.scene.render(frame);
+        if let Some(plugins) = &self.plugins {
+            plugins.render(&mut leds, frame.time);
+        }
         let any_overlay = {
             let mut overlays = self.overlays.lock().unwrap_or_else(|e| e.into_inner());
             overlays.retain_mut(|o| o.apply(&mut leds, frame.time));

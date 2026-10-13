@@ -5,6 +5,7 @@
 
 mod bios;
 mod monitor;
+mod plugins;
 mod power;
 
 use std::cell::RefCell;
@@ -332,6 +333,7 @@ pub struct App {
     power: power::Power,
     monitor: monitor::Monitor,
     bios: bios::Bios,
+    plugins: plugins::Plugins,
 }
 
 fn colors_model(colors: &[Rgb]) -> Rc<VecModel<slint::Color>> {
@@ -439,6 +441,7 @@ impl App {
             power,
             monitor: monitor::Monitor::new(),
             bios: bios::Bios::default(),
+            plugins: plugins::Plugins::default(),
         };
         APP.with(|cell| *cell.borrow_mut() = Some(app));
         connect_callbacks(ui);
@@ -451,7 +454,9 @@ impl App {
             app.start_monitor();
             if let Some(ui) = app.ui() {
                 ui.set_curve(ModelRc::from(app.power.curve_model.clone()));
+                ui.set_plugins(ModelRc::from(app.plugins.model.clone()));
             }
+            app.start_plugins();
             app.refresh_power();
             app.refresh_bios();
             if !demo {
@@ -621,6 +626,7 @@ impl App {
     fn apply(&mut self, kind: Kind, save: bool, light_override: Option<u8>) {
         let plan = self.plan(kind);
         let engine = &self.engine;
+        let plugin_layers = self.plugins.layers.clone();
         let Some(lighting) = (match kind {
             Kind::Keyboard => Some(&mut self.keyboard),
             Kind::LightBar => self.light_bar.as_mut(),
@@ -637,10 +643,19 @@ impl App {
         lighting.flash = false;
         lighting.overlays.lock().unwrap_or_else(|e| e.into_inner()).clear();
         let draw = needs_app(kind, plan.effect);
+        // What plugins show needs the bar drawn by this app; while they show something, a firmware effect waits.
+        let for_plugins = kind == Kind::LightBar && !draw && !save && plugin_layers.is_active();
         let result = (|| -> Result<()> {
             if !lighting.on {
                 device.switch_off()?;
                 light = 0;
+            } else if for_plugins {
+                device.enter_user_mode(light)?;
+                if !lighting.idle_off {
+                    let renderer = LightBarRenderer::new(device.clone(), Box::new(scenes::DarkScene), lighting.overlays.clone(), lighting.live.clone())
+                        .with_plugins(plugin_layers.clone());
+                    lighting.renderer = Some(engine.play(kind, Box::new(renderer)));
+                }
             } else if kind == Kind::LightBar && draw && save {
                 // These need this app; what stays afterwards is the first color, steady.
                 let color = plan.colors.first().copied().unwrap_or(effects::LIGHT_BAR[0].default_colors[0]);
@@ -648,7 +663,8 @@ impl App {
             } else if kind == Kind::LightBar && draw {
                 device.enter_user_mode(light)?;
                 if !lighting.idle_off {
-                    let renderer = LightBarRenderer::new(device.clone(), scene_for(&plan), lighting.overlays.clone(), lighting.live.clone());
+                    let renderer = LightBarRenderer::new(device.clone(), scene_for(&plan), lighting.overlays.clone(), lighting.live.clone())
+                        .with_plugins(plugin_layers.clone());
                     lighting.renderer = Some(engine.play(kind, Box::new(renderer)));
                 }
             } else if let Some(colors) = wave_colors(kind, &plan) {
@@ -850,6 +866,7 @@ impl App {
         let id_cell = Arc::new(AtomicU64::new(0));
         let id_for_done = id_cell.clone();
         let renderer = LightBarRenderer::new(device, Box::new(scenes::DarkScene), lighting.overlays.clone(), lighting.live.clone())
+            .with_plugins(self.plugins.layers.clone())
             .on_overlays_done(move || {
                 let id = id_for_done.load(Ordering::Acquire);
                 post(move |app| app.flash_done(id));
@@ -1305,7 +1322,9 @@ impl App {
             let mut leds = if drawn {
                 light_bar.live.lock().unwrap_or_else(|e| e.into_inner()).clone()
             } else {
-                preview::simulate(plan.effect, &plan.colors, plan.direction, plan.speed, t, crate::lighting::device::LIGHT_BAR_LEDS, false)
+                let mut leds = preview::simulate(plan.effect, &plan.colors, plan.direction, plan.speed, t, crate::lighting::device::LIGHT_BAR_LEDS, false);
+                self.plugins.layers.render(&mut leds, t);
+                leds
             };
             leds.resize(crate::lighting::device::LIGHT_BAR_LEDS, Rgb::BLACK);
             let shown = if self.demo { if light_bar.idle_off { 0 } else { to_level(light_bar.percent) } } else { light_bar.shown_light };
@@ -1686,7 +1705,10 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_set_on(|on| with_app(move |app| app.set_light_bar_on(on)));
     ui.on_set_linked(|on| with_app(move |app| app.set_linked(on)));
     ui.on_color_edited(|device, target, index, color| {
-        with_app(move |app| app.edit_color(kind_of(device), target, index.max(0) as usize, Rgb::from_slint(color)))
+        with_app(move |app| match device {
+            2 => app.set_plugin_color(target.max(0) as usize, index.max(0) as usize, Rgb::from_slint(color)),
+            _ => app.edit_color(kind_of(device), target, index.max(0) as usize, Rgb::from_slint(color)),
+        })
     });
     ui.on_add_color(|device| {
         // Needs an answer now, so it can't wait for a busy app; the window only calls this from a click.
@@ -1752,6 +1774,17 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_voltage_changed(|mv| with_app(move |app| app.set_voltage(mv.round() as i32)));
     ui.on_save_voltage(|| with_app(|app| app.save_voltage()));
     ui.on_save_startup(|device| with_app(move |app| app.save_startup(kind_of(device))));
+    ui.on_plugin_toggled(|id, on| with_app(move |app| app.set_plugin_enabled(&id, on)));
+    ui.on_plugin_expand(|id| with_app(move |app| app.expand_plugin(&id)));
+    ui.on_plugin_action(|id, action| with_app(move |app| app.plugin_action(&id, &action)));
+    ui.on_plugin_remove(|id| with_app(move |app| app.remove_plugin(&id)));
+    ui.on_plugin_reset(|id| with_app(move |app| app.reset_plugin_settings(&id)));
+    ui.on_plugin_bool(|id, key, on| with_app(move |app| app.set_plugin_setting(&id, &key, serde_json::Value::Bool(on))));
+    ui.on_plugin_number(|id, key, value| with_app(move |app| app.set_plugin_setting(&id, &key, serde_json::json!(value as f64))));
+    ui.on_plugin_text(|id, key, text| with_app(move |app| app.set_plugin_setting(&id, &key, serde_json::Value::String(text.to_string()))));
+    ui.on_plugin_choice(|id, key, choice| with_app(move |app| app.set_plugin_choice(&id, &key, choice.max(0) as usize)));
+    ui.on_import_plugin(|| with_app(|app| app.import_plugin()));
+    ui.on_open_plugins_folder(|| with_app(|app| app.open_plugins_folder()));
     ui.on_reset_startup(|device| with_app(move |app| app.reset_startup(kind_of(device))));
     ui.on_set_charge_mode(|index| with_app(move |app| app.set_charge_mode(ChargeMode::from_index(index.max(0) as usize))));
     ui.on_retry(|| with_app(|app| app.open_devices()));

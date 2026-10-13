@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "Tulpar Control downloads",
+  "version": "1.0.0",
+  "description": "Shows download progress on the light bar of a Monster Tulpar laptop, through Tulpar Control's Downloads plugin.",
+  "permissions": ["downloads"],
+  "host_permissions": ["http://127.0.0.1:47823/*"],
+  "background": { "service_worker": "background.js" }
+}

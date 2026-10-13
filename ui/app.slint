@@ -5,6 +5,7 @@ import { KeyCap } from "preview.slint";
 import { ColorPicker } from "picker.slint";
 import { DeviceView, TileGroup, LightingPage, AlertsPage, SettingsPage } from "pages.slint";
 import { Metric, CurvePoint, Detail, TuningView, PerformancePage, BatteryPage, MonitorPage } from "power.slint";
+import { PluginSettingView, PluginActionView, PluginView, PluginsPage } from "plugins.slint";
 
 export { Theme, KeyCap, DeviceView, TileGroup, Metric, CurvePoint, Detail }
 
@@ -150,6 +151,11 @@ export component AppWindow inherits Window {
     in property <[Metric]> metrics;
     in property <string> monitor-note;
 
+    // Plugins.
+    in property <[PluginView]> plugins;
+    in property <string> plugins-note;
+    property <length> plugins-overflow;
+
     // device: 0 = keyboard, 1 = light bar
     callback select-effect(int, int);
     callback light-changed(int, float);
@@ -188,6 +194,17 @@ export component AppWindow inherits Window {
     callback save-startup(int);
     callback reset-startup(int);
     callback set-charge-mode(int);
+    callback plugin-toggled(string, bool);
+    callback plugin-expand(string);
+    callback plugin-action(string, string);
+    callback plugin-remove(string);
+    callback plugin-reset(string);
+    callback plugin-bool(string, string, bool);
+    callback plugin-number(string, string, float);
+    callback plugin-text(string, string, string);
+    callback plugin-choice(string, string, int);
+    callback import-plugin();
+    callback open-plugins-folder();
     pure callback format-hex(color) -> string;
     pure callback parse-hex(string) -> color;
 
@@ -267,6 +284,12 @@ export component AppWindow inherits Window {
                 selected: root.page == 2;
                 clicked => { root.page = 2; }
             }
+            NavItem {
+                icon: Glyphs.plugin;
+                label: "Plugins";
+                selected: root.page == 7;
+                clicked => { root.page = 7; }
+            }
             Rectangle {
                 vertical-stretch: 1;
             }
@@ -295,7 +318,7 @@ export component AppWindow inherits Window {
                     padding-left: scroll.side;
                     padding-right: scroll.side;
                     padding-top: 28px;
-                    padding-bottom: 36px;
+                    padding-bottom: 36px + (root.page == 7 ? root.plugins-overflow : 0px);
                     spacing: 16px;
                     if root.status-text != "": InfoBar {
                         message: root.status-text;
@@ -424,6 +447,25 @@ export component AppWindow inherits Window {
                     if root.page == 6: MonitorPage {
                         metrics: root.metrics;
                         note: root.monitor-note;
+                    }
+                    if root.page == 7: PluginsPage {
+                        plugins: root.plugins;
+                        note: root.plugins-note;
+                        available-width: scroll.visible-width - 2 * scroll.side;
+                        init => { root.plugins-overflow = self.overflow; }
+                        changed overflow => { root.plugins-overflow = self.overflow; }
+                        toggled(id, on) => { root.plugin-toggled(id, on); }
+                        expand(id) => { root.plugin-expand(id); }
+                        action(id, a) => { root.plugin-action(id, a); }
+                        remove(id) => { root.plugin-remove(id); }
+                        reset(id) => { root.plugin-reset(id); }
+                        bool-changed(id, key, on) => { root.plugin-bool(id, key, on); }
+                        number-changed(id, key, v) => { root.plugin-number(id, key, v); }
+                        text-changed(id, key, t) => { root.plugin-text(id, key, t); }
+                        choice-changed(id, key, c) => { root.plugin-choice(id, key, c); }
+                        pick-color(p, s, c, x, y) => { root.open-picker(2, p, s, c, x, y); }
+                        import => { root.import-plugin(); }
+                        open-folder => { root.open-plugins-folder(); }
                     }
                     if root.page == 3: SettingsPage {
                         idle-options: root.idle-options;

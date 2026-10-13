@@ -7,6 +7,7 @@ mod app;
 mod color;
 mod hardware;
 mod lighting;
+mod plugins;
 mod settings;
 mod shell;
 

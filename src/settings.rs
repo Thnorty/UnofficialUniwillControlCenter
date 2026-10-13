@@ -27,6 +27,15 @@ pub struct Settings {
     /// The startup lighting the BIOS had before this app first changed it, by device ("Keyboard", "LightBar"): its
     /// 08h and 1Ah commands in hex.
     pub startup_lighting_backup: HashMap<String, String>,
+    /// Plugins by id: whether they're on, and their settings. Plugins that come with the app are on unless turned off.
+    pub plugins: HashMap<String, PluginSettings>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "PascalCase", default)]
+pub struct PluginSettings {
+    pub enabled: bool,
+    pub values: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Default for Settings {
@@ -39,6 +48,7 @@ impl Default for Settings {
             flash_num_lock: true,
             power: None,
             startup_lighting_backup: HashMap::new(),
+            plugins: HashMap::new(),
         }
     }
 }
