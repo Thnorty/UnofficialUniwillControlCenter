@@ -1,11 +1,13 @@
-# Keyboard RGB — feature overview
+# Tulpar Control — feature overview
 
-A replacement for the lighting part of Control Center (v4.8.47.13, installed as Control Center 3 4.9.47.11) on the
-Monster Tulpar T5 V21.4. This is a Uniwill/Tongfang platform with two ITE lighting controllers:
+A replacement for Control Center (v4.8.47.13, installed as Control Center 3 4.9.47.11) on the Monster Tulpar T5
+V21.4: its lighting, performance modes, fans and battery care, and a hardware monitor. This is a Uniwill/Tongfang platform with two ITE lighting controllers:
 - the four-zone keyboard (ITE 8291, USB 048D:CE00, firmware 11.04);
-- the light bar on the front edge (USB 048D:6005, firmware 15.04, Control Center's `MEZone_Lighbar` type).
+- the light bar on the front edge (USB 048D:6005, firmware 15.04, Control Center's `MEZone_Lighbar` type);
+- the embedded controller (EC), for the Fn keys, performance modes, fans and charging; this model uses Control
+  Center's "RamFan 1.5" fan control (`MyFanManager_RamFan1p5`, `FanTable_Manager1p5`).
 
-It talks to the keyboard controller directly over HID, and to the embedded controller through the BIOS WMI interface.
+It talks to the lighting controllers directly over HID, and to the embedded controller through the BIOS WMI interface.
 It does not need Control Center, its GCUBridge/GCUService service or its MQTT broker. It needs administrator rights;
 the "Start with Windows" option starts it elevated in the tray through Task Scheduler.
 
@@ -48,9 +50,33 @@ These work the way Control Center does them. The commands come from Control Cent
 - **Touchpad:** toggles on and off, and the button follows the touchpad's Fn shortcut.
 - **Pop-ups (OSD):** for keyboard brightness, touchpad on/off and Windows key lock/unlock.
 
+### Performance modes
+- **Office, Gaming and Turbo:** the EC's fan mode byte (0x751) and the CPU power limits (PL1, PL2, PL4) the EC keeps
+  as each mode's defaults, sent on the charger; on battery the EC picks its own limits, as Control Center leaves it.
+  Turbo only shows where the EC reports it (0x49F bit 1).
+- **Performance key** (hotkey code 176): switches modes the way Control Center does (Office → Gaming → Turbo → Office,
+  or Office ↔ Gaming without Turbo), with a pop-up.
+- **Fan Boost:** a switch, the tray menu and the Fan Boost key (codes 167 and 172), with a pop-up.
+- **Set again** after sleep and when the charger is plugged in or out.
+- Left at the firmware's: the TCC offset and the fan switching speed. CPU voltage offsets, GPU overclocking and the
+  UEFI variables Control Center also writes (`PowerMode`) are left out on purpose.
+
+### Fans
+- **Custom fan curve per mode:** Control Center's fan table editor. The EC's own table for each mode is read once
+  (the same request Control Center makes: 0xF5F/0xF5D/0xF5E) and is the starting point; the curve is written to the
+  EC's RAM tables (0xF00–0xF5F) and switched on with 0x7C6 bit 2. CPU and GPU fans each have their own curve.
+- **Fan safety protection:** while the EC's protection is on (0x7A5 bit 3, event 187) the fans go back to the EC's
+  curve, as in Control Center.
+- **Fan speeds** (RPM and duty), as Control Center's `FanInfo` reads them.
+
+### Battery care
+- **High capacity, Balanced and Stationary:** Control Center's three charging modes (`BatteryProtection2`, 0x7A6 bits
+  4 and 5). The first run picks up the mode Control Center last set; it's set again after sleep.
+
 ### App behavior
-- **Tray:** runs in the tray and can start with Windows.
-- **Coexists with Control Center:** steps back and leaves the Fn keys alone while Control Center's service is running.
+- **Tray:** runs in the tray and can start with Windows. The tray menu has the performance mode and Fan Boost.
+- **Coexists with Control Center:** steps back and leaves the Fn keys, the modes, the fans and battery care alone
+  while Control Center's service is running; the Performance and Battery pages then only show what it set.
 
 ## Added beyond Control Center
 
@@ -103,6 +129,14 @@ These work the way Control Center does them. The commands come from Control Cent
   own brightness. Control Center leaves the keyboard that way; this app puts your brightness back.
 - **Fn keys handed back safely:** they go back to the firmware even if the app crashes, and are taken over again
   after sleep or resume.
+- **Fan curve safety rules:** a custom curve always rises with the temperature, never goes more than 30% below the
+  laptop's own curve, and never below it from 75 °C. When the app exits or crashes the fans go back to the EC's
+  curve, since nothing watches the safety protection then.
+- **Drag-to-edit fan curves** on a chart, with the laptop's curve drawn under yours.
+- **Hardware monitor:** CPU and GPU temperature, CPU load, both fans, memory, battery and the power mode, each with a
+  line of its last minute. It only reads while the page is open.
+- **Battery details:** health (full charge against design capacity), capacities, charge or discharge rate, time
+  left, voltage and charge cycles.
 
 ## Still missing
 
@@ -126,18 +160,15 @@ These work the way Control Center does them. The commands come from Control Cent
 
 ### Rest of Control Center
 
-None of this is implemented. I haven't checked which of these Control Center actually shows for this model.
-- **Performance profiles:** Silent, Balanced, Performance, Enthusiast and Overboost, plus the performance-profile
-  pop-up.
-- **Fans:** Fan Boost and custom fan control.
-- **CPU and GPU tuning:** power limits and temperature targets, GPU overclocking, Dynamic Boost and NVIDIA Whisper
-  Mode.
+Not implemented:
+- **Per-mode profiles:** Control Center keeps five profiles per mode with edited power limits; this app uses each
+  mode's defaults. Application profiles that switch modes per game are missing too.
+- **CPU and GPU tuning:** custom power limits and temperature targets, CPU voltage offset, GPU overclocking, Dynamic
+  Boost and NVIDIA Whisper Mode. Left out on purpose: they're risky, and some write UEFI variables.
 - **GPU modes:** dGPU mode (Hybrid, iGPU, Auto) and disabling NVIDIA Optimus.
-- **Battery:**
-  - charging profiles (Eco, Balanced, High Capacity) and battery calibration;
-  - USB-C power delivery priority, powered USB while off, automatic boot on AC.
+- **Battery:** battery calibration, USB-C power delivery priority, powered USB while off, automatic boot on AC.
 - **Display:** refresh rate, color modes and calibration, low blue light.
-- **Monitoring:** system dashboard, hardware monitoring, In-Game OSD and Quick Information Box.
+- **Monitoring:** In-Game OSD and Quick Information Box.
 - **Keys:**
   - Fn Lock;
   - Caps Lock, Num Lock and Scroll Lock pop-ups (the light bar flashes for Caps Lock and Num Lock instead);
@@ -148,9 +179,9 @@ None of this is implemented. I haven't checked which of these Control Center act
 
 ## Building
 
-The app is written in Rust, in `rust\`. Build it with `cargo build --release` there; the output is
-`rust	argetelease\KeyboardRGB.exe`, a single exe with nothing to install. See `rust\README.md` for the demo
-mode and a map of the code. Settings are kept in `%APPDATA%\MonsterKeyboardRGB\settings.json`. Scripts that were
-used to test the embedded controller behavior are in `tools\`.
+The app is written in Rust. Build it with `cargo build --release`; the output is `target\release\TulparControl.exe`, a
+single exe with nothing to install. See `README.md` for the demo mode and a map of the code. Settings are kept in
+`%APPDATA%\TulparControl\settings.json`. Scripts that were used to test the embedded controller behavior are in
+`tools\`.
 
-Version 1 was written in C#; it's in the git history.
+Version 1 (Keyboard RGB) was written in C#; it's in the git history.
