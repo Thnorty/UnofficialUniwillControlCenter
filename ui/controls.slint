@@ -329,13 +329,14 @@ export component LinkButton inherits Text {
     }
 }
 
-/// Windows 11's InfoBar, for errors and notices at the top of a page.
+/// Windows 11's InfoBar, for errors and notices at the top of a page, and for what waits for a restart.
 export component InfoBar inherits Rectangle {
     in property <string> message;
     in property <bool> critical;
+    in property <bool> caution;
     in property <string> action;
     callback action-clicked;
-    background: root.critical ? Theme.critical-background : Theme.card;
+    background: root.critical ? Theme.critical-background : root.caution ? Theme.caution-background : Theme.card;
     border-radius: 6px;
     border-width: 1px;
     border-color: Theme.card-stroke;
@@ -344,14 +345,15 @@ export component InfoBar inherits Rectangle {
         padding-left: 16px;
         spacing: 12px;
         Glyph {
-            text: root.critical ? Glyphs.error : Glyphs.info;
-            color: root.critical ? Theme.critical : Theme.accent;
+            text: root.critical ? Glyphs.error : root.caution ? Glyphs.warning : Glyphs.info;
+            color: root.critical ? Theme.critical : root.caution ? Theme.caution : Theme.accent;
             width: 18px;
         }
         Text {
             text: root.message;
             wrap: word-wrap;
             color: Theme.text;
+            font-weight: root.caution ? 600 : 400;
             vertical-alignment: center;
             horizontal-stretch: 1;
         }

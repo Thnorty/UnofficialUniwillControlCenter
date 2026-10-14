@@ -153,6 +153,7 @@ export component AppWindow inherits Window {
     in property <bool> gpu-mode-available;
     in-out property <int> gpu-mode;
     in property <string> gpu-mode-note;
+    in property <string> gpu-mode-restart;
     in-out property <float> tune-voltage;
 
     // Battery.
@@ -573,6 +574,7 @@ export component AppWindow inherits Window {
                         gpu-mode-available: root.gpu-mode-available;
                         gpu-mode <=> root.gpu-mode;
                         gpu-mode-note: root.gpu-mode-note;
+                        gpu-mode-restart: root.gpu-mode-restart;
                         set-gpu-mode(i) => { root.set-gpu-mode(i); }
                         voltage <=> root.tune-voltage;
                         set-custom-limits(on) => { root.set-custom-limits(on); }

@@ -1,6 +1,6 @@
 import { ComboBox, LineEdit } from "std-widgets.slint";
 import { Theme, Glyphs } from "theme.slint";
-import { BodyStrong, Caption, Card, FluentButton, FluentSlider, Glyph, LinkButton, SectionHeader, Segmented, SettingRow, Title, ToggleSwitch } from "controls.slint";
+import { BodyStrong, Caption, Card, FluentButton, FluentSlider, Glyph, InfoBar, LinkButton, SectionHeader, Segmented, SettingRow, Title, ToggleSwitch } from "controls.slint";
 
 /// A reading on the Monitor page.
 export struct Metric {
@@ -329,6 +329,8 @@ export struct TuningView {
     voltage-saved: int,
     voltage-changed: bool,
     voltage-note: string,
+    // What waits for a restart; empty for nothing.
+    voltage-restart: string,
 }
 
 /// A setting row with a slider and its value.
@@ -386,6 +388,7 @@ export component PerformancePage inherits VerticalLayout {
     in property <bool> gpu-mode-available;
     in-out property <int> gpu-mode;
     in property <string> gpu-mode-note;
+    in property <string> gpu-mode-restart;
     in-out property <float> pl1;
     in-out property <float> pl2;
     in-out property <float> pl4;
@@ -640,6 +643,10 @@ export component PerformancePage inherits VerticalLayout {
                 }
             }
         }
+        if root.tuning.voltage-restart != "": InfoBar {
+            caution: true;
+            message: root.tuning.voltage-restart;
+        }
     }
 
     if root.tuning.gpu-available || root.gpu-mode-shown: VerticalLayout {
@@ -691,6 +698,10 @@ export component PerformancePage inherits VerticalLayout {
                 current-index <=> root.gpu-mode;
                 selected => { root.set-gpu-mode(self.current-index); }
             }
+        }
+        if root.gpu-mode-restart != "": InfoBar {
+            caution: true;
+            message: root.gpu-mode-restart;
         }
     }
 

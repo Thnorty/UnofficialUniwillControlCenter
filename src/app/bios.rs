@@ -309,11 +309,22 @@ impl App {
                 "The NVIDIA GPU drives the screen, for the most performance in games. It's on all the time, so the battery runs down faster."
             }
         };
+        about.into()
+    }
+
+    /// What the GPU mode waits for, when it isn't the one the laptop started in; empty otherwise.
+    fn gpu_mode_restart(&self, mode: Option<GpuMode>) -> String {
         let started = self.bios.gpu_mode_started.or(self.demo.then_some(GpuMode::Hybrid));
-        if started.is_some_and(|s| s != mode) {
-            format!("{about} Takes effect when the laptop restarts.")
-        } else {
-            about.into()
+        match mode {
+            Some(mode) if started.is_some_and(|s| s != mode) => {
+                let name = match mode {
+                    GpuMode::Hybrid => "Hybrid mode",
+                    GpuMode::Integrated => "Intel graphics only",
+                    GpuMode::Discrete => "NVIDIA graphics only",
+                };
+                format!("Restart the laptop to switch to {name}.")
+            }
+            _ => String::new(),
         }
     }
 
@@ -332,7 +343,7 @@ impl App {
             (_, None) if self.bios.variable.is_some() => "This BIOS doesn't offer a voltage offset.".to_string(),
             (_, None) => self.bios.error.clone().map_or_else(String::new, |e| format!("The BIOS settings can't be read: {e}")),
             (Err(reason), _) if !self.demo => reason.clone(),
-            _ if self.bios.voltage_saved => "Saved. It takes effect when the laptop restarts.".into(),
+            _ if self.bios.voltage_saved => format!("Saved to the BIOS: {saved:+} mV."),
             _ if chosen != saved => format!("Saved now: {saved:+} mV. Save to use {chosen:+} mV from the next start."),
             _ => "Takes effect when the laptop restarts.".into(),
         };
@@ -341,6 +352,7 @@ impl App {
         ui.set_gpu_mode_shown(gpu_mode.is_some() || self.bios.error.is_some());
         ui.set_gpu_mode(gpu_mode.and_then(|m| GpuMode::ALL.iter().position(|&x| x == m)).unwrap_or(0) as i32);
         ui.set_gpu_mode_note(self.gpu_mode_note(gpu_mode).into());
+        ui.set_gpu_mode_restart(self.gpu_mode_restart(gpu_mode).into());
         ui.set_tune_voltage(chosen as f32);
         ui.set_tuning(TuningView {
             voltage_available: range.is_some() && can_save,
@@ -349,6 +361,7 @@ impl App {
             voltage_saved: saved,
             voltage_changed: chosen != saved,
             voltage_note: note.into(),
+            voltage_restart: if self.bios.voltage_saved { "Restart the laptop to use the new voltage offset.".into() } else { "".into() },
             ..ui.get_tuning()
         });
     }
