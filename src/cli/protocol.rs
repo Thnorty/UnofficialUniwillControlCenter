@@ -13,7 +13,7 @@ pub const MAX_MESSAGE: usize = 64 * 1024;
 
 /// The app's pipe; the demo (`--demo`) has its own, which `uucc` uses when `UUCC_DEMO=1`.
 pub fn pipe_name(demo: bool) -> &'static str {
-    if demo { r"\.\pipe\UnofficialUniwillControlCenter.Demo" } else { r"\.\pipe\UnofficialUniwillControlCenter" }
+    if demo { r"\\.\pipe\UnofficialUniwillControlCenter.Demo" } else { r"\\.\pipe\UnofficialUniwillControlCenter" }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -234,6 +234,12 @@ mod tests {
         let lighting = Request::Lighting { device: Device::LightBar, changes: LightingChanges { brightness: Some(40), ..Default::default() } };
         let text = serde_json::to_string(&lighting).unwrap();
         assert_eq!(serde_json::from_str::<Request>(&text).unwrap(), lighting);
+    }
+
+    #[test]
+    fn pipe_names_are_local_pipes() {
+        assert_eq!(pipe_name(false), r"\\.\pipe\UnofficialUniwillControlCenter");
+        assert_eq!(pipe_name(true), r"\\.\pipe\UnofficialUniwillControlCenter.Demo");
     }
 
     #[test]
