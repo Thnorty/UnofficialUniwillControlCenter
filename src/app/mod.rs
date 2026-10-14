@@ -476,6 +476,7 @@ impl App {
             app.refresh_display();
             if let Some(ui) = app.ui() {
                 ui.set_nav_collapsed(app.settings.nav_collapsed);
+                ui.set_show_in_tray(!app.settings.hide_tray_icon);
             }
             app.refresh_power();
             app.refresh_bios();
@@ -1428,7 +1429,8 @@ impl App {
             },
         );
         match tray {
-            Ok(tray) => {
+            Ok(mut tray) => {
+                tray.set_hidden(self.settings.hide_tray_icon);
                 self.tray = Some(tray);
                 self.update_tray_icon();
             }
@@ -1629,6 +1631,17 @@ impl App {
         }
         if let Some(ui) = self.ui() {
             ui.set_start_with_windows(startup::is_enabled());
+        }
+    }
+
+    fn set_show_in_tray(&mut self, show: bool) {
+        self.settings.hide_tray_icon = !show;
+        self.settings_dirty = true;
+        if let Some(tray) = &mut self.tray {
+            tray.set_hidden(!show);
+        }
+        if let Some(ui) = self.ui() {
+            ui.set_show_in_tray(show);
         }
     }
 
@@ -1873,6 +1886,8 @@ fn connect_callbacks(ui: &AppWindow) {
         })
     });
     ui.on_import_settings(|| with_app(|app| app.import_settings()));
+    ui.on_set_show_in_tray(|on| with_app(move |app| app.set_show_in_tray(on)));
+    ui.on_exit_app(|| with_app(|app| app.exit()));
     ui.on_retry(|| with_app(|app| app.open_devices()));
     ui.on_format_hex(|color| Rgb::from_slint(color).hex().into());
     ui.on_parse_hex(|text| match Rgb::parse_hex(&text) {

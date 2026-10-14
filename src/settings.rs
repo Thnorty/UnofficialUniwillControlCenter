@@ -41,6 +41,8 @@ pub struct Settings {
     pub display: DisplaySettings,
     /// The window's navigation pane shows only icons.
     pub nav_collapsed: bool,
+    /// No icon in the notification area; the app still runs, and starting it again opens the window.
+    pub hide_tray_icon: bool,
 }
 
 /// Whole-screen color modes: whether one is on, which, and each mode's values (missing ones are the mode's own).
@@ -120,6 +122,7 @@ impl Default for Settings {
             app_profiles_enabled: true,
             display: DisplaySettings::default(),
             nav_collapsed: false,
+            hide_tray_icon: false,
         }
     }
 }

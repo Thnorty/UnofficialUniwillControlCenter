@@ -121,6 +121,7 @@ export component AppWindow inherits Window {
     in property <bool> winkey-available;
     in property <bool> winkey-locked;
     in property <bool> start-with-windows;
+    in property <bool> show-in-tray: true;
     in property <string> about;
     in property <string> fn-keys;
 
@@ -230,6 +231,8 @@ export component AppWindow inherits Window {
     callback toggle-touchpad();
     callback toggle-winkey();
     callback set-start-with-windows(bool);
+    callback set-show-in-tray(bool);
+    callback exit-app();
     callback retry();
     callback set-mode(int);
     callback set-fan-boost(bool);
@@ -639,12 +642,15 @@ export component AppWindow inherits Window {
                         winkey-available: root.winkey-available;
                         winkey-locked: root.winkey-locked;
                         start-with-windows: root.start-with-windows;
+                        show-in-tray: root.show-in-tray;
                         about: root.about;
                         fn-keys: root.fn-keys;
                         set-idle(i) => { root.set-idle(i); }
                         toggle-touchpad => { root.toggle-touchpad(); }
                         toggle-winkey => { root.toggle-winkey(); }
                         set-start-with-windows(on) => { root.set-start-with-windows(on); }
+                        set-show-in-tray(on) => { root.set-show-in-tray(on); }
+                        exit-app => { root.exit-app(); }
                         export-settings => { root.export-settings(); }
                         import-settings => { root.import-settings(); }
                     }

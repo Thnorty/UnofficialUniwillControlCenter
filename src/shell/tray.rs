@@ -7,8 +7,8 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::{CreateBitmap, CreateDIBSection, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, DeleteObject, HGDIOBJ};
 use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW};
 use windows::Win32::UI::Shell::{
-    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
-    Shell_NotifyIconW,
+    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_STATE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE, NIM_MODIFY, NIM_SETVERSION, NIS_HIDDEN,
+    NOTIFY_ICON_STATE, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu, GetCursorPos, HICON, HMENU,
@@ -68,6 +68,8 @@ pub struct Tray {
     hwnd: HWND,
     icon: HICON,
     tip: String,
+    /// The icon is kept but hidden: notifications still show through it, and a second launch still opens the window.
+    hidden: bool,
 }
 
 /// The message a second launch broadcasts so the running instance shows itself.
@@ -108,7 +110,7 @@ impl Tray {
             RegisterClassW(&wc);
             // A hidden top-level window rather than a message-only one, so it gets broadcasts.
             let hwnd = CreateWindowExW(WINDOW_EX_STYLE(0), class, w!("Tulpar Control tray"), WS_POPUP, 0, 0, 0, 0, None, None, Some(instance.into()), None)?;
-            let tray = Tray { hwnd, icon: HICON::default(), tip: tip.to_string() };
+            let tray = Tray { hwnd, icon: HICON::default(), tip: tip.to_string(), hidden: false };
             Ok(tray)
         }
     }
@@ -118,9 +120,11 @@ impl Tray {
             cbSize: size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: self.hwnd,
             uID: 1,
-            uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
+            uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_STATE,
             uCallbackMessage: CALLBACK,
             hIcon: self.icon,
+            dwState: if self.hidden { NIS_HIDDEN } else { NOTIFY_ICON_STATE(0) },
+            dwStateMask: NIS_HIDDEN,
             ..Default::default()
         };
         copy_wide(&mut data.szTip, &self.tip);
@@ -145,6 +149,19 @@ impl Tray {
             } else {
                 let _ = Shell_NotifyIconW(NIM_MODIFY, &self.data());
                 let _ = DestroyIcon(old);
+            }
+        }
+    }
+
+    /// Hides or shows the icon in the notification area.
+    pub fn set_hidden(&mut self, hidden: bool) {
+        if self.hidden == hidden {
+            return;
+        }
+        self.hidden = hidden;
+        if !self.icon.is_invalid() {
+            unsafe {
+                let _ = Shell_NotifyIconW(NIM_MODIFY, &self.data());
             }
         }
     }

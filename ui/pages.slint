@@ -632,12 +632,15 @@ export component SettingsPage inherits VerticalLayout {
     in property <bool> winkey-available;
     in property <bool> winkey-locked;
     in property <bool> start-with-windows;
+    in property <bool> show-in-tray: true;
     in property <string> about;
     in property <string> fn-keys;
     callback set-idle(int);
     callback toggle-touchpad();
     callback toggle-winkey();
     callback set-start-with-windows(bool);
+    callback set-show-in-tray(bool);
+    callback exit-app();
     callback export-settings();
     callback import-settings();
 
@@ -710,10 +713,26 @@ export component SettingsPage inherits VerticalLayout {
         SettingRow {
             icon: Glyphs.power;
             title: "Start with Windows";
-            description: "Starts in the tray when you sign in, with administrator rights through Task Scheduler (no prompt).";
+            description: "Starts in the background when you sign in, with administrator rights through Task Scheduler (no prompt).";
             ToggleSwitch {
                 checked: root.start-with-windows;
                 toggled(on) => { root.set-start-with-windows(on); }
+            }
+        }
+        SettingRow {
+            icon: Glyphs.app;
+            title: "Show in the tray";
+            description: root.show-in-tray ? "The icon in the notification area opens this window, and its menu has quick settings." : "Off: the app keeps running in the background without an icon. To open this window, start Tulpar Control again (from Start or its shortcut). Notifications still show.";
+            HorizontalLayout {
+                spacing: 12px;
+                if !root.show-in-tray: FluentButton {
+                    text: "Exit";
+                    clicked => { root.exit-app(); }
+                }
+                ToggleSwitch {
+                    checked: root.show-in-tray;
+                    toggled(on) => { root.set-show-in-tray(on); }
+                }
             }
         }
         SettingRow {
