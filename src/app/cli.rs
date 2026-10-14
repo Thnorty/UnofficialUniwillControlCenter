@@ -67,7 +67,9 @@ pub(super) fn handle(envelope: Envelope) -> Reply {
     let Some(done) = on_ui(move |app| {
         app.cli_capture.set(true);
         *app.cli_error.borrow_mut() = None;
-        app.run_cli(request)
+        let done = app.run_cli(request);
+        app.send_pending_lighting();
+        done
     }) else {
         return no_answer();
     };
@@ -260,6 +262,10 @@ impl App {
     /// the rest.
     fn cli_lighting(&mut self, kind: Kind, changes: LightingChanges) -> Result<(), Reply> {
         let Some(lighting) = self.lighting(kind) else { return Err(refused("This laptop has no light bar.")) };
+        if lighting.device.is_none() && !self.demo {
+            let name = if kind == Kind::Keyboard { "keyboard" } else { "light bar" };
+            return Err(refused(format!("The {name} can't be reached: it wasn't found, or sending to it failed. The app's window says more.")));
+        }
         if let Some(wanted) = &changes.effect {
             let keys: Vec<&str> = lighting.effects.iter().map(|e| e.key).collect();
             let names: Vec<&str> = lighting.effects.iter().map(|e| e.name).collect();
@@ -304,6 +310,16 @@ impl App {
             self.set_linked(linked);
         }
         Ok(())
+    }
+
+    /// Sends lighting changes now instead of after the window's short pause, so a failure is in the reply. The
+    /// keyboard goes first: a light bar that follows it is queued again by it.
+    fn send_pending_lighting(&mut self) {
+        for kind in [Kind::Keyboard, Kind::LightBar] {
+            if self.lighting(kind).is_some_and(|l| l.pending) {
+                self.apply(kind, false, None);
+            }
+        }
     }
 
     /// The effect's colors, as the window edits them: one or four zone colors, or the palette.

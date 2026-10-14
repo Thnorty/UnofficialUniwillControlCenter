@@ -227,11 +227,11 @@ begin
   end;
 end;
 
-// The machine's PATH (as stored: %SystemRoot% and the like stay unexpanded).
-function MachinePath: String;
+// The machine's PATH as stored (%SystemRoot% and the like stay unexpanded). False if it can't be read, when it's
+// left alone: writing it then would replace everything in it.
+function MachinePath(var Path: String): Boolean;
 begin
-  if not RegQueryStringValue(HKLM, EnvironmentKey, 'Path', Result) then
-    Result := '';
+  Result := RegQueryStringValue(HKLM, EnvironmentKey, 'Path', Path);
 end;
 
 procedure AddToPath(Dir: String);
@@ -239,7 +239,8 @@ var
   Path: String;
   Found: Boolean;
 begin
-  Path := MachinePath;
+  if not MachinePath(Path) then
+    Exit;
   PathWithout(Path, Dir, Found);
   if Found then
     Exit;
@@ -253,7 +254,9 @@ var
   Path: String;
   Found: Boolean;
 begin
-  Path := PathWithout(MachinePath, Dir, Found);
+  if not MachinePath(Path) then
+    Exit;
+  Path := PathWithout(Path, Dir, Found);
   if Found then
     RegWriteExpandStringValue(HKLM, EnvironmentKey, 'Path', Path);
 end;

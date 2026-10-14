@@ -55,8 +55,9 @@ pub fn send(envelope: &Envelope, demo: bool, start: bool) -> Result<Reply, Failu
     send_with_timeout(pipe_name(demo), envelope, start && !demo, READ_TIMEOUT)
 }
 
+/// `read_timeout` also limits the wait while other clients are answered.
 pub fn send_with_timeout(name: &str, envelope: &Envelope, start: bool, read_timeout: Duration) -> Result<Reply, Failure> {
-    let mut pipe = open(name, start)?;
+    let mut pipe = open(name, start, read_timeout)?;
     let envelope = envelope.clone();
     let (tx, rx) = mpsc::channel();
     // The read blocks; a thread lets it give up. A thread still waiting ends with the process.
@@ -71,16 +72,24 @@ pub fn send_with_timeout(name: &str, envelope: &Envelope, start: bool, read_time
     }
 }
 
-/// Connects, waiting while another client is being answered.
-fn open(name: &str, start: bool) -> Result<std::fs::File, Failure> {
+/// Connects, waiting up to `busy_limit` while other clients are being answered.
+fn open(name: &str, start: bool, busy_limit: Duration) -> Result<std::fs::File, Failure> {
     let mut started: Option<Instant> = None;
+    let mut busy_since: Option<Instant> = None;
     loop {
         match OpenOptions::new().read(true).write(true).open(name) {
             Ok(pipe) => return Ok(pipe),
             // ERROR_PIPE_BUSY: another uucc is being answered.
-            Err(e) if e.raw_os_error() == Some(231) => unsafe {
-                let _ = WaitNamedPipeW(&HSTRING::from(name), 5000);
-            },
+            Err(e) if e.raw_os_error() == Some(231) => {
+                let since = *busy_since.get_or_insert_with(Instant::now);
+                let left = busy_limit.saturating_sub(since.elapsed());
+                if left.is_zero() {
+                    return Err(Failure::NoAnswer);
+                }
+                unsafe {
+                    let _ = WaitNamedPipeW(&HSTRING::from(name), left.as_millis().clamp(1, 5000) as u32);
+                }
+            }
             // ERROR_FILE_NOT_FOUND: the app isn't running (yet).
             Err(e) if e.raw_os_error() == Some(2) => match started {
                 None if start => {
@@ -144,6 +153,28 @@ mod tests {
         let result = send_with_timeout(&name, &envelope(), false, Duration::from_secs(1));
         assert!(matches!(result, Err(Failure::NoAnswer)), "{result:?}");
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_pipe_that_stays_busy_gives_up() {
+        let name = format!(r"\\.\pipe\uucc-client-busy-{}", std::process::id());
+        let pipe = unsafe {
+            CreateNamedPipeW(&HSTRING::from(name.as_str()), PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 4096, 4096, 0, None)
+        };
+        let pipe = pipe.0 as usize;
+        std::thread::spawn(move || unsafe {
+            let _ = ConnectNamedPipe(windows::Win32::Foundation::HANDLE(pipe as _), None);
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        // The only instance is taken, and never freed.
+        let _first = std::fs::OpenOptions::new().read(true).write(true).open(&name).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let name2 = name.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(send_with_timeout(&name2, &envelope(), false, Duration::from_secs(1)));
+        });
+        let result = rx.recv_timeout(Duration::from_secs(15)).expect("uucc kept waiting for a busy pipe");
+        assert!(matches!(result, Err(Failure::NoAnswer)), "{result:?}");
     }
 
     #[test]

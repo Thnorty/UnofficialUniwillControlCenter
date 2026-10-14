@@ -49,6 +49,12 @@ impl SystemStatus {
         }
     }
 
+    /// Readings stop for a while: the next CPU load is over that whole time, so there's none until the read after.
+    pub fn pause(&mut self) {
+        self.last_times = None;
+        self.cpu_load = None;
+    }
+
     fn read_battery(&mut self) {
         let mut power = SYSTEM_POWER_STATUS::default();
         let ok = unsafe { GetSystemPowerStatus(&mut power) }.is_ok();
@@ -243,5 +249,22 @@ impl Nvml {
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn load_after_a_pause_waits_for_a_second_read() {
+        let mut status = SystemStatus::default();
+        status.update(Inputs::CPU_LOAD);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        status.update(Inputs::CPU_LOAD);
+        assert!(status.cpu_load.is_some());
+        status.pause();
+        status.update(Inputs::CPU_LOAD);
+        assert_eq!(status.cpu_load, None);
     }
 }

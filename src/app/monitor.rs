@@ -20,6 +20,8 @@ const HISTORY: usize = 60;
 const PERFORMANCE_PAGE: i32 = 4;
 const BATTERY_PAGE: i32 = 5;
 const MONITOR_PAGE: i32 = 6;
+/// A reading older than this isn't shown by `uucc status` as the current one.
+const CURRENT: Duration = Duration::from_secs(3);
 
 #[derive(Clone, Copy)]
 pub(super) struct Sample {
@@ -80,8 +82,9 @@ impl App {
         newer >= 2 || self.monitor.history.back().is_some_and(|s| s.taken > t && s.cpu_load.is_some())
     }
 
+    /// The newest reading, if it's current.
     pub(super) fn latest_sample(&self) -> Option<Sample> {
-        self.monitor.history.back().copied()
+        current(self.monitor.history.back().copied())
     }
 
     /// Reads only while a page that shows the readings is open.
@@ -224,6 +227,10 @@ impl App {
     }
 }
 
+fn current(sample: Option<Sample>) -> Option<Sample> {
+    sample.filter(|s| s.taken.elapsed() < CURRENT)
+}
+
 fn battery_state(sample: &Sample) -> String {
     let rate = sample.battery.rate.filter(|&r| r != 0).map(|r| format!("{:.1} W", r.unsigned_abs() as f64 / 1000.0));
     match (sample.battery_percent, sample.on_ac, sample.charging) {
@@ -292,6 +299,7 @@ fn monitor_thread(wanted: Arc<AtomicBool>, until: Arc<Mutex<Option<Instant>>>, s
         std::thread::sleep(Duration::from_millis(1000));
         let asked = until.lock().unwrap_or_else(|e| e.into_inner()).is_some_and(|until| Instant::now() < until);
         if !wanted.load(Ordering::Acquire) && !asked {
+            status.pause();
             continue;
         }
         let sample = if demo {
@@ -345,5 +353,33 @@ fn demo_sample(t: f32) -> Sample {
         charging: true,
         on_ac: true,
         battery: BatteryDetails { designed: Some(62_000), full: Some(57_300), remaining: Some(47_000), rate: Some(24_800), voltage: Some(12_430), cycles: Some(143) },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample(age: Duration) -> Sample {
+        Sample {
+            taken: Instant::now() - age,
+            cpu_temperature: Some(50.0),
+            cpu_load: None,
+            gpu_temperature: None,
+            gpu_off: false,
+            fans: None,
+            memory: None,
+            battery_percent: None,
+            charging: false,
+            on_ac: false,
+            battery: BatteryDetails::default(),
+        }
+    }
+
+    #[test]
+    fn old_readings_are_not_current() {
+        assert!(current(Some(sample(Duration::from_millis(500)))).is_some());
+        assert!(current(Some(sample(Duration::from_secs(60)))).is_none());
+        assert!(current(None).is_none());
     }
 }

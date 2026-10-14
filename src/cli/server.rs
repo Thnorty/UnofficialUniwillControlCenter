@@ -29,10 +29,7 @@ pub fn start(name: &str, handle: impl Fn(Envelope) -> Reply + Send + 'static) ->
     std::thread::Builder::new().name("CLI server".into()).spawn(move || {
         let pipe = pipe;
         loop {
-            // A client that connected between creating and connecting is fine too (ERROR_PIPE_CONNECTED).
-            if let Err(e) = unsafe { ConnectNamedPipe(pipe.0, None) }
-                && e.code() != windows::Win32::Foundation::ERROR_PIPE_CONNECTED.to_hresult()
-            {
+            if !accept(pipe.0) {
                 std::thread::sleep(Duration::from_millis(100));
                 continue;
             }
@@ -43,6 +40,22 @@ pub fn start(name: &str, handle: impl Fn(Envelope) -> Reply + Send + 'static) ->
         }
     })?;
     Ok(())
+}
+
+/// Waits for a client; false if the connect failed.
+fn accept(pipe: HANDLE) -> bool {
+    match unsafe { ConnectNamedPipe(pipe, None) } {
+        Ok(()) => true,
+        // A client that connected between creating and connecting is fine too.
+        Err(e) if e.code() == windows::Win32::Foundation::ERROR_PIPE_CONNECTED.to_hresult() => true,
+        // Such as a client that hung up before this (ERROR_NO_DATA): until it's disconnected, the pipe stays busy.
+        Err(_) => {
+            unsafe {
+                let _ = DisconnectNamedPipe(pipe);
+            }
+            false
+        }
+    }
 }
 
 /// A handle moved to another thread.
@@ -165,6 +178,25 @@ mod tests {
     use std::fs::{File, OpenOptions};
     use windows::Win32::System::Pipes::WaitNamedPipeW;
     use windows::core::HSTRING;
+
+    #[test]
+    fn a_client_gone_before_the_connect_leaves_the_pipe_usable() {
+        let name = test_pipe("gone");
+        let pipe = create(&name).unwrap();
+        drop(OpenOptions::new().read(true).write(true).open(&name).unwrap());
+        assert!(!accept(pipe)); // ERROR_NO_DATA: it hung up already
+        // As the server's loop does: wait for the next client.
+        let (tx, rx) = mpsc::channel();
+        let waiting = Pipe(pipe);
+        std::thread::spawn(move || {
+            let waiting = waiting;
+            let _ = tx.send(accept(waiting.0));
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        let again = OpenOptions::new().read(true).write(true).open(&name);
+        assert!(again.is_ok(), "the next client can't connect: {again:?}");
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)), Ok(true));
+    }
 
     fn test_pipe(test: &str) -> String {
         format!(r"\\.\pipe\uucc-test-{}-{test}", std::process::id())

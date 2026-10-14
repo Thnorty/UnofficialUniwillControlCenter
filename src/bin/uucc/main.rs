@@ -40,7 +40,7 @@ fn run(args: &[String]) -> i32 {
     let (code, message) = match connect::send(&envelope, demo, command.start) {
         Ok(Reply::Ok(result)) => {
             if command.json {
-                println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default());
+                println!("{}", output::ascii_json(&serde_json::to_string_pretty(&result).unwrap_or_default()));
             } else {
                 println!("{}", output::text(&request, &result));
             }
@@ -50,7 +50,7 @@ fn run(args: &[String]) -> i32 {
         Err(failure) => (failure.code(), failure.message()),
     };
     if command.json {
-        println!("{}", serde_json::json!({ "error": { "code": code, "message": message } }));
+        println!("{}", output::ascii_json(&serde_json::json!({ "error": { "code": code, "message": message } }).to_string()));
     } else {
         eprintln!("uucc: {message}");
     }

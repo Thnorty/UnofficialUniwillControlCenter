@@ -157,7 +157,9 @@ uucc gpu-mode hybrid                          # takes effect when the laptop res
 ```
 
 A command without a value shows the setting. Values can be shortened while they stay unique (`uucc mode tur`).
-`--json` prints the reply as JSON, for scripts. `--start` starts the app in the tray first if it isn't running
+`--json` prints the reply as JSON, for scripts; it's plain ASCII (other letters as `\uXXXX`), so it reads right
+however it's captured. To capture the text output with names like "Gece Modu – Sessiz" in PowerShell, run
+`[Console]::OutputEncoding = [Text.Encoding]::UTF8` first. `--start` starts the app in the tray first if it isn't running
 (through its startup task, or else with a UAC prompt); without it `uucc` fails. `uucc help COMMAND` shows a command's
 options.
 

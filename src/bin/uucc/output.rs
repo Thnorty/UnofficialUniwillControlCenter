@@ -132,11 +132,36 @@ fn status(s: StatusResult) -> String {
     lines.join("\n")
 }
 
+/// `json` with every non-ASCII character escaped (`\uXXXX`), so it reads the same in any code page.
+pub fn ascii_json(json: &str) -> String {
+    let mut out = String::with_capacity(json.len());
+    for c in json.chars() {
+        if c.is_ascii() {
+            out.push(c);
+        } else {
+            // Outside strings JSON is all ASCII, so every one of these is inside a string.
+            for unit in c.encode_utf16(&mut [0; 2]) {
+                out += &format!("\\u{unit:04x}");
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::protocol::{Request, SetupResult};
     use serde_json::json;
+
+    #[test]
+    fn json_is_ascii() {
+        let value = json!({"setups": ["Gece Modu – Sessiz", "Çay 🍵"], "unit": "°C"});
+        let shown = ascii_json(&serde_json::to_string_pretty(&value).unwrap());
+        assert!(shown.is_ascii(), "{shown}");
+        assert!(shown.contains(r"Gece Modu \u2013 Sessiz"), "{shown}");
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&shown).unwrap(), value);
+    }
 
     #[test]
     fn mode_shows_the_mode() {
