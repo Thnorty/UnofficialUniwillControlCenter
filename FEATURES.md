@@ -95,7 +95,7 @@ Control Center's overclocking settings for Intel laptops:
   when the CPU needs less, so it can draw up to 130 W. As Control Center's SetUserProfile sends them on each mode
   change: EC 0x744 the watts above the default, 0x745/0x746 Dynamic Boost's target (255) and watts, and 0x743 bit 2
   TGP is the app's, bit 1 Dynamic Boost on, bit 0 set by the app. Without bit 2 the EC picks the TGP for the mode
-  (+10 W in Office and +35 W in Turbo here), which the page shows. The EC passes the values to the BIOS's own fields (0x788 CTWA,
+  (+10 W in Office and Gaming and +35 W in Turbo here), which the page shows. The EC passes the values to the BIOS's own fields (0x788 CTWA,
   0x7C4 bit 3 DBEN, 0x7D4 CPUA, 0x7D5 DBAP) and raises _Q83/_Q84, which hand them to NVIDIA's driver within about
   2 s. Dynamic Boost is on and the TGP the EC's unless changed, as in Control Center's profiles; on battery both are
   left to the EC.

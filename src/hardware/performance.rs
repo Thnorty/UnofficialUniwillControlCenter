@@ -26,7 +26,7 @@ const DEFAULT_TCC: u16 = 0x7D8; // Gaming, Office, Turbo (GetTCCDefaultValue)
 const TURBO_SUPPORT: u16 = 0x49F; // bit 1 (MyEcCtrl.GetTurboModeSupport)
 const MODE_OPTIONS: u16 = 0x782; // bit 4: the default mode is Gaming, not Office
 // ADDR_ConfigurableTGP_DynamicBoost_CTRL_BYTE: bit 0 Dynamic Boost set by the app, bit 1 Dynamic Boost on, bit 2
-// the configurable TGP is the app's (0x744); without it the EC picks its own for the mode (+10 W in Office, +35 W in Turbo here).
+// the configurable TGP is the app's (0x744); without it the EC picks its own for the mode (+10 W in Office and Gaming, +35 W in Turbo here).
 // The EC passes them on within about 2 s: the BIOS's fields below, then an event (_Q83, _Q84) that has NVIDIA's
 // driver read them again.
 const GPU_POWER_CONTROL: u16 = 0x743;
