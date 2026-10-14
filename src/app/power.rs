@@ -32,14 +32,14 @@ pub(super) struct Power {
     ready: bool,
     /// The settings hold the user's choices (not the first run).
     chosen: bool,
-    turbo: bool,
+    pub turbo: bool,
     default_mode: Mode,
     fan_tables: bool,
     pub mode: Mode,
     pub fan_boost: bool,
     limits: Option<PowerLimits>,
     pub on_ac: bool,
-    charge: ChargeMode,
+    pub charge: ChargeMode,
     defaults: [Option<Table>; 3],
     curves: [Option<FanCurve>; 3],
     curve_fan: usize, // 0: CPU, 1: GPU
@@ -60,8 +60,8 @@ pub(super) struct Power {
     pub tuning: [Tuning; 3],
     tuning_timer: slint::Timer,
     /// Each mode's profiles, "Standard" first, and the active one, whose values are `tuning` and `curves`.
-    profiles: [Vec<ModeProfile>; 3],
-    active_profile: [usize; 3],
+    pub profiles: [Vec<ModeProfile>; 3],
+    pub active_profile: [usize; 3],
     /// The current mode's profile names, for the page.
     pub profile_model: Rc<VecModel<SharedString>>,
     /// USB charging while off: whether the laptop has it, whether it's on, and whether the user chose that.
@@ -953,11 +953,10 @@ impl App {
 
     // ---- The pages ------------------------------------------------------------------------------------------------
 
-    pub(super) fn refresh_power(&self) {
-        let Some(ui) = self.ui() else { return };
+    /// What the Performance page says about whether modes, fans and charging can be set here.
+    pub(super) fn power_note(&self) -> String {
         let power = &self.power;
-        let available = power.available(self.demo);
-        let note = if self.demo {
+        if self.demo {
             "Demo mode: nothing is sent to the laptop.".to_string()
         } else if let Some(reason) = &power.ec_error {
             format!("Can't reach the laptop's embedded controller: {reason}")
@@ -967,7 +966,14 @@ impl App {
             "Connecting to the laptop's embedded controller…".to_string()
         } else {
             String::new()
-        };
+        }
+    }
+
+    pub(super) fn refresh_power(&self) {
+        let Some(ui) = self.ui() else { return };
+        let power = &self.power;
+        let available = power.available(self.demo);
+        let note = self.power_note();
         ui.set_perf_available(available);
         ui.set_perf_note(note.clone().into());
         ui.set_perf_mode(power.mode.index() as i32);

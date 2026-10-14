@@ -5,13 +5,14 @@
 
 mod backup;
 mod bios;
+mod cli;
 mod display;
 mod monitor;
 mod plugins;
 mod power;
 mod setups;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -343,6 +344,11 @@ pub struct App {
     bios: bios::Bios,
     plugins: plugins::Plugins,
     setups: setups::Setups,
+    /// While a `uucc` command runs: error messages shown are also kept for its reply.
+    cli_capture: Cell<bool>,
+    cli_error: RefCell<Option<String>>,
+    /// The keyboard's brightness before `uucc keyboard off`, for `uucc keyboard on`.
+    keyboard_before_off: Option<u8>,
 }
 
 fn colors_model(colors: &[Rgb]) -> Rc<VecModel<slint::Color>> {
@@ -456,9 +462,14 @@ impl App {
             bios: bios::Bios::default(),
             plugins: plugins::Plugins::default(),
             setups: setups::Setups::default(),
+            cli_capture: Cell::new(false),
+            cli_error: RefCell::new(None),
+            keyboard_before_off: None,
         };
         APP.with(|cell| *cell.borrow_mut() = Some(app));
         connect_callbacks(ui);
+        // Without the pipe (another program has its name) the app runs on, without uucc.
+        let _ = crate::cli::server::start(crate::cli::protocol::pipe_name(demo), cli::handle);
 
         with_app(move |app| {
             app.create_tray();
@@ -1238,6 +1249,9 @@ impl App {
     }
 
     fn set_status(&self, text: &str, error: bool, retry: bool) {
+        if error && self.cli_capture.get() {
+            *self.cli_error.borrow_mut() = Some(text.to_string());
+        }
         let Some(ui) = self.ui() else { return };
         ui.set_status_text(text.into());
         ui.set_status_error(error);

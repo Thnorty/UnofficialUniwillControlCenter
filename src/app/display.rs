@@ -14,7 +14,12 @@ const MODES: [(&str, DisplayValues); 4] = [
 ];
 
 impl App {
-    fn display_mode(&self) -> usize {
+    /// The display modes' names, in the order `display_mode` counts them.
+    pub(super) fn display_mode_names() -> Vec<&'static str> {
+        MODES.iter().map(|(name, _)| *name).collect()
+    }
+
+    pub(super) fn display_mode(&self) -> usize {
         self.settings.display.mode.min(MODES.len() - 1)
     }
 

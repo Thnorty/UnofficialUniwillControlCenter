@@ -19,13 +19,13 @@ const FACTORY_LIGHT_BAR: ([u8; 8], [u8; 8]) = ([0x08, 0x02, 0x21, 0x05, 0x24, 0x
 pub(super) struct Bios {
     variable: Option<Variable>,
     error: Option<String>,
-    busy: bool,
+    pub busy: bool,
     /// The voltage offset chosen on the page but not yet saved, mV.
     voltage: Option<i32>,
     /// Saved since the app started, so the laptop needs a restart for it.
     voltage_saved: bool,
     /// The GPU mode the laptop started in, as first read.
-    gpu_mode_started: Option<GpuMode>,
+    pub gpu_mode_started: Option<GpuMode>,
 }
 
 fn startup_of(kind: Kind) -> Startup {
@@ -134,7 +134,7 @@ impl App {
         });
     }
 
-    fn bios_writable(&self) -> Result<(), String> {
+    pub(super) fn bios_writable(&self) -> Result<(), String> {
         if self.demo {
             return Err("Demo mode: nothing is saved to the BIOS.".into());
         }
@@ -270,7 +270,7 @@ impl App {
 
     // ---- GPU mode ---------------------------------------------------------------------------------------------------
 
-    fn gpu_mode(&self) -> Option<GpuMode> {
+    pub(super) fn gpu_mode(&self) -> Option<GpuMode> {
         if self.demo {
             return Some(GpuMode::Hybrid);
         }
