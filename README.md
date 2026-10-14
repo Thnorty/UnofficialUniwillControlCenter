@@ -77,7 +77,7 @@ in one small app that looks like Windows 11.
 <td width="50%"><img src="docs/images/light-bar.png" alt="Light bar page"><br><sub><b>Light bar:</b> its own effects, or the same as the keyboard.</sub></td>
 </tr>
 <tr>
-<td><img src="docs/images/performance.png" alt="Performance page"><br><sub><b>Performance:</b> modes, their profiles, and the CPU tuning.</sub></td>
+<td><img src="docs/images/performance.png" alt="Performance page"><br><sub><b>Performance:</b> modes, their profiles, and the CPU and GPU tuning.</sub></td>
 <td><img src="docs/images/fan-curve.png" alt="Fan curve editor"><br><sub><b>Fan curves:</b> drag the points; the laptop's own curve is drawn underneath.</sub></td>
 </tr>
 <tr>
@@ -110,7 +110,9 @@ in one small app that looks like Windows 11.
    - It installs to `Program Files`, adds a Start menu entry, and by default **starts the app in the tray when you
      sign in** (the same as **Start with Windows** in Settings, so it can be turned off there).
    - The installer isn't signed, so Windows SmartScreen may warn about it: choose **More info › Run anyway**.
-   - Installing a new version over an old one closes the running app first, handing the Fn keys and fans back.
+   - Installing a new version over an old one closes the running app first, handing the Fn keys and fans back. The
+     installer says it's an update (from which version to which), keeps your choices, and leaves starting with
+     Windows as the app's switch has it.
 2. The app needs administrator rights, because the Fn keys, the performance modes, the fans and battery care go
    through the BIOS's WMI interface. Opening it while it runs (from Start or a shortcut) just shows its window, with
    no UAC prompt. When it isn't running, it starts through its startup task with no prompt too, or asks for them if

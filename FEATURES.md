@@ -133,9 +133,11 @@ Control Center's overclocking settings for Intel laptops:
 
 ### App behavior
 - **Installer:** installs to Program Files with a Start menu entry, and by default starts the app with Windows. An
-  upgrade closes the running app first (`--exit`, which hands the Fn keys and fans back); uninstalling removes the
-  startup task and asks whether to remove the settings and plugins too (ticked to begin with), which also removes
-  the hooks plugins added to Claude Code and the copy of its settings kept before them.
+  upgrade closes the running app first (`--exit`, which hands the Fn keys and fans back). It tells an upgrade from an
+  install by the version in its uninstall key: an upgrade goes straight to an "Update from X to Y" page (or Reinstall,
+  or an older version), keeps the earlier choices and leaves the startup task as the app's switch has it. Uninstalling
+  removes the startup task and asks whether to remove the settings and plugins too (ticked to begin with), which also
+  removes the hooks plugins added to Claude Code and the copy of its settings kept before them.
 - **Tray:** runs in the tray and can start with Windows. The tray menu has the performance mode and Fan Boost.
   **Show in the tray** (Settings) turns the icon off: the app keeps running, notifications still show, starting it
   again opens the window. **Exit** at the bottom of Settings closes the app, with or without the icon.
