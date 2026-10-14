@@ -101,7 +101,8 @@ export component ToggleSwitch inherits Rectangle {
     in property <bool> enabled: true;
     in property <bool> show-label: true;
     callback toggled(bool);
-    min-width: show-label ? 88px : 40px;
+    // A fixed width, so "On" and "Off" don't move what's beside it.
+    width: show-label ? 88px : 40px;
     height: 32px;
     HorizontalLayout {
         spacing: 12px;
