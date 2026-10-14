@@ -1,6 +1,6 @@
 [package]
 name = "unofficial-uniwill-control-center"
-version = "3.1.0"
+version = "3.2.0"
 edition = "2024"
 description = "Lighting, performance modes, fans and battery care for laptops built by Uniwill"
 publish = false
