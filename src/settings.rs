@@ -240,6 +240,21 @@ fn old_paths() -> impl Iterator<Item = PathBuf> {
     [TULPAR_FOLDER, "MonsterKeyboardRGB"].into_iter().filter_map(|name| folder(name).map(|f| f.join("settings.json")))
 }
 
+/// For uninstalling: removes the app's folder (settings and plugins), the folders it had under its earlier names and
+/// the demo's. Returns whether they're all gone.
+pub fn remove_folders() -> bool {
+    let demo = crate::plugins::store::plugins_dir(true).and_then(|p| p.parent().map(PathBuf::from));
+    [FOLDER, TULPAR_FOLDER, "MonsterKeyboardRGB"]
+        .into_iter()
+        .filter_map(folder)
+        .chain(demo)
+        .map(|dir| match std::fs::remove_dir_all(&dir) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => false,
+            _ => true,
+        })
+        .fold(true, |all, removed| all && removed)
+}
+
 /// Moves the folder the app had as Tulpar Control (settings and plugins) to its name now, the first time.
 pub fn migrate_folder() {
     if let (Some(old), Some(new)) = (folder(TULPAR_FOLDER), folder(FOLDER))

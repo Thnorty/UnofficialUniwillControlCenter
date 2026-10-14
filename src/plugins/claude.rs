@@ -75,6 +75,19 @@ fn is_ours(hook: &Value, url: &str) -> bool {
         || (hook.get("type").and_then(Value::as_str) == Some("http") && hook.get("url").and_then(Value::as_str) == Some(url))
 }
 
+/// Whether a hook posts to one of the app's plugins, whichever it is.
+fn is_app_hook(hook: &Value) -> bool {
+    let prefix = super::url_for("");
+    match hook.get("type").and_then(Value::as_str) {
+        Some("command") => hook.get("command").and_then(Value::as_str).is_some_and(|c| {
+            let url = c.strip_suffix("; exit 0").and_then(|rest| rest.rsplit(' ').next()).unwrap_or_default();
+            url.starts_with(&prefix) && command(url) == c
+        }),
+        Some("http") => hook.get("url").and_then(Value::as_str).is_some_and(|u| u.starts_with(&prefix)),
+        _ => false,
+    }
+}
+
 fn has(groups: &[Value], test: impl Fn(&Value) -> bool) -> bool {
     groups.iter().any(|g| g.get("hooks").and_then(Value::as_array).is_some_and(|h| h.iter().any(&test)))
 }
@@ -93,9 +106,23 @@ pub fn install(url: &str, events: &[String]) -> Result<usize> {
 /// Removes every hook posting to `url`. Returns how many were removed.
 pub fn remove(url: &str) -> Result<usize> {
     let (path, mut settings) = read()?;
-    let removed = remove_hooks(&mut settings, url);
+    let removed = remove_hooks(&mut settings, |h| is_ours(h, url));
     if removed > 0 {
         write(&path, &settings)?;
+    }
+    Ok(removed)
+}
+
+/// For uninstalling: removes the hooks of every plugin, and the copy of the settings kept before the first change.
+/// Returns how many hooks were removed.
+pub fn remove_all() -> Result<usize> {
+    let (path, mut settings) = read()?;
+    let removed = remove_hooks(&mut settings, is_app_hook);
+    if removed > 0 {
+        write(&path, &settings)?;
+    }
+    for backup in ["json.uucc-backup", "json.tulpar-backup"] {
+        let _ = fs::remove_file(path.with_extension(backup));
     }
     Ok(removed)
 }
@@ -130,7 +157,7 @@ fn add_hooks(settings: &mut Map<String, Value>, url: &str, events: &[String]) ->
     Ok(added)
 }
 
-fn remove_hooks(settings: &mut Map<String, Value>, url: &str) -> usize {
+fn remove_hooks(settings: &mut Map<String, Value>, test: impl Fn(&Value) -> bool) -> usize {
     let mut removed = 0;
     if let Some(hooks) = settings.get_mut("hooks").and_then(Value::as_object_mut) {
         for groups in hooks.values_mut() {
@@ -138,7 +165,7 @@ fn remove_hooks(settings: &mut Map<String, Value>, url: &str) -> usize {
             for group in groups.iter_mut() {
                 if let Some(list) = group.get_mut("hooks").and_then(Value::as_array_mut) {
                     let before = list.len();
-                    list.retain(|h| !is_ours(h, url));
+                    list.retain(|h| !test(h));
                     removed += before - list.len();
                 }
             }
@@ -179,7 +206,7 @@ mod tests {
         assert_eq!(settings["hooks"]["PreToolUse"][0]["matcher"], "*");
         assert_eq!(settings["hooks"]["PreToolUse"][0]["hooks"][0]["async"], true);
         assert!(add_hooks(&mut settings, URL, &["SessionStart".to_string()]).is_err());
-        assert_eq!(remove_hooks(&mut settings, URL), 2);
+        assert_eq!(remove_hooks(&mut settings, |h| is_ours(h, URL)), 2);
         let after = serde_json::to_string(&settings).unwrap();
         // Back as it was, keys in their order.
         assert_eq!(after, r#"{"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"beep"}]}]},"zeta":1}"#);
@@ -203,7 +230,25 @@ mod tests {
         assert_eq!(pre.len(), 2);
         assert_eq!(pre[0]["hooks"].as_array().unwrap().len(), 1);
         assert_eq!(pre[0]["hooks"][0]["command"], "beep");
-        assert_eq!(remove_hooks(&mut settings, URL), 2);
+        assert_eq!(remove_hooks(&mut settings, |h| is_ours(h, URL)), 2);
         assert_eq!(settings["hooks"]["PreToolUse"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn removes_every_plugins_hooks() {
+        let other = crate::plugins::url_for("another");
+        let text = format!(
+            r#"{{ "hooks": {{ "Stop": [ {{ "hooks": [ {{ "type": "http", "url": "{other}" }}, {{ "type": "command", "command": "curl.exe {URL}" }},
+                {{ "type": "http", "url": "http://127.0.0.1:9/plugins/x" }} ] }} ] }} }}"#
+        );
+        let Value::Object(mut settings) = serde_json::from_str(&text).unwrap() else { panic!() };
+        add_hooks(&mut settings, URL, &["Stop".to_string(), "PreToolUse".to_string()]).unwrap();
+        add_hooks(&mut settings, &other, &["Stop".to_string()]).unwrap();
+        // The other plugin's HTTP hook was replaced, so: two of this plugin's, one of the other's.
+        assert_eq!(remove_hooks(&mut settings, is_app_hook), 3);
+        // A command that only mentions the address, and a hook to another port, stay.
+        let stop = settings["hooks"]["Stop"][0]["hooks"].as_array().unwrap();
+        assert_eq!(stop.len(), 2);
+        assert!(settings["hooks"].get("PreToolUse").is_none());
     }
 }

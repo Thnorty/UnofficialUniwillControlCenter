@@ -15,7 +15,8 @@ These plugins come with the app:
 
   Press **Connect Claude Code** once. This adds hooks to `%USERPROFILE%\.claude\settings.json`, and a copy of
   the file as it was is kept next to it as `settings.json.uucc-backup` (`settings.json.tulpar-backup` if it was
-  connected while the app was called Tulpar Control). **Disconnect** removes only those hooks.
+  connected while the app was called Tulpar Control). **Disconnect** removes only those hooks. Uninstalling the app
+  with its settings and plugins removes them too, with the copy.
   Each hook sends its event to the app with `curl.exe` in the background, so Claude Code doesn't wait for it, and
   while the app is closed nothing is reported. Hooks added by an earlier version (HTTP hooks, which Claude Code
   showed as failed while the app was closed) are replaced when the app starts.

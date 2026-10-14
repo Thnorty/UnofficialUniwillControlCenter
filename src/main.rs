@@ -28,6 +28,12 @@ fn main() {
     if has("--exit") {
         std::process::exit(if shell::instance::close_running(std::time::Duration::from_secs(30)) { 0 } else { 1 });
     }
+    // When the uninstaller is asked to remove everything. It closes the app first ("--exit"), which would write them again.
+    if has("--remove-data") {
+        let hooks = plugins::claude::remove_all().is_ok();
+        let folders = settings::remove_folders();
+        std::process::exit(if hooks && folders { 0 } else { 1 });
+    }
     if has("--enable-startup") || has("--disable-startup") {
         let result = if has("--enable-startup") { hardware::system::startup::enable() } else { hardware::system::startup::disable() };
         std::process::exit(if result.is_ok() { 0 } else { 1 });

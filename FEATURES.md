@@ -120,10 +120,11 @@ Control Center's CPU overclocking settings for Intel laptops:
 ### App behavior
 - **Installer:** installs to Program Files with a Start menu entry, and by default starts the app with Windows. An
   upgrade closes the running app first (`--exit`, which hands the Fn keys and fans back); uninstalling removes the
-  startup task and keeps the settings.
+  startup task and asks whether to remove the settings and plugins too (ticked to begin with), which also removes
+  the hooks plugins added to Claude Code and the copy of its settings kept before them.
 - **Tray:** runs in the tray and can start with Windows. The tray menu has the performance mode and Fan Boost.
   **Show in the tray** (Settings) turns the icon off: the app keeps running, notifications still show, starting it
-  again opens the window, and an Exit button is in Settings.
+  again opens the window. **Exit** at the bottom of Settings closes the app, with or without the icon.
 - **First start:** before it sends anything to the laptop, a one-time question says the app is unofficial and what it
   writes to, and whether this laptop is the tested Monster Tulpar T5 V21.4 (from the firmware's maker and model).
   Cancel quits.

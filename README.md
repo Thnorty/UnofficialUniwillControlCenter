@@ -115,7 +115,9 @@ in one small app that looks like Windows 11.
 3. On its first start it says what it does and asks whether to go on (see [Compatibility](#compatibility)).
 
 To keep it running without a tray icon, turn off **Show in the tray** in Settings; starting the app again opens its
-window. Uninstalling (Settings › Apps) removes the app and its startup task, and keeps your settings.
+window; **Exit** at the bottom of Settings closes it. Uninstalling (Settings › Apps) removes the app and its startup
+task, and by default your settings and plugins too, with the hooks plugins added to Claude Code (untick that to keep
+them).
 
 > [!NOTE]
 > **Control Center can stay installed.** While its service (GCUService) runs, this app leaves the Fn keys, the
@@ -224,7 +226,9 @@ target-demo\release\UnofficialUniwillControlCenter.exe --demo
   6 Monitor, 7 Plugins, 8 Setups, 9 Display.
 - `--tray` starts in the tray, and `--osd-test` shows the pop-ups once.
 - For the installer: `--enable-startup` and `--disable-startup` add or remove the startup task, and `--exit` closes
-  the running app as its Exit menu does and waits until it's gone.
+  the running app as its Exit menu does and waits until it's gone. `--remove-data` removes the settings and plugins
+  (also from the app's earlier names) and the plugins' Claude Code hooks, for the uninstaller, which closes the app
+  first. A silent uninstall keeps them unless `/REMOVEDATA` is given.
 
 </details>
 

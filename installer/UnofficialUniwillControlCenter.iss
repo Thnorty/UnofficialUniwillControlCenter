@@ -71,6 +71,9 @@ Filename: "{app}\{#AppExe}"; Parameters: "--exit"; RunOnceId: "Exit"; Flags: run
 Filename: "{app}\{#AppExe}"; Parameters: "--disable-startup"; RunOnceId: "DisableStartup"; Flags: runhidden waituntilterminated
 
 [Code]
+var
+  RemoveData: Boolean;
+
 // Before files are replaced: quit the running app (whichever copy it is) the way its Exit menu does, so the Fn keys
 // and the fans are handed back to the laptop. The new exe is used, since an older one doesn't know --exit.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -81,4 +84,85 @@ begin
   ExtractTemporaryFile('{#AppExe}');
   if not Exec(ExpandConstant('{tmp}\{#AppExe}'), '--exit', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
     Result := '{#AppName} is still running. Close it from its tray icon (Exit), then try again.';
+end;
+
+function HasParam(Name: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), Name) = 0 then
+      Result := True;
+end;
+
+// Once the uninstall is confirmed: whether to remove the settings and the plugins too, ticked to begin with. Without a
+// window (/SILENT or /VERYSILENT) they're kept, unless /REMOVEDATA is given.
+function AskRemoveData: Boolean;
+var
+  Form: TSetupForm;
+  Text: TNewStaticText;
+  Box: TNewCheckBox;
+  Button: TNewButton;
+begin
+  Form := CreateCustomForm(ScaleX(400), ScaleY(128), False, True);
+  try
+    Form.Caption := '{#AppName} Uninstall';
+
+    Text := TNewStaticText.Create(Form);
+    Text.Parent := Form;
+    Text.Left := ScaleX(16);
+    Text.Top := ScaleY(16);
+    Text.Width := Form.ClientWidth - ScaleX(32);
+    Text.AutoSize := False;
+    Text.WordWrap := True;
+    Text.Height := ScaleY(46);
+    Text.Caption := 'Your settings and plugins are in ' + ExpandConstant('{userappdata}\UnofficialUniwillControlCenter') + '. ' +
+      'Plugins may also have added hooks to Claude Code''s settings.';
+
+    Box := TNewCheckBox.Create(Form);
+    Box.Parent := Form;
+    Box.Left := ScaleX(16);
+    Box.Top := ScaleY(68);
+    Box.Width := Form.ClientWidth - ScaleX(32);
+    Box.Height := ScaleY(20);
+    Box.Caption := 'Remove my settings and plugins too';
+    Box.Checked := True;
+
+    Button := TNewButton.Create(Form);
+    Button.Parent := Form;
+    Button.Caption := 'Continue';
+    Button.Width := Form.CalculateButtonWidth([Button.Caption]);
+    Button.Height := ScaleY(23);
+    Button.Left := Form.ClientWidth - Button.Width - ScaleX(16);
+    Button.Top := Form.ClientHeight - Button.Height - ScaleY(12);
+    Button.ModalResult := mrOk;
+    Button.Default := True;
+    Button.Cancel := True;
+
+    Form.ActiveControl := Button;
+    Form.ShowModal();
+    Result := Box.Checked;
+  finally
+    Form.Free();
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Code: Integer;
+begin
+  case CurUninstallStep of
+    usAppMutexCheck:
+      if UninstallSilent then
+        RemoveData := HasParam('/REMOVEDATA')
+      else
+        RemoveData := AskRemoveData;
+    // Before the exe is removed: the app is closed, then it removes the folders and the plugins' Claude Code hooks.
+    usUninstall:
+      if RemoveData then begin
+        Exec(ExpandConstant('{app}\{#AppExe}'), '--exit', '', SW_HIDE, ewWaitUntilTerminated, Code);
+        Exec(ExpandConstant('{app}\{#AppExe}'), '--remove-data', '', SW_HIDE, ewWaitUntilTerminated, Code);
+      end;
+  end;
 end;
