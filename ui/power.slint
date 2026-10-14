@@ -482,28 +482,6 @@ export component PerformancePage inherits VerticalLayout {
         text: "The performance key on the keyboard switches modes too. On battery the laptop sets its own power limits.";
     }
 
-    if root.gpu-mode-shown: VerticalLayout {
-        padding-top: 20px;
-        spacing: 4px;
-        SectionHeader {
-            text: "Graphics";
-            height: 28px;
-            vertical-alignment: top;
-        }
-        SettingRow {
-            icon: Glyphs.display;
-            title: "GPU mode";
-            description: root.gpu-mode-note;
-            ComboBox {
-                width: 220px;
-                model: ["Hybrid (MSHybrid)", "Intel graphics only", "NVIDIA graphics only"];
-                enabled: root.gpu-mode-available;
-                current-index <=> root.gpu-mode;
-                selected => { root.set-gpu-mode(self.current-index); }
-            }
-        }
-    }
-
     VerticalLayout {
         padding-top: 20px;
         spacing: 4px;
@@ -558,7 +536,7 @@ export component PerformancePage inherits VerticalLayout {
         padding-top: 20px;
         spacing: 4px;
         SectionHeader {
-            text: (root.tuning.gpu-available ? "CPU and GPU tuning for " : "CPU tuning for ") + root.mode-names[root.mode] + " mode";
+            text: "CPU for " + root.mode-names[root.mode] + " mode";
             height: 28px;
             vertical-alignment: top;
         }
@@ -632,36 +610,6 @@ export component PerformancePage inherits VerticalLayout {
                 }
             }
         }
-        if root.tuning.gpu-available && root.tuning.gpu-extra-available: SettingRow {
-            icon: Glyphs.display;
-            title: "GPU power limit";
-            description: root.tuning.gpu-custom ? "Used on the charger in this mode; on battery the laptop picks it." : root.tuning.gpu-defaults;
-            ToggleSwitch {
-                checked: root.tuning.gpu-custom;
-                enabled: root.tuning.available;
-                toggled(on) => { root.set-custom-gpu(on); }
-            }
-        }
-        if root.tuning.gpu-available && root.tuning.gpu-custom: SliderRow {
-            title: "GPU power (TGP)";
-            description: "What the GPU can draw for as long as it runs, before Dynamic Boost.";
-            minimum: root.tuning.gpu-min;
-            maximum: root.tuning.gpu-max;
-            unit: "W";
-            enabled: root.tuning.available;
-            value <=> root.gpu-tgp;
-            changed(v) => { root.gpu-changed(v); }
-        }
-        if root.tuning.gpu-available && root.tuning.boost-available: SettingRow {
-            icon: Glyphs.performance;
-            title: "Dynamic Boost";
-            description: root.tuning.boost-text;
-            ToggleSwitch {
-                checked: root.tuning.boost-on;
-                enabled: root.tuning.available;
-                toggled(on) => { root.set-dynamic-boost(on); }
-            }
-        }
         SettingRow {
             icon: Glyphs.turbo;
             title: "Core voltage offset (all modes)";
@@ -692,8 +640,63 @@ export component PerformancePage inherits VerticalLayout {
                 }
             }
         }
+    }
+
+    if root.tuning.gpu-available || root.gpu-mode-shown: VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: root.tuning.gpu-available ? "GPU for " + root.mode-names[root.mode] + " mode" : "GPU";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        if root.tuning.gpu-available && root.tuning.gpu-extra-available: SettingRow {
+            icon: Glyphs.display;
+            title: "GPU power limit";
+            description: root.tuning.gpu-custom ? "Used on the charger in this mode; on battery the laptop picks it." : root.tuning.gpu-defaults;
+            ToggleSwitch {
+                checked: root.tuning.gpu-custom;
+                enabled: root.tuning.available;
+                toggled(on) => { root.set-custom-gpu(on); }
+            }
+        }
+        if root.tuning.gpu-available && root.tuning.gpu-custom: SliderRow {
+            title: "GPU power (TGP)";
+            description: "What the GPU can draw for as long as it runs, before Dynamic Boost.";
+            minimum: root.tuning.gpu-min;
+            maximum: root.tuning.gpu-max;
+            unit: "W";
+            enabled: root.tuning.available;
+            value <=> root.gpu-tgp;
+            changed(v) => { root.gpu-changed(v); }
+        }
+        if root.tuning.gpu-available && root.tuning.boost-available: SettingRow {
+            icon: Glyphs.performance;
+            title: "Dynamic Boost";
+            description: root.tuning.boost-text;
+            ToggleSwitch {
+                checked: root.tuning.boost-on;
+                enabled: root.tuning.available;
+                toggled(on) => { root.set-dynamic-boost(on); }
+            }
+        }
+        if root.gpu-mode-shown: SettingRow {
+            icon: Glyphs.display;
+            title: "GPU mode (all modes)";
+            description: root.gpu-mode-note;
+            ComboBox {
+                width: 220px;
+                model: ["Hybrid (MSHybrid)", "Intel graphics only", "NVIDIA graphics only"];
+                enabled: root.gpu-mode-available;
+                current-index <=> root.gpu-mode;
+                selected => { root.set-gpu-mode(self.current-index); }
+            }
+        }
+    }
+
+    VerticalLayout {
+        padding-top: 12px;
         HorizontalLayout {
-            padding-top: 4px;
             spacing: 10px;
             Glyph {
                 text: Glyphs.warning;
