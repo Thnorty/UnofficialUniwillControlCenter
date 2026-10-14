@@ -9,6 +9,11 @@ publish = false
 name = "UnofficialUniwillControlCenter"
 path = "src/main.rs"
 
+# The terminal command: talks to the running app over its pipe (src/cli).
+[[bin]]
+name = "uucc"
+path = "src/bin/uucc/main.rs"
+
 [dependencies]
 anyhow = "1.0"
 raw-window-handle = "0.6"
