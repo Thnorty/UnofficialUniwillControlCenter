@@ -82,16 +82,22 @@ These work the way Control Center does them. The commands come from Control Cent
 - Left at the firmware's: the fan switching speed. GPU overclocking and the `PowerMode` UEFI field Control Center
   also writes are left out.
 
-### CPU tuning
-Control Center's CPU overclocking settings for Intel laptops:
+### CPU and GPU tuning
+Control Center's overclocking settings for Intel laptops:
 - **Custom power limits per mode:** PL1 (sustained), PL2 (boost) and PL4 (peak) on the charger, from 10 W up to what
   the BIOS's Smart APC table allows (here 120, 120 and 165 W), read as Control Center does through its ACPI driver
   (`\\.\ACPIDriver`, IOCTL 0x9C40A500). Each limit is kept at least the one before it. Without the driver the
   limits go up to the highest mode's own.
 - **TCC offset per mode:** makes the CPU start throttling that many °C below its maximum temperature (EC 0x786,
   0x80 | °C), up to the table's maximum (here 5 °C), starting from the mode's default (EC 0x7D8–0x7DA).
-- **Profiles per mode:** as Control Center's five profiles per mode, each with its own power limits, TCC offset
-  and fan curve. Every mode starts with "Standard"; a new one starts as a copy of the active one, and changes on the
+- **GPU power per mode** (NVIDIA): the configurable TGP raises the GPU's power limit from its default up to what the
+  Smart APC table allows (here 80 W, up to 115 W), and Dynamic Boost gives it up to the table's extra (here 15 W)
+  when the CPU needs less, so it can draw up to 130 W. As Control Center's SetUserProfile sends them on each mode
+  change: EC 0x744 the watts above the default, 0x745/0x746 Dynamic Boost's target (255) and watts, and 0x743 bit 2
+  configurable TGP on, bit 1 Dynamic Boost on, bit 0 set by the app. Dynamic Boost is on and the TGP at its default
+  unless changed, as in Control Center's profiles; on battery both are off.
+- **Profiles per mode:** as Control Center's five profiles per mode, each with its own power limits, TCC offset,
+  GPU power and fan curve. Every mode starts with "Standard"; a new one starts as a copy of the active one, and changes on the
   page go into the active one. Switching sends it at once, with a pop-up.
 - **Core voltage offset:** written to the UEFI variable (`ICpuCoreVoltageOffsetValue` and
   `ICpuCoreVoltageOffsetNegativeValue`), so it takes effect after a restart. This BIOS allows 0 to +100 mV (range

@@ -313,6 +313,15 @@ export struct TuningView {
     tcc-available: bool,
     tcc-on: bool,
     tcc-max: int,
+    gpu-available: bool,
+    gpu-custom: bool,
+    gpu-extra-available: bool,
+    gpu-min: int,
+    gpu-max: int,
+    gpu-defaults: string,
+    boost-available: bool,
+    boost-on: bool,
+    boost-text: string,
     note: string,
     voltage-available: bool,
     voltage-min: int,
@@ -376,6 +385,7 @@ export component PerformancePage inherits VerticalLayout {
     in-out property <float> pl2;
     in-out property <float> pl4;
     in-out property <float> tcc;
+    in-out property <float> gpu-tgp;
     in-out property <float> voltage;
     // The current mode's profiles.
     in property <[string]> profile-names;
@@ -396,6 +406,9 @@ export component PerformancePage inherits VerticalLayout {
     callback limit-changed(int, float);
     callback set-tcc(bool);
     callback tcc-changed(float);
+    callback set-custom-gpu(bool);
+    callback gpu-changed(float);
+    callback set-dynamic-boost(bool);
     callback reset-tuning();
     callback voltage-changed(float);
     callback save-voltage();
@@ -517,7 +530,7 @@ export component PerformancePage inherits VerticalLayout {
         padding-top: 20px;
         spacing: 4px;
         SectionHeader {
-            text: "CPU tuning for " + root.mode-names[root.mode] + " mode";
+            text: (root.tuning.gpu-available ? "CPU and GPU tuning for " : "CPU tuning for ") + root.mode-names[root.mode] + " mode";
             height: 28px;
             vertical-alignment: top;
         }
@@ -589,6 +602,36 @@ export component PerformancePage inherits VerticalLayout {
                     enabled: root.tuning.available;
                     toggled(on) => { root.set-tcc(on); }
                 }
+            }
+        }
+        if root.tuning.gpu-available && root.tuning.gpu-extra-available: SettingRow {
+            icon: Glyphs.display;
+            title: "GPU power limit";
+            description: root.tuning.gpu-custom ? "Used on the charger in this mode; on battery the GPU keeps to its default." : root.tuning.gpu-defaults;
+            ToggleSwitch {
+                checked: root.tuning.gpu-custom;
+                enabled: root.tuning.available;
+                toggled(on) => { root.set-custom-gpu(on); }
+            }
+        }
+        if root.tuning.gpu-available && root.tuning.gpu-custom: SliderRow {
+            title: "GPU power (TGP)";
+            description: "What the GPU can draw for as long as it runs, before Dynamic Boost.";
+            minimum: root.tuning.gpu-min;
+            maximum: root.tuning.gpu-max;
+            unit: "W";
+            enabled: root.tuning.available;
+            value <=> root.gpu-tgp;
+            changed(v) => { root.gpu-changed(v); }
+        }
+        if root.tuning.gpu-available && root.tuning.boost-available: SettingRow {
+            icon: Glyphs.performance;
+            title: "Dynamic Boost";
+            description: root.tuning.boost-text;
+            ToggleSwitch {
+                checked: root.tuning.boost-on;
+                enabled: root.tuning.available;
+                toggled(on) => { root.set-dynamic-boost(on); }
             }
         }
         SettingRow {

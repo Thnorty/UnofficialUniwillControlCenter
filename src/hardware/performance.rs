@@ -1,6 +1,7 @@
 //! Performance modes and Fan Boost, as Control Center's MyFanManager_RamFan1p5 sets them: the EC's fan mode byte,
-//! and the CPU power limits and TCC offset, each mode's defaults or the user's own within the range the BIOS allows.
-//! GPU overclocking, which Control Center can also change, is left alone.
+//! the CPU power limits and TCC offset, each mode's defaults or the user's own within the range the BIOS allows, and
+//! the NVIDIA GPU's power: its configurable TGP and Dynamic Boost (GpuFeatures). GPU overclocking, which Control
+//! Center can also change, is left alone.
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,12 @@ const DEFAULTS_TURBO: u16 = 0x7A7;
 const DEFAULT_TCC: u16 = 0x7D8; // Gaming, Office, Turbo (GetTCCDefaultValue)
 const TURBO_SUPPORT: u16 = 0x49F; // bit 1 (MyEcCtrl.GetTurboModeSupport)
 const MODE_OPTIONS: u16 = 0x782; // bit 4: the default mode is Gaming, not Office
+// ADDR_ConfigurableTGP_DynamicBoost_CTRL_BYTE: bit 0 Dynamic Boost set by the app, bit 1 Dynamic Boost on, bit 2
+// configurable TGP on.
+const GPU_POWER_CONTROL: u16 = 0x743;
+const GPU_TGP_OFFSET: u16 = 0x744; // ADDR_ConfigurableTGP_VALUE: watts above the GPU's default TGP
+const DYNAMIC_BOOST_TARGET: u16 = 0x745; // ADDR_DynamicBoost_TotalProcessingPowerTarget_VALUE
+const DYNAMIC_BOOST_MAX: u16 = 0x746; // ADDR_DynamicBoost_MaxinumTGP_VALUE: watts
 
 /// Control Center's operating modes, numbered as it numbers them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -149,18 +156,57 @@ pub struct Tuning {
     pub tcc_enabled: bool,
     /// °C below the CPU's maximum temperature at which it starts to throttle.
     pub tcc_offset: u8,
+    /// Raise the GPU's TGP to `gpu_tgp` watts on the charger (configurable TGP).
+    pub custom_gpu: bool,
+    pub gpu_tgp: u8,
+    /// Dynamic Boost is on unless this is set, as in Control Center's profiles.
+    pub dynamic_boost_off: bool,
+}
+
+impl Tuning {
+    /// The GPU's power for this tuning within `ranges`; None if this laptop's GPU power can't be set.
+    pub fn gpu_power(&self, ranges: &Ranges) -> Option<GpuPower> {
+        if !ranges.gpu() {
+            return None;
+        }
+        let extra = if self.custom_gpu { self.gpu_tgp.clamp(ranges.gpu_tgp, ranges.gpu_tgp + ranges.gpu_extra) - ranges.gpu_tgp } else { 0 };
+        let dynamic_boost = if self.dynamic_boost_off { 0 } else { ranges.dynamic_boost };
+        Some(GpuPower { extra, dynamic_boost })
+    }
 }
 
 /// Lowest power limit Control Center allows (RefreshCpuPLMinimumValue).
 pub const MIN_LIMIT: u8 = 10;
 
 /// The highest values the BIOS allows (its Smart APC table, SMAPCTABLE_STRUCT).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Ranges {
     pub pl1: u8,
     pub pl2: u8,
     pub pl4: u8,
     pub tcc: u8,
+    /// The GPU's default TGP in watts (DefaultTGP); 0 without an NVIDIA GPU.
+    pub gpu_tgp: u8,
+    /// How far its TGP can be raised, in watts (ConfigurableTGP).
+    pub gpu_extra: u8,
+    /// Dynamic Boost's most, in watts (DynamicBoost).
+    pub dynamic_boost: u8,
+}
+
+impl Ranges {
+    /// Whether the GPU's power can be set.
+    pub fn gpu(&self) -> bool {
+        self.gpu_tgp > 0 && (self.gpu_extra > 0 || self.dynamic_boost > 0)
+    }
+}
+
+/// What the GPU may draw on the charger.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GpuPower {
+    /// Watts above its default TGP; 0 leaves the default.
+    pub extra: u8,
+    /// Dynamic Boost's most, in watts; 0 is off.
+    pub dynamic_boost: u8,
 }
 
 /// Reads the Smart APC table through the ACPI driver Control Center installs (UWACPIDriver, `\\.\ACPIDriver`), as
@@ -172,7 +218,8 @@ pub fn ranges() -> Result<Ranges> {
         CreateFileW(w!("\\\\.\\ACPIDriver"), (GENERIC_READ | GENERIC_WRITE).0, FILE_SHARE_READ | FILE_SHARE_WRITE, None, OPEN_EXISTING, FILE_FLAGS_AND_ATTRIBUTES(0), None)
     }
     .context("Control Center's ACPI driver isn't there")?;
-    let mut table = [0u8; 4];
+    // PL1, PL2, PL4, TccOffset, ConfigurableTGP, DynamicBoost, TargetTemperature, DefaultTGP.
+    let mut table = [0u8; 8];
     let mut result = Ok(());
     for (key, value) in table.iter_mut().enumerate() {
         let input = [READ_TABLE, key as u8];
@@ -189,25 +236,26 @@ pub fn ranges() -> Result<Ranges> {
     }
     result.context("Couldn't read the BIOS's power limit table")?;
     // 0xFF: not set (CheckInvalidSmartApcTable).
-    let [pl1, pl2, pl4, tcc] = table.map(|v| if v == 0xFF { 0 } else { v });
+    let [pl1, pl2, pl4, tcc, gpu_extra, dynamic_boost, _, gpu_tgp] = table.map(|v| if v == 0xFF { 0 } else { v });
     if pl1 < MIN_LIMIT || pl2 < MIN_LIMIT || pl4 < MIN_LIMIT {
         bail!("The BIOS's power limit table is empty");
     }
-    Ok(Ranges { pl1, pl2, pl4, tcc })
+    Ok(Ranges { pl1, pl2, pl4, tcc, gpu_tgp, gpu_extra, dynamic_boost })
 }
 
 /// Switches to `mode` the way Control Center's SetUserProfile does: the fan mode byte, the power limits and the TCC
-/// offset, and the firmware's own fan switching speed. Returns the limits sent.
-pub fn apply(ec: &Registers, mode: Mode, fan_boost: bool, on_ac: bool, tuning: Option<&Tuning>) -> Result<PowerLimits> {
+/// offset, the GPU's power, and the firmware's own fan switching speed. Returns the limits sent.
+pub fn apply(ec: &Registers, mode: Mode, fan_boost: bool, on_ac: bool, tuning: Option<&Tuning>, gpu: Option<GpuPower>) -> Result<PowerLimits> {
     set_fan_mode(ec, mode, fan_boost)?;
-    let limits = set_tuning(ec, mode, on_ac, tuning)?;
+    let limits = set_tuning(ec, mode, on_ac, tuning, gpu)?;
     ec.write(FAN_SWITCH_SPEED, 0)?;
     Ok(limits)
 }
 
 /// The power limits on AC, the mode's defaults unless `tuning` has custom ones (0 on battery, where the EC picks its
-/// own), and the TCC offset. `tuning` has been checked against the ranges. Returns the limits sent.
-pub fn set_tuning(ec: &Registers, mode: Mode, on_ac: bool, tuning: Option<&Tuning>) -> Result<PowerLimits> {
+/// own), the TCC offset, and the GPU's power if it can be set. `tuning` and `gpu` have been checked against the
+/// ranges. Returns the limits sent.
+pub fn set_tuning(ec: &Registers, mode: Mode, on_ac: bool, tuning: Option<&Tuning>, gpu: Option<GpuPower>) -> Result<PowerLimits> {
     let limits = match tuning {
         _ if !on_ac => PowerLimits::default(),
         Some(t) if t.custom_limits => t.limits,
@@ -221,7 +269,31 @@ pub fn set_tuning(ec: &Registers, mode: Mode, on_ac: bool, tuning: Option<&Tunin
         Some(t) if t.tcc_enabled => 0x80 | t.tcc_offset.min(0x7F),
         _ => 0,
     })?;
+    if let Some(gpu) = gpu {
+        set_gpu_power(ec, on_ac, gpu)?;
+    }
     Ok(limits)
+}
+
+/// The GPU's power as SetUserProfile sends it: on the charger the configurable TGP and Dynamic Boost, on battery
+/// neither (the GPU then keeps to its default TGP).
+fn set_gpu_power(ec: &Registers, on_ac: bool, gpu: GpuPower) -> Result<()> {
+    let gpu = if on_ac { gpu } else { GpuPower::default() };
+    ec.write(GPU_TGP_OFFSET, gpu.extra)?;
+    // SetGpuDynamicBoostSwitch: the total processing power target is left to the GPU (255).
+    ec.write(DYNAMIC_BOOST_TARGET, if gpu.dynamic_boost > 0 { 0xFF } else { 0 })?;
+    ec.write(DYNAMIC_BOOST_MAX, gpu.dynamic_boost)?;
+    let mut control = ec.read(GPU_POWER_CONTROL)? & !0x07;
+    if on_ac {
+        control |= 0x01;
+    }
+    if gpu.dynamic_boost > 0 {
+        control |= 0x02;
+    }
+    if gpu.extra > 0 {
+        control |= 0x04;
+    }
+    ec.write(GPU_POWER_CONTROL, control)
 }
 
 /// Sets the fan mode byte alone (MyFanManager_RamFan1p5.SetFanMode): the mode's fans, and Fan Boost, which runs them
@@ -233,4 +305,26 @@ pub fn set_fan_mode(ec: &Registers, mode: Mode, fan_boost: bool) -> Result<()> {
 /// The limits in force now.
 pub fn limits(ec: &Registers) -> Result<PowerLimits> {
     Ok(PowerLimits { pl1: ec.read(PL1)?, pl2: ec.read(PL2)?, pl4: ec.read(PL4)? })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // This laptop's table: an 80 W GPU that can be raised by 35 W, with up to 15 W of Dynamic Boost.
+    const RANGES: Ranges = Ranges { pl1: 120, pl2: 120, pl4: 165, tcc: 5, gpu_tgp: 80, gpu_extra: 35, dynamic_boost: 15 };
+
+    #[test]
+    fn gpu_power() {
+        // Control Center's profiles: the default TGP, with Dynamic Boost.
+        assert_eq!(Tuning::default().gpu_power(&RANGES), Some(GpuPower { extra: 0, dynamic_boost: 15 }));
+        let raised = Tuning { custom_gpu: true, gpu_tgp: 100, dynamic_boost_off: true, ..Tuning::default() };
+        assert_eq!(raised.gpu_power(&RANGES), Some(GpuPower { extra: 20, dynamic_boost: 0 }));
+        // Kept within the table, and the TGP is only raised while the switch is on.
+        let too_far = Tuning { custom_gpu: true, gpu_tgp: 200, ..Tuning::default() };
+        assert_eq!(too_far.gpu_power(&RANGES), Some(GpuPower { extra: 35, dynamic_boost: 15 }));
+        assert_eq!(Tuning { custom_gpu: false, ..too_far }.gpu_power(&RANGES).unwrap().extra, 0);
+        // No NVIDIA GPU in the table: nothing to set.
+        assert_eq!(Tuning::default().gpu_power(&Ranges { gpu_tgp: 0, ..RANGES }), None);
+    }
 }

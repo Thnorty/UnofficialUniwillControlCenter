@@ -42,7 +42,7 @@ in one small app that looks like Windows 11.
 <h3>⚡ Performance</h3>
 <ul>
 <li><b>Office, Gaming and Turbo</b> modes and <b>Fan Boost</b>, from the window, the tray or the keys</li>
-<li><b>Custom power limits</b> (PL1, PL2, PL4) and <b>TCC offset</b>, up to five <b>profiles per mode</b></li>
+<li><b>Custom power limits</b> (PL1, PL2, PL4), <b>TCC offset</b>, the <b>GPU's power limit</b> and <b>Dynamic Boost</b>, up to five <b>profiles per mode</b></li>
 <li>A <b>fan curve editor</b> per mode, with safety rules that keep the laptop cooled enough</li>
 <li>Core voltage offset, with the BIOS's recovery after a failed start</li>
 </ul>
@@ -253,7 +253,7 @@ target-demo\release\UnofficialUniwillControlCenter.exe --demo
 | `src/lighting/` | The ITE controllers over HID (`device.rs`), the effect lists, the effects engine and scenes, audio, the previews and the keyboard hook. |
 | `src/hardware/ec.rs` | The embedded controller's RAM through WMI, on one thread. |
 | `src/hardware/hotkeys.rs` | Taking the Fn keys over from the EC and listening for hotkey events. |
-| `src/hardware/performance.rs`, `fans.rs`, `battery.rs` | The EC registers for modes, power limits and TCC offset, fan tables and speeds, and charging. |
+| `src/hardware/performance.rs`, `fans.rs`, `battery.rs` | The EC registers for modes, power limits, TCC offset and GPU power, fan tables and speeds, and charging. |
 | `src/hardware/uefi.rs` | Control Center's UEFI variable, read and changed field by field. |
 | `src/hardware/status.rs`, `system.rs` | Temperatures, loads, memory and battery readings; touchpad, startup task and registry. |
 | `src/shell/` | The pop-up (Direct2D on a layered window), the tray icon and menu, file pickers and the display color effect. |

@@ -14,7 +14,7 @@ use super::{App, post, with_app};
 use crate::hardware::battery::{self, ChargeMode};
 use crate::hardware::ec::{Ec, Registers};
 use crate::hardware::fans::{self, Step, Table};
-use crate::hardware::performance::{self, Defaults, Mode, PowerLimits, Ranges, Tuning};
+use crate::hardware::performance::{self, Defaults, GpuPower, Mode, PowerLimits, Ranges, Tuning};
 use crate::hardware::{hotkeys, status, system};
 use crate::settings::{FanCurve, ModeProfile, PowerSettings};
 use crate::shell::osd;
@@ -116,7 +116,7 @@ impl Power {
             custom_applied: false,
             curve_timer: slint::Timer::default(),
             curve_model: Rc::new(VecModel::default()),
-            ranges: demo.then_some(Ranges { pl1: 120, pl2: 120, pl4: 165, tcc: 5 }),
+            ranges: demo.then_some(Ranges { pl1: 120, pl2: 120, pl4: 165, tcc: 5, gpu_tgp: 80, gpu_extra: 35, dynamic_boost: 15 }),
             mode_defaults: std::array::from_fn(|i| demo.then(|| demo_defaults(Mode::from_index(i)))),
             tuning,
             tuning_timer: slint::Timer::default(),
@@ -163,7 +163,7 @@ impl Power {
         self.ranges.or_else(|| {
             let limits: Vec<PowerLimits> = self.mode_defaults.iter().flatten().map(|d| d.limits).collect();
             let max = |f: fn(&PowerLimits) -> u8| limits.iter().map(f).max().unwrap_or(0);
-            let ranges = Ranges { pl1: max(|l| l.pl1), pl2: max(|l| l.pl2), pl4: max(|l| l.pl4), tcc: 0 };
+            let ranges = Ranges { pl1: max(|l| l.pl1), pl2: max(|l| l.pl2), pl4: max(|l| l.pl4), ..Ranges::default() };
             (ranges.pl1 >= performance::MIN_LIMIT).then_some(ranges)
         })
     }
@@ -176,6 +176,11 @@ impl Power {
         tuning.tcc_offset = tuning.tcc_offset.min(ranges.tcc);
         tuning.tcc_enabled &= ranges.tcc > 0;
         Some(tuning)
+    }
+
+    /// The GPU's power to send for `mode`; None if the BIOS's table doesn't offer it (or couldn't be read).
+    fn gpu_power_for(&self, mode: Mode) -> Option<GpuPower> {
+        self.tuning[mode.index()].gpu_power(self.ranges.as_ref()?)
     }
 
     /// Back to each mode's defaults (after the BIOS reset the tuning, as Control Center's LoadDefault).
@@ -406,10 +411,11 @@ impl App {
         let table = self.power.custom_table();
         let custom = table.is_some();
         let tuning = self.power.tuning_for(mode);
+        let gpu = self.power.gpu_power_for(mode);
         let usb_power = (self.power.usb_supported && self.power.usb_chosen).then_some(self.power.usb_power);
         ec.spawn(move |ec| {
             let result = (|| -> Result<PowerLimits> {
-                let limits = performance::apply(ec, mode, boost, on_ac, tuning.as_ref())?;
+                let limits = performance::apply(ec, mode, boost, on_ac, tuning.as_ref(), gpu)?;
                 battery::set(ec, charge)?;
                 if let Some(on) = usb_power {
                     battery::set_usb_power(ec, on)?;
@@ -435,9 +441,9 @@ impl App {
         self.refresh_power();
     }
 
-    // ---- CPU tuning -----------------------------------------------------------------------------------------------
+    // ---- CPU and GPU tuning ---------------------------------------------------------------------------------------
 
-    /// Sends the current mode's power limits and TCC offset a moment after the last change.
+    /// Sends the current mode's power limits, TCC offset and GPU power a moment after the last change.
     fn queue_tuning(&mut self) {
         self.power.chosen = true;
         self.settings_dirty = true;
@@ -453,14 +459,15 @@ impl App {
         }
         let (mode, on_ac) = (self.power.mode, self.power.on_ac);
         let tuning = self.power.tuning_for(mode);
+        let gpu = self.power.gpu_power_for(mode);
         ec.spawn(move |ec| {
-            let result = performance::set_tuning(ec, mode, on_ac, tuning.as_ref()).map_err(error_text);
+            let result = performance::set_tuning(ec, mode, on_ac, tuning.as_ref(), gpu).map_err(error_text);
             post(move |app| match result {
                 Ok(limits) => {
                     app.power.limits = Some(limits);
                     app.refresh_power();
                 }
-                Err(reason) => app.set_status(&format!("Couldn't set the CPU tuning: {reason}"), true, false),
+                Err(reason) => app.set_status(&format!("Couldn't set the tuning: {reason}"), true, false),
             });
         });
     }
@@ -528,6 +535,38 @@ impl App {
             return;
         }
         tuning.tcc_offset = degrees.min(ranges.tcc);
+        self.queue_tuning();
+    }
+
+    /// The GPU's TGP above its default, or back to it.
+    pub(super) fn set_custom_gpu(&mut self, on: bool) {
+        let Some(ranges) = self.power.ranges.filter(|r| r.gpu()) else { return };
+        if !self.can_tune() {
+            return;
+        }
+        let tuning = &mut self.power.tuning[self.power.mode.index()];
+        if on && tuning.gpu_tgp == 0 {
+            tuning.gpu_tgp = ranges.gpu_tgp + ranges.gpu_extra; // the most the BIOS allows
+        }
+        tuning.custom_gpu = on;
+        self.queue_tuning();
+    }
+
+    pub(super) fn set_gpu_tgp(&mut self, watts: u8) {
+        let Some(ranges) = self.power.ranges.filter(|r| r.gpu()) else { return };
+        let tuning = &mut self.power.tuning[self.power.mode.index()];
+        if !tuning.custom_gpu {
+            return;
+        }
+        tuning.gpu_tgp = watts.clamp(ranges.gpu_tgp, ranges.gpu_tgp + ranges.gpu_extra);
+        self.queue_tuning();
+    }
+
+    pub(super) fn set_dynamic_boost(&mut self, on: bool) {
+        if !self.can_tune() || !self.power.ranges.is_some_and(|r| r.dynamic_boost > 0) {
+            return;
+        }
+        self.power.tuning[self.power.mode.index()].dynamic_boost_off = !on;
         self.queue_tuning();
     }
 
@@ -974,7 +1013,10 @@ impl App {
         let tuning = power.tuning_for(power.mode).unwrap_or(power.tuning[index]);
         let defaults = power.mode_defaults[index];
         let shown = if tuning.custom_limits { tuning.limits } else { defaults.map(|d| d.limits).unwrap_or_default() };
-        let range = ranges.unwrap_or(Ranges { pl1: 0, pl2: 0, pl4: 0, tcc: 0 });
+        let range = ranges.unwrap_or_default();
+        let gpu_range = power.ranges.filter(|r| r.gpu()).unwrap_or_default();
+        let gpu = tuning.gpu_power(&gpu_range).unwrap_or_default();
+        let gpu_tgp = gpu_range.gpu_tgp + gpu.extra;
         let note = if !available {
             String::new()
         } else if ranges.is_none() {
@@ -998,12 +1040,36 @@ impl App {
             tcc_available: available && range.tcc > 0,
             tcc_on: tuning.tcc_enabled,
             tcc_max: range.tcc as i32,
+            gpu_available: available && gpu_range.gpu(),
+            gpu_custom: tuning.custom_gpu && gpu_range.gpu_extra > 0,
+            gpu_extra_available: gpu_range.gpu_extra > 0,
+            gpu_min: gpu_range.gpu_tgp as i32,
+            gpu_max: (gpu_range.gpu_tgp + gpu_range.gpu_extra) as i32,
+            gpu_defaults: format!(
+                "Its default is {} W; this raises it up to {} W (configurable TGP).",
+                gpu_range.gpu_tgp,
+                gpu_range.gpu_tgp + gpu_range.gpu_extra
+            )
+            .into(),
+            boost_available: gpu_range.dynamic_boost > 0,
+            boost_on: gpu.dynamic_boost > 0,
+            boost_text: if gpu.dynamic_boost > 0 {
+                format!(
+                    "Gives the GPU up to {} W more when the CPU needs less, so it can draw up to {} W on the charger.",
+                    gpu.dynamic_boost,
+                    gpu_tgp + gpu.dynamic_boost
+                )
+            } else {
+                format!("Off: the GPU draws up to {gpu_tgp} W on the charger. On, it gets up to {} W more when the CPU needs less.", gpu_range.dynamic_boost)
+            }
+            .into(),
             note: note.into(),
             ..ui.get_tuning()
         });
         ui.set_tune_pl1(shown.pl1 as f32);
         ui.set_tune_pl2(shown.pl2 as f32);
         ui.set_tune_pl4(shown.pl4 as f32);
+        ui.set_tune_gpu(gpu_tgp as f32);
         ui.set_tune_tcc(if tuning.tcc_enabled { tuning.tcc_offset } else { defaults.map_or(0, |d| d.tcc).min(range.tcc) } as f32);
     }
 
