@@ -38,6 +38,8 @@ WizardStyle=modern
 CloseApplications=no
 VersionInfoVersion={#AppVersion}
 VersionInfoDescription={#AppName} setup
+; The "path" task changes PATH; new terminals see it.
+ChangesEnvironment=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -45,9 +47,12 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "autostart"; Description: "Start {#AppName} when I sign in (in the tray)"; GroupDescription: "When Windows starts:"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+; New in 3.4.0, so an update from an older version ticks it too.
+Name: "path"; Description: "Add the uucc command to PATH (for terminals and scripts)"; GroupDescription: "Terminal:"
 
 [Files]
 Source: "..\target\release\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\target\release\uucc.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\FEATURES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\PLUGINS.md"; DestDir: "{app}"; Flags: ignoreversion
 
@@ -190,6 +195,79 @@ begin
   end;
 end;
 
+const
+  EnvironmentKey = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
+
+// Whether Entry names Dir, in any case, with or without a trailing backslash.
+function SameDir(Entry, Dir: String): Boolean;
+begin
+  Result := CompareText(RemoveBackslashUnlessRoot(Trim(Entry)), RemoveBackslashUnlessRoot(Dir)) = 0;
+end;
+
+// Path's ;-separated entries without those naming Dir; Found says whether there were any.
+function PathWithout(Path, Dir: String; var Found: Boolean): String;
+var
+  Entry: String;
+  I: Integer;
+begin
+  Result := '';
+  Found := False;
+  Path := Path + ';';
+  while Path <> '' do begin
+    I := Pos(';', Path);
+    Entry := Copy(Path, 1, I - 1);
+    Delete(Path, 1, I);
+    if (Entry <> '') and SameDir(Entry, Dir) then
+      Found := True
+    else if Entry <> '' then begin
+      if Result <> '' then
+        Result := Result + ';';
+      Result := Result + Entry;
+    end;
+  end;
+end;
+
+// The machine's PATH (as stored: %SystemRoot% and the like stay unexpanded).
+function MachinePath: String;
+begin
+  if not RegQueryStringValue(HKLM, EnvironmentKey, 'Path', Result) then
+    Result := '';
+end;
+
+procedure AddToPath(Dir: String);
+var
+  Path: String;
+  Found: Boolean;
+begin
+  Path := MachinePath;
+  PathWithout(Path, Dir, Found);
+  if Found then
+    Exit;
+  if (Path <> '') and (Path[Length(Path)] <> ';') then
+    Path := Path + ';';
+  RegWriteExpandStringValue(HKLM, EnvironmentKey, 'Path', Path + Dir);
+end;
+
+procedure RemoveFromPath(Dir: String);
+var
+  Path: String;
+  Found: Boolean;
+begin
+  Path := PathWithout(MachinePath, Dir, Found);
+  if Found then
+    RegWriteExpandStringValue(HKLM, EnvironmentKey, 'Path', Path);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  // An update keeps the tasks chosen before, so one that had the task unticked takes the folder off PATH again.
+  if CurStep = ssPostInstall then
+    if WizardIsTaskSelected('path') then
+      AddToPath(ExpandConstant('{app}'))
+    else
+      RemoveFromPath(ExpandConstant('{app}'));
+end;
+
 function HasParam(Name: String): Boolean;
 var
   I: Integer;
@@ -264,9 +342,12 @@ begin
         RemoveData := AskRemoveData;
     // Before the exe is removed: the app is closed, then it removes the folders and the plugins' Claude Code hooks.
     usUninstall:
-      if RemoveData then begin
-        Exec(ExpandConstant('{app}\{#AppExe}'), '--exit', '', SW_HIDE, ewWaitUntilTerminated, Code);
-        Exec(ExpandConstant('{app}\{#AppExe}'), '--remove-data', '', SW_HIDE, ewWaitUntilTerminated, Code);
+      begin
+        RemoveFromPath(ExpandConstant('{app}'));
+        if RemoveData then begin
+          Exec(ExpandConstant('{app}\{#AppExe}'), '--exit', '', SW_HIDE, ewWaitUntilTerminated, Code);
+          Exec(ExpandConstant('{app}\{#AppExe}'), '--remove-data', '', SW_HIDE, ewWaitUntilTerminated, Code);
+        end;
       end;
   end;
 end;

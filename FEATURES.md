@@ -140,6 +140,10 @@ Control Center's overclocking settings for Intel laptops:
   instead of Windows Error Reporting holding it, and the installer, for about half a minute. Uninstalling removes the
   startup task and asks whether to remove the settings and plugins too (ticked to begin with), which also removes the
   hooks plugins added to Claude Code and the copy of its settings kept before them.
+- **Terminal (`uucc`):** `uucc.exe` sets the mode, Fan Boost, profile, charge mode, setups, lighting, display
+  colors and GPU mode, and prints the status with fresh readings, from any terminal without administrator rights.
+  It asks the running app over a named pipe that only the signed-in user can open, so the window and tray follow;
+  `--json` is for scripts and `--start` starts the app first. The installer adds it to `PATH` (an option, ticked).
 - **Tray:** runs in the tray and can start with Windows. The tray menu has the performance mode and Fan Boost.
   **Show in the tray** (Settings) turns the icon off: the app keeps running, notifications still show, starting it
   again opens the window. **Exit** at the bottom of Settings closes the app, with or without the icon.

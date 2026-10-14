@@ -134,6 +134,40 @@ to one file. The app was called **Tulpar Control** before 3.1: its first start m
 `%APPDATA%\TulparControl` folder (settings and plugins) over and replaces its startup task, and the installer updates
 an installed Tulpar Control in place.
 
+## Terminal (uucc)
+
+`uucc` changes settings and reads the status from a terminal or a script. It asks the running app, which does the
+work as if its window had been clicked (the window, tray and pop-ups follow), so it needs no administrator rights.
+The installer puts it on `PATH` (the **Add the uucc command to PATH** option); **open a new terminal after
+installing** so it's found.
+
+```powershell
+uucc status                                   # mode, readings, battery, lighting, display, GPU mode
+uucc mode turbo                               # office, gaming or turbo
+uucc fan-boost on
+uucc profile Standard                         # one of the current mode's profiles
+uucc charge balanced                          # full, balanced or long-life
+uucc setup "Night"                            # a setup saved on the Setups page
+uucc keyboard --effect breathing --colors ff0000,0000ff --speed slow
+uucc keyboard off                             # and `on` brings the brightness back
+uucc lightbar on --linked on                  # follow the keyboard
+uucc effects                                  # each effect and how many colors it takes
+uucc display on --mode cinema
+uucc gpu-mode hybrid                          # takes effect when the laptop restarts
+```
+
+A command without a value shows the setting. Values can be shortened while they stay unique (`uucc mode tur`).
+`--json` prints the reply as JSON, for scripts. `--start` starts the app in the tray first if it isn't running
+(through its startup task, or else with a UAC prompt); without it `uucc` fails. `uucc help COMMAND` shows a command's
+options.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Done. |
+| 1 | Bad command or value. The message says what's valid. |
+| 2 | The app isn't running (and `--start` wasn't given), or it didn't start within 15 s. |
+| 3 | The app couldn't do it: the feature isn't on this laptop, the hardware refused, or the app is busy. It prints the app's own message. |
+
 ## Compatibility
 
 > [!WARNING]
