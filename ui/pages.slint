@@ -724,16 +724,9 @@ export component SettingsPage inherits VerticalLayout {
             icon: Glyphs.app;
             title: "Show in the tray";
             description: root.show-in-tray ? "The icon in the notification area opens this window, and its menu has quick settings." : "Off: the app keeps running in the background without an icon. To open this window, start Unofficial Uniwill Control Center again (from Start or its shortcut). Notifications still show.";
-            HorizontalLayout {
-                spacing: 12px;
-                if !root.show-in-tray: FluentButton {
-                    text: "Exit";
-                    clicked => { root.exit-app(); }
-                }
-                ToggleSwitch {
-                    checked: root.show-in-tray;
-                    toggled(on) => { root.set-show-in-tray(on); }
-                }
+            ToggleSwitch {
+                checked: root.show-in-tray;
+                toggled(on) => { root.set-show-in-tray(on); }
             }
         }
         SettingRow {
@@ -756,6 +749,15 @@ export component SettingsPage inherits VerticalLayout {
             icon: Glyphs.info;
             title: "Unofficial Uniwill Control Center " + root.version;
             description: root.about + "\n" + root.fn-keys;
+        }
+        SettingRow {
+            icon: Glyphs.close;
+            title: "Exit";
+            description: "Closes the app, not just this window, and hands the Fn keys and the fans back to the laptop until it starts again.";
+            FluentButton {
+                text: "Exit";
+                clicked => { root.exit-app(); }
+            }
         }
     }
 }
