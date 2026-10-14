@@ -6,9 +6,10 @@
 #endif
 #define AppName "Unofficial Uniwill Control Center"
 #define AppExe "UnofficialUniwillControlCenter.exe"
+#define AppGuid "{7B35BD08-3A02-4F7E-8F9F-A0355537E388}"
 
 [Setup]
-AppId={{7B35BD08-3A02-4F7E-8F9F-A0355537E388}
+AppId={{#AppGuid}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
@@ -60,8 +61,9 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 ; The same startup task as the app's own "Start with Windows" switch, so the switch shows it.
-Filename: "{app}\{#AppExe}"; Parameters: "--enable-startup"; StatusMsg: "Setting {#AppName} to start with Windows..."; Flags: runhidden waituntilterminated; Tasks: autostart
-Filename: "{app}\{#AppExe}"; Parameters: "--disable-startup"; Flags: runhidden waituntilterminated; Tasks: not autostart
+; An update leaves it as the app's switch has it.
+Filename: "{app}\{#AppExe}"; Parameters: "--enable-startup"; StatusMsg: "Setting {#AppName} to start with Windows..."; Flags: runhidden waituntilterminated; Tasks: autostart; Check: not IsUpdate
+Filename: "{app}\{#AppExe}"; Parameters: "--disable-startup"; Flags: runhidden waituntilterminated; Tasks: not autostart; Check: not IsUpdate
 ; With Setup's administrator rights: a postinstall entry otherwise runs as the original user, and starting an app that
 ; requires them that way fails (CreateProcess error 740).
 Filename: "{app}\{#AppExe}"; Description: "Open {#AppName}"; Flags: postinstall nowait skipifsilent runascurrentuser
@@ -73,6 +75,84 @@ Filename: "{app}\{#AppExe}"; Parameters: "--disable-startup"; RunOnceId: "Disabl
 [Code]
 var
   RemoveData: Boolean;
+  // The version already installed, or '' on a first install.
+  InstalledVersion: String;
+
+function InitializeSetup: Boolean;
+begin
+  if not RegQueryStringValue(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppGuid}_is1', 'DisplayVersion',
+    InstalledVersion) then
+    InstalledVersion := '';
+  Result := True;
+end;
+
+function IsUpdate: Boolean;
+begin
+  Result := InstalledVersion <> '';
+end;
+
+// -1 when the installed version is older than this one, 0 the same, 1 newer (or unreadable).
+function CompareInstalled: Integer;
+var
+  Installed, This: Int64;
+begin
+  if StrToVersion(InstalledVersion, Installed) and StrToVersion('{#AppVersion}', This) then
+    Result := ComparePackedVersion(Installed, This)
+  else
+    Result := 1;
+end;
+
+// An update keeps the folder and the choices made when it was installed (the startup switch is the app's own by then),
+// so it goes straight to the Ready page, which says what is updated.
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := IsUpdate and (PageID = wpSelectTasks);
+end;
+
+// An update's summary leaves out the tasks, which it doesn't change.
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo,
+  MemoTasksInfo: String): String;
+begin
+  Result := MemoDirInfo;
+  if not IsUpdate and (MemoTasksInfo <> '') then
+    Result := Result + NewLine + NewLine + MemoTasksInfo;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if not IsUpdate then
+    Exit;
+  case CurPageID of
+    wpReady:
+      begin
+        if CompareInstalled < 0 then begin
+          WizardForm.PageNameLabel.Caption := 'Ready to Update';
+          WizardForm.PageDescriptionLabel.Caption := 'Setup is ready to update {#AppName} from ' + InstalledVersion + ' to {#AppVersion}.';
+          WizardForm.ReadyLabel.Caption := 'Click Update to go on. Your settings and plugins are kept.';
+          WizardForm.NextButton.Caption := '&Update';
+        end else if CompareInstalled = 0 then begin
+          WizardForm.PageNameLabel.Caption := 'Ready to Reinstall';
+          WizardForm.PageDescriptionLabel.Caption := '{#AppName} {#AppVersion} is already installed.';
+          WizardForm.ReadyLabel.Caption := 'Click Reinstall to install it again. Your settings and plugins are kept.';
+          WizardForm.NextButton.Caption := '&Reinstall';
+        end else begin
+          WizardForm.PageNameLabel.Caption := 'Ready to Install an Older Version';
+          WizardForm.PageDescriptionLabel.Caption := 'The installed ' + InstalledVersion + ' is newer than this {#AppVersion}.';
+          WizardForm.ReadyLabel.Caption := 'Click Install to replace it. Your settings and plugins are kept.';
+        end;
+      end;
+    wpInstalling:
+      if CompareInstalled < 0 then begin
+        WizardForm.PageNameLabel.Caption := 'Updating';
+        WizardForm.PageDescriptionLabel.Caption := 'Please wait while Setup updates {#AppName} to {#AppVersion}.';
+      end;
+    wpFinished:
+      if CompareInstalled < 0 then begin
+        WizardForm.FinishedHeadingLabel.Caption := '{#AppName} is updated';
+        WizardForm.FinishedLabel.Caption := '{#AppName} is updated from ' + InstalledVersion + ' to {#AppVersion}.';
+      end;
+  end;
+end;
 
 // Before files are replaced: quit the running app (whichever copy it is) the way its Exit menu does, so the Fn keys
 // and the fans are handed back to the laptop. The new exe is used, since an older one doesn't know --exit.
