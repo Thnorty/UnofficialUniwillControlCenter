@@ -62,7 +62,9 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 ; The same startup task as the app's own "Start with Windows" switch, so the switch shows it.
 Filename: "{app}\{#AppExe}"; Parameters: "--enable-startup"; StatusMsg: "Setting {#AppName} to start with Windows..."; Flags: runhidden waituntilterminated; Tasks: autostart
 Filename: "{app}\{#AppExe}"; Parameters: "--disable-startup"; Flags: runhidden waituntilterminated; Tasks: not autostart
-Filename: "{app}\{#AppExe}"; Description: "Open {#AppName}"; Flags: postinstall nowait skipifsilent
+; With Setup's administrator rights: a postinstall entry otherwise runs as the original user, and starting an app that
+; requires them that way fails (CreateProcess error 740).
+Filename: "{app}\{#AppExe}"; Description: "Open {#AppName}"; Flags: postinstall nowait skipifsilent runascurrentuser
 
 [UninstallRun]
 Filename: "{app}\{#AppExe}"; Parameters: "--exit"; RunOnceId: "Exit"; Flags: runhidden waituntilterminated
