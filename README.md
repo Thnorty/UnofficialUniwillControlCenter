@@ -44,6 +44,7 @@ in one small app that looks like Windows 11.
 <li><b>Office, Gaming and Turbo</b> modes and <b>Fan Boost</b>, from the window, the tray or the keys</li>
 <li><b>Custom power limits</b> (PL1, PL2, PL4), <b>TCC offset</b>, the <b>GPU's power limit</b> and <b>Dynamic Boost</b>, up to five <b>profiles per mode</b></li>
 <li>A <b>fan curve editor</b> per mode, with safety rules that keep the laptop cooled enough</li>
+<li>The <b>GPU mode</b> (MUX switch): hybrid, Intel only or NVIDIA only</li>
 <li>Core voltage offset, with the BIOS's recovery after a failed start</li>
 </ul>
 </td>

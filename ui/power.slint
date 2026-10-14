@@ -381,6 +381,11 @@ export component PerformancePage inherits VerticalLayout {
     in property <string> curve-path;
     in property <string> default-path;
     in property <TuningView> tuning;
+    // The GPU mode (MUX switch): 0 Hybrid, 1 Intel only, 2 NVIDIA only.
+    in property <bool> gpu-mode-shown;
+    in property <bool> gpu-mode-available;
+    in-out property <int> gpu-mode;
+    in property <string> gpu-mode-note;
     in-out property <float> pl1;
     in-out property <float> pl2;
     in-out property <float> pl4;
@@ -406,6 +411,7 @@ export component PerformancePage inherits VerticalLayout {
     callback limit-changed(int, float);
     callback set-tcc(bool);
     callback tcc-changed(float);
+    callback set-gpu-mode(int);
     callback set-custom-gpu(bool);
     callback gpu-changed(float);
     callback set-dynamic-boost(bool);
@@ -476,6 +482,28 @@ export component PerformancePage inherits VerticalLayout {
         text: "The performance key on the keyboard switches modes too. On battery the laptop sets its own power limits.";
     }
 
+    if root.gpu-mode-shown: VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "Graphics";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.display;
+            title: "GPU mode";
+            description: root.gpu-mode-note;
+            ComboBox {
+                width: 220px;
+                model: ["Hybrid (MSHybrid)", "Intel graphics only", "NVIDIA graphics only"];
+                enabled: root.gpu-mode-available;
+                current-index <=> root.gpu-mode;
+                selected => { root.set-gpu-mode(self.current-index); }
+            }
+        }
+    }
+
     VerticalLayout {
         padding-top: 20px;
         spacing: 4px;
@@ -487,7 +515,7 @@ export component PerformancePage inherits VerticalLayout {
         SettingRow {
             icon: Glyphs.setups;
             title: "Profile";
-            description: "Each profile keeps its own CPU tuning and fan curve; changes below go into the one picked here.";
+            description: "Each profile keeps its own CPU and GPU tuning and fan curve; changes below go into the one picked here.";
             ComboBox {
                 width: 200px;
                 enabled: root.available;

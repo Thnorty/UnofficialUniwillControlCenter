@@ -1,12 +1,12 @@
 //! What this app keeps in the BIOS's settings variable (Control Center's `UniWillVariable`): the lighting the
-//! keyboard and the light bar show while the laptop starts, and the CPU core voltage offset. Writes run off the UI
-//! thread; results come back with `post`.
+//! keyboard and the light bar show while the laptop starts, the CPU core voltage offset and the GPU mode. Writes run
+//! off the UI thread; results come back with `post`.
 //!
 //! Control Center's service rewrites the whole variable from its own copy, so nothing is written while it runs.
 
 use super::{App, Kind, needs_app, post};
 use crate::hardware::system;
-use crate::hardware::uefi::{self, Startup, Variable, VoltageOffset};
+use crate::hardware::uefi::{self, GpuMode, Startup, Variable, VoltageOffset};
 use crate::lighting::effects;
 use crate::ui::TuningView;
 
@@ -24,6 +24,8 @@ pub(super) struct Bios {
     voltage: Option<i32>,
     /// Saved since the app started, so the laptop needs a restart for it.
     voltage_saved: bool,
+    /// The GPU mode the laptop started in, as first read.
+    gpu_mode_started: Option<GpuMode>,
 }
 
 fn startup_of(kind: Kind) -> Startup {
@@ -71,6 +73,7 @@ impl App {
         match result {
             Ok(variable) => {
                 let recovered = variable.recovered();
+                self.bios.gpu_mode_started = variable.gpu_mode();
                 self.bios.variable = Some(variable);
                 self.bios.error = None;
                 if recovered {
@@ -265,6 +268,55 @@ impl App {
         );
     }
 
+    // ---- GPU mode ---------------------------------------------------------------------------------------------------
+
+    fn gpu_mode(&self) -> Option<GpuMode> {
+        if self.demo {
+            return Some(GpuMode::Hybrid);
+        }
+        self.bios.variable.as_ref()?.gpu_mode()
+    }
+
+    pub(super) fn set_gpu_mode(&mut self, index: usize) {
+        let Some(mode) = GpuMode::ALL.get(index).copied() else { return };
+        if self.gpu_mode() == Some(mode) {
+            return;
+        }
+        if let Err(reason) = self.bios_writable() {
+            self.set_status(&reason, false, false);
+            self.refresh_bios();
+            return;
+        }
+        self.write_bios(move |_| uefi::set_gpu_mode(mode), |_| {});
+    }
+
+    fn gpu_mode_note(&self, mode: Option<GpuMode>) -> String {
+        let Some(mode) = mode else {
+            return match &self.bios.error {
+                Some(error) => format!("The BIOS settings can't be read: {error}"),
+                None if self.bios.variable.is_some() => "This laptop's BIOS doesn't have a GPU mode this app knows.".into(),
+                None => "Reading the BIOS settings…".into(),
+            };
+        };
+        let about = match mode {
+            GpuMode::Hybrid => {
+                "The Intel graphics drive the screen, and the NVIDIA GPU works for the apps that need it and switches off when nothing does. The best of both, as the laptop comes."
+            }
+            GpuMode::Integrated => {
+                "The NVIDIA GPU is switched off completely, for the longest battery life. Games run on the Intel graphics, and screens on the ports the NVIDIA GPU drives stay dark."
+            }
+            GpuMode::Discrete => {
+                "The NVIDIA GPU drives the screen, for the most performance in games. It's on all the time, so the battery runs down faster."
+            }
+        };
+        let started = self.bios.gpu_mode_started.or(self.demo.then_some(GpuMode::Hybrid));
+        if started.is_some_and(|s| s != mode) {
+            format!("{about} Takes effect when the laptop restarts.")
+        } else {
+            about.into()
+        }
+    }
+
     pub(super) fn refresh_bios(&self) {
         let Some(ui) = self.ui() else { return };
         let writable = self.bios_writable();
@@ -284,6 +336,11 @@ impl App {
             _ if chosen != saved => format!("Saved now: {saved:+} mV. Save to use {chosen:+} mV from the next start."),
             _ => "Takes effect when the laptop restarts.".into(),
         };
+        let gpu_mode = self.gpu_mode();
+        ui.set_gpu_mode_available(gpu_mode.is_some() && can_save && !self.demo);
+        ui.set_gpu_mode_shown(gpu_mode.is_some() || self.bios.error.is_some());
+        ui.set_gpu_mode(gpu_mode.and_then(|m| GpuMode::ALL.iter().position(|&x| x == m)).unwrap_or(0) as i32);
+        ui.set_gpu_mode_note(self.gpu_mode_note(gpu_mode).into());
         ui.set_tune_voltage(chosen as f32);
         ui.set_tuning(TuningView {
             voltage_available: range.is_some() && can_save,

@@ -1846,6 +1846,7 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_limit_changed(|which, watts| with_app(move |app| app.set_limit(which.max(0) as usize, watts.round().clamp(0.0, 255.0) as u8)));
     ui.on_set_tcc(|on| with_app(move |app| app.set_tcc(on)));
     ui.on_tcc_changed(|degrees| with_app(move |app| app.set_tcc_offset(degrees.round().clamp(0.0, 127.0) as u8)));
+    ui.on_set_gpu_mode(|index| with_app(move |app| app.set_gpu_mode(index.max(0) as usize)));
     ui.on_set_custom_gpu(|on| with_app(move |app| app.set_custom_gpu(on)));
     ui.on_gpu_changed(|watts| with_app(move |app| app.set_gpu_tgp(watts.round().clamp(0.0, 255.0) as u8)));
     ui.on_set_dynamic_boost(|on| with_app(move |app| app.set_dynamic_boost(on)));

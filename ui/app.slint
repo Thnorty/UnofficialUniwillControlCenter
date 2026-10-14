@@ -149,6 +149,10 @@ export component AppWindow inherits Window {
     in-out property <float> tune-pl4;
     in-out property <float> tune-tcc;
     in-out property <float> tune-gpu;
+    in property <bool> gpu-mode-shown;
+    in property <bool> gpu-mode-available;
+    in-out property <int> gpu-mode;
+    in property <string> gpu-mode-note;
     in-out property <float> tune-voltage;
 
     // Battery.
@@ -246,6 +250,7 @@ export component AppWindow inherits Window {
     callback limit-changed(int, float);
     callback set-tcc(bool);
     callback tcc-changed(float);
+    callback set-gpu-mode(int);
     callback set-custom-gpu(bool);
     callback gpu-changed(float);
     callback set-dynamic-boost(bool);
@@ -564,6 +569,11 @@ export component AppWindow inherits Window {
                         pl4 <=> root.tune-pl4;
                         tcc <=> root.tune-tcc;
                         gpu-tgp <=> root.tune-gpu;
+                        gpu-mode-shown: root.gpu-mode-shown;
+                        gpu-mode-available: root.gpu-mode-available;
+                        gpu-mode <=> root.gpu-mode;
+                        gpu-mode-note: root.gpu-mode-note;
+                        set-gpu-mode(i) => { root.set-gpu-mode(i); }
                         voltage <=> root.tune-voltage;
                         set-custom-limits(on) => { root.set-custom-limits(on); }
                         limit-changed(i, v) => { root.limit-changed(i, v); }
