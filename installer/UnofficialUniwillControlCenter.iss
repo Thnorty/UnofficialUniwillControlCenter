@@ -7,6 +7,8 @@
 #define AppName "Unofficial Uniwill Control Center"
 #define AppExe "UnofficialUniwillControlCenter.exe"
 #define AppGuid "{7B35BD08-3A02-4F7E-8F9F-A0355537E388}"
+; The app's single-instance lock (src/shell/instance.rs), named when it was called Tulpar Control.
+#define AppLock "Local\TulparControl"
 
 [Setup]
 AppId={{#AppGuid}
@@ -156,14 +158,36 @@ end;
 
 // Before files are replaced: quit the running app (whichever copy it is) the way its Exit menu does, so the Fn keys
 // and the fans are handed back to the laptop. The new exe is used, since an older one doesn't know --exit.
+// That takes a few seconds, so a page says what is going on meanwhile. Setup doesn't wait in Exec, which disables its
+// window (a click only plays the error sound): the app and --exit both hold the app's single-instance lock while they
+// run, so it waits for the lock to go, the way --exit itself does (up to 30 s).
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  Code: Integer;
+  Code, Waited: Integer;
+  Page: TOutputMarqueeProgressWizardPage;
 begin
   Result := '';
-  ExtractTemporaryFile('{#AppExe}');
-  if not Exec(ExpandConstant('{tmp}\{#AppExe}'), '--exit', '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
-    Result := '{#AppName} is still running. Close it from its tray icon (Exit), then try again.';
+  Page := CreateOutputMarqueeProgressPage('Closing {#AppName}', 'It hands the Fn keys and the fans back to the laptop first.');
+  Page.SetText('Closing {#AppName} if it is running...', '');
+  Page.Show;
+  try
+    Page.Animate;
+    ExtractTemporaryFile('{#AppExe}');
+    if not Exec(ExpandConstant('{tmp}\{#AppExe}'), '--exit', '', SW_HIDE, ewNoWait, Code) then
+      Result := '{#AppName} couldn''t be closed: ' + SysErrorMessage(Code)
+    else begin
+      Waited := 0;
+      while CheckForMutexes('{#AppLock}') and (Waited < 35000) do begin
+        Page.Animate;  // lets the window handle input and paint
+        Sleep(50);
+        Waited := Waited + 50;
+      end;
+      if CheckForMutexes('{#AppLock}') then
+        Result := '{#AppName} is still running. Close it from its tray icon (Exit), then try again.';
+    end;
+  finally
+    Page.Hide;
+  end;
 end;
 
 function HasParam(Name: String): Boolean;
