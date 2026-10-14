@@ -635,7 +635,7 @@ export component PerformancePage inherits VerticalLayout {
         if root.tuning.gpu-available && root.tuning.gpu-extra-available: SettingRow {
             icon: Glyphs.display;
             title: "GPU power limit";
-            description: root.tuning.gpu-custom ? "Used on the charger in this mode; on battery the GPU keeps to its default." : root.tuning.gpu-defaults;
+            description: root.tuning.gpu-custom ? "Used on the charger in this mode; on battery the laptop picks it." : root.tuning.gpu-defaults;
             ToggleSwitch {
                 checked: root.tuning.gpu-custom;
                 enabled: root.tuning.available;

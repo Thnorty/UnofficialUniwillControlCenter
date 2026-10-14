@@ -26,11 +26,14 @@ const DEFAULT_TCC: u16 = 0x7D8; // Gaming, Office, Turbo (GetTCCDefaultValue)
 const TURBO_SUPPORT: u16 = 0x49F; // bit 1 (MyEcCtrl.GetTurboModeSupport)
 const MODE_OPTIONS: u16 = 0x782; // bit 4: the default mode is Gaming, not Office
 // ADDR_ConfigurableTGP_DynamicBoost_CTRL_BYTE: bit 0 Dynamic Boost set by the app, bit 1 Dynamic Boost on, bit 2
-// configurable TGP on.
+// the configurable TGP is the app's (0x744); without it the EC picks its own for the mode (+10 W in Office here).
+// The EC passes them on within about 2 s: the BIOS's fields below, then an event (_Q83, _Q84) that has NVIDIA's
+// driver read them again.
 const GPU_POWER_CONTROL: u16 = 0x743;
 const GPU_TGP_OFFSET: u16 = 0x744; // ADDR_ConfigurableTGP_VALUE: watts above the GPU's default TGP
 const DYNAMIC_BOOST_TARGET: u16 = 0x745; // ADDR_DynamicBoost_TotalProcessingPowerTarget_VALUE
 const DYNAMIC_BOOST_MAX: u16 = 0x746; // ADDR_DynamicBoost_MaxinumTGP_VALUE: watts
+const GPU_TGP_IN_USE: u16 = 0x788; // the BIOS's CTWA: the watts above the default TGP the GPU has now
 
 /// Control Center's operating modes, numbered as it numbers them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -169,7 +172,7 @@ impl Tuning {
         if !ranges.gpu() {
             return None;
         }
-        let extra = if self.custom_gpu { self.gpu_tgp.clamp(ranges.gpu_tgp, ranges.gpu_tgp + ranges.gpu_extra) - ranges.gpu_tgp } else { 0 };
+        let extra = self.custom_gpu.then(|| self.gpu_tgp.clamp(ranges.gpu_tgp, ranges.gpu_tgp + ranges.gpu_extra) - ranges.gpu_tgp);
         let dynamic_boost = if self.dynamic_boost_off { 0 } else { ranges.dynamic_boost };
         Some(GpuPower { extra, dynamic_boost })
     }
@@ -203,8 +206,8 @@ impl Ranges {
 /// What the GPU may draw on the charger.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct GpuPower {
-    /// Watts above its default TGP; 0 leaves the default.
-    pub extra: u8,
+    /// Watts above its default TGP; None leaves it to the EC, which picks its own for the mode.
+    pub extra: Option<u8>,
     /// Dynamic Boost's most, in watts; 0 is off.
     pub dynamic_boost: u8,
 }
@@ -276,10 +279,10 @@ pub fn set_tuning(ec: &Registers, mode: Mode, on_ac: bool, tuning: Option<&Tunin
 }
 
 /// The GPU's power as SetUserProfile sends it: on the charger the configurable TGP and Dynamic Boost, on battery
-/// neither (the GPU then keeps to its default TGP).
+/// neither (the EC then picks the TGP).
 fn set_gpu_power(ec: &Registers, on_ac: bool, gpu: GpuPower) -> Result<()> {
     let gpu = if on_ac { gpu } else { GpuPower::default() };
-    ec.write(GPU_TGP_OFFSET, gpu.extra)?;
+    ec.write(GPU_TGP_OFFSET, gpu.extra.unwrap_or(0))?;
     // SetGpuDynamicBoostSwitch: the total processing power target is left to the GPU (255).
     ec.write(DYNAMIC_BOOST_TARGET, if gpu.dynamic_boost > 0 { 0xFF } else { 0 })?;
     ec.write(DYNAMIC_BOOST_MAX, gpu.dynamic_boost)?;
@@ -290,10 +293,15 @@ fn set_gpu_power(ec: &Registers, on_ac: bool, gpu: GpuPower) -> Result<()> {
     if gpu.dynamic_boost > 0 {
         control |= 0x02;
     }
-    if gpu.extra > 0 {
+    if gpu.extra.is_some() {
         control |= 0x04;
     }
     ec.write(GPU_POWER_CONTROL, control)
+}
+
+/// The watts above its default TGP the GPU has now, as the BIOS hands them to NVIDIA's driver.
+pub fn gpu_extra_in_use(ec: &Registers) -> Result<u8> {
+    ec.read(GPU_TGP_IN_USE)
 }
 
 /// Sets the fan mode byte alone (MyFanManager_RamFan1p5.SetFanMode): the mode's fans, and Fan Boost, which runs them
@@ -317,13 +325,17 @@ mod tests {
     #[test]
     fn gpu_power() {
         // Control Center's profiles: the default TGP, with Dynamic Boost.
-        assert_eq!(Tuning::default().gpu_power(&RANGES), Some(GpuPower { extra: 0, dynamic_boost: 15 }));
+        // Control Center's profiles: the mode's own TGP, which the EC picks, with Dynamic Boost.
+        assert_eq!(Tuning::default().gpu_power(&RANGES), Some(GpuPower { extra: None, dynamic_boost: 15 }));
         let raised = Tuning { custom_gpu: true, gpu_tgp: 100, dynamic_boost_off: true, ..Tuning::default() };
-        assert_eq!(raised.gpu_power(&RANGES), Some(GpuPower { extra: 20, dynamic_boost: 0 }));
-        // Kept within the table, and the TGP is only raised while the switch is on.
+        assert_eq!(raised.gpu_power(&RANGES), Some(GpuPower { extra: Some(20), dynamic_boost: 0 }));
+        // The default TGP itself is the app's too, not the EC's choice.
+        let lowest = Tuning { custom_gpu: true, gpu_tgp: 80, ..Tuning::default() };
+        assert_eq!(lowest.gpu_power(&RANGES).unwrap().extra, Some(0));
+        // Kept within the table, and only used while the switch is on.
         let too_far = Tuning { custom_gpu: true, gpu_tgp: 200, ..Tuning::default() };
-        assert_eq!(too_far.gpu_power(&RANGES), Some(GpuPower { extra: 35, dynamic_boost: 15 }));
-        assert_eq!(Tuning { custom_gpu: false, ..too_far }.gpu_power(&RANGES).unwrap().extra, 0);
+        assert_eq!(too_far.gpu_power(&RANGES), Some(GpuPower { extra: Some(35), dynamic_boost: 15 }));
+        assert_eq!(Tuning { custom_gpu: false, ..too_far }.gpu_power(&RANGES).unwrap().extra, None);
         // No NVIDIA GPU in the table: nothing to set.
         assert_eq!(Tuning::default().gpu_power(&Ranges { gpu_tgp: 0, ..RANGES }), None);
     }

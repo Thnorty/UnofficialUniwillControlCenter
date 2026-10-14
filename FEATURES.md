@@ -94,8 +94,11 @@ Control Center's overclocking settings for Intel laptops:
   Smart APC table allows (here 80 W, up to 115 W), and Dynamic Boost gives it up to the table's extra (here 15 W)
   when the CPU needs less, so it can draw up to 130 W. As Control Center's SetUserProfile sends them on each mode
   change: EC 0x744 the watts above the default, 0x745/0x746 Dynamic Boost's target (255) and watts, and 0x743 bit 2
-  configurable TGP on, bit 1 Dynamic Boost on, bit 0 set by the app. Dynamic Boost is on and the TGP at its default
-  unless changed, as in Control Center's profiles; on battery both are off.
+  TGP is the app's, bit 1 Dynamic Boost on, bit 0 set by the app. Without bit 2 the EC picks the TGP for the mode
+  (+10 W in Office here), which the page shows. The EC passes the values to the BIOS's own fields (0x788 CTWA,
+  0x7C4 bit 3 DBEN, 0x7D4 CPUA, 0x7D5 DBAP) and raises _Q83/_Q84, which hand them to NVIDIA's driver within about
+  2 s. Dynamic Boost is on and the TGP the EC's unless changed, as in Control Center's profiles; on battery both are
+  left to the EC.
 - **Profiles per mode:** as Control Center's five profiles per mode, each with its own power limits, TCC offset,
   GPU power and fan curve. Every mode starts with "Standard"; a new one starts as a copy of the active one, and changes on the
   page go into the active one. Switching sends it at once, with a pop-up.
