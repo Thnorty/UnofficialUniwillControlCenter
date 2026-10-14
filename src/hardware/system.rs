@@ -173,6 +173,21 @@ pub mod startup {
         schtasks(&["/Query", "/TN", TASK_NAME]).is_ok_and(|code| code == 0)
     }
 
+    /// Whether the task starts this exe, and not another copy of the app.
+    pub fn starts_this_exe() -> bool {
+        let Ok(exe) = std::env::current_exe() else { return false };
+        let Ok(output) = Command::new("schtasks.exe").args(["/Query", "/TN", TASK_NAME, "/XML"]).creation_flags(CREATE_NO_WINDOW).output() else {
+            return false;
+        };
+        let command = format!("<Command>{}</Command>", escape(&exe.to_string_lossy()));
+        output.status.success() && String::from_utf8_lossy(&output.stdout).to_lowercase().contains(&command.to_lowercase())
+    }
+
+    /// Starts the app now as the task does at sign-in: with administrator rights, in the tray, without a UAC prompt.
+    pub fn run_now() -> bool {
+        schtasks(&["/Run", "/TN", TASK_NAME]).is_ok_and(|code| code == 0)
+    }
+
     pub fn enable() -> Result<()> {
         let user = escape(&current_user()?);
         let exe = escape(&std::env::current_exe()?.to_string_lossy());

@@ -39,6 +39,11 @@ fn main() {
         std::process::exit(if result.is_ok() { 0 } else { 1 });
     }
 
+    // The manifest doesn't ask for administrator rights, so opening the app while it runs needs no UAC prompt.
+    if !demo && !shell::instance::is_elevated() {
+        shell::instance::open_elevated(&arguments[1..]);
+        return;
+    }
     if !demo && !shell::instance::acquire() {
         return;
     }

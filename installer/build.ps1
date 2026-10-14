@@ -14,7 +14,7 @@ if (-not $iscc) { throw "Inno Setup 6 isn't installed: winget install JRSoftware
 Push-Location $root
 try {
     # The real build: not the demo one.
-    Remove-Item Env:UUCC_NO_ADMIN, Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+    Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
     cargo build --release
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
     & $iscc "/DAppVersion=$version" "$PSScriptRoot\UnofficialUniwillControlCenter.iss"

@@ -1,12 +1,22 @@
 //! One instance at a time: two would send interleaved commands to the same controllers. A second launch brings the
 //! running window forward, unless that instance is exiting: it still holds the lock for a few seconds while it hands
 //! the Fn keys and fans back, so the new one waits for it and then starts.
+//!
+//! The app needs administrator rights, but its manifest doesn't ask for them: a launch without them (the Start menu,
+//! a shortcut) opens the running app without a UAC prompt, and otherwise starts it with them.
 
 use std::time::Duration;
 
-use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_ABANDONED, WAIT_OBJECT_0};
-use windows::Win32::System::Threading::{CreateEventW, CreateMutexW, OpenEventW, ReleaseMutex, SYNCHRONIZATION_SYNCHRONIZE, WaitForSingleObject};
-use windows::core::w;
+use windows::Win32::Foundation::{CloseHandle, E_ACCESSDENIED, HANDLE, WAIT_ABANDONED, WAIT_OBJECT_0};
+use windows::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
+use windows::Win32::System::Threading::{
+    CreateEventW, CreateMutexW, GetCurrentProcess, OpenEventW, OpenProcessToken, ReleaseMutex, SYNCHRONIZATION_SYNCHRONIZE, WaitForSingleObject,
+};
+use windows::Win32::UI::Shell::{SHELLEXECUTEINFOW, ShellExecuteExW};
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+use windows::core::{HSTRING, PCWSTR, w};
+
+use crate::hardware::system::startup;
 
 use super::tray;
 
@@ -22,12 +32,76 @@ pub fn acquire() -> bool {
     if owned(lock, Duration::ZERO) {
         return true;
     }
-    let exiting = unsafe { OpenEventW(SYNCHRONIZATION_SYNCHRONIZE, false, EXITING) }.is_ok();
-    if exiting {
+    if exiting() {
         return owned(lock, EXIT_WAIT);
     }
     tray::signal_running_instance();
     false
+}
+
+/// Whether the running instance is on its way out. Without administrator rights the event can't be opened, which
+/// still means it's there.
+fn exiting() -> bool {
+    match unsafe { OpenEventW(SYNCHRONIZATION_SYNCHRONIZE, false, EXITING) } {
+        Ok(event) => {
+            let _ = unsafe { CloseHandle(event) };
+            true
+        }
+        Err(e) => e.code() == E_ACCESSDENIED,
+    }
+}
+
+/// Whether this process has administrator rights.
+pub fn is_elevated() -> bool {
+    unsafe {
+        let mut token = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+            return false;
+        }
+        let mut elevation = TOKEN_ELEVATION::default();
+        let mut size = 0;
+        let read = GetTokenInformation(
+            token,
+            TokenElevation,
+            Some(&mut elevation as *mut _ as *mut _),
+            size_of::<TOKEN_ELEVATION>() as u32,
+            &mut size,
+        );
+        let _ = CloseHandle(token);
+        read.is_ok() && elevation.TokenIsElevated != 0
+    }
+}
+
+/// For a launch without administrator rights: shows the running app's window. When it isn't running, starts it with
+/// administrator rights: through the startup task if that starts this exe (no prompt, as when signing in), otherwise
+/// with a UAC prompt.
+pub fn open_elevated(arguments: &[String]) {
+    if !exiting() && tray::show_running() {
+        return;
+    }
+    if !exiting() && startup::starts_this_exe() && startup::run_now() {
+        // The task starts it in the tray; its window is shown once it's there.
+        for _ in 0..60 {
+            std::thread::sleep(Duration::from_millis(250));
+            if tray::show_running() {
+                return;
+            }
+        }
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let file = HSTRING::from(exe.as_os_str());
+    let parameters = HSTRING::from(arguments.iter().map(|a| format!("\"{}\"", a.replace('"', "\\\""))).collect::<Vec<_>>().join(" "));
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: size_of::<SHELLEXECUTEINFOW>() as u32,
+        lpVerb: w!("runas"),
+        lpFile: PCWSTR(file.as_ptr()),
+        lpParameters: PCWSTR(parameters.as_ptr()),
+        nShow: SW_SHOWNORMAL.0,
+        ..Default::default()
+    };
+    // Declined at the prompt: nothing to do.
+    let _ = unsafe { ShellExecuteExW(&mut info) };
 }
 
 fn owned(lock: HANDLE, wait: Duration) -> bool {

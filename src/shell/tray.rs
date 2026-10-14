@@ -11,8 +11,8 @@ use windows::Win32::UI::Shell::{
     NOTIFY_ICON_STATE, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu, GetCursorPos, HICON, HMENU,
-    ICONINFO, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, PostMessageW, RegisterClassW, RegisterWindowMessageW,
+    ASFW_ANY, AllowSetForegroundWindow, AppendMenuW, ChangeWindowMessageFilterEx, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu, GetCursorPos, HICON, HMENU,
+    FindWindowW, ICONINFO, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MSGFLT_ALLOW, PostMessageW, RegisterClassW, RegisterWindowMessageW,
     SetForegroundWindow, TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WINDOW_EX_STYLE, WM_APP, WM_CONTEXTMENU,
     WM_LBUTTONDBLCLK, WM_LBUTTONUP, WM_NULL, WM_POWERBROADCAST, WM_SETTINGCHANGE, WNDCLASSW, WS_POPUP,
 };
@@ -83,9 +83,29 @@ pub fn exit_message() -> u32 {
     unsafe { RegisterWindowMessageW(w!("TulparControl.Exit")) }
 }
 
+const CLASS: windows::core::PCWSTR = w!("KeyboardRgbTray");
+
 /// Asks a running instance to show its window.
 pub fn signal_running_instance() {
+    allow_foreground();
     broadcast(show_message());
+}
+
+/// Asks the running instance, if there is one, to show its window; also from a process without administrator rights,
+/// as the instance lets its show message through. False if none is running.
+pub fn show_running() -> bool {
+    unsafe {
+        let Ok(hwnd) = FindWindowW(CLASS, None) else { return false };
+        allow_foreground();
+        PostMessageW(Some(hwnd), show_message(), WPARAM(0), LPARAM(0)).is_ok()
+    }
+}
+
+/// Lets the running instance bring its window to the front: Windows allows that to the process the user just started.
+fn allow_foreground() {
+    unsafe {
+        let _ = AllowSetForegroundWindow(ASFW_ANY);
+    }
 }
 
 /// Asks a running instance to quit.
@@ -106,11 +126,12 @@ impl Tray {
             MESSAGES.with(|m| *m.borrow_mut() = (RegisterWindowMessageW(w!("TaskbarCreated")), show_message(), exit_message()));
             allow_dark_menus();
             let instance = GetModuleHandleW(None)?;
-            let class = w!("KeyboardRgbTray");
-            let wc = WNDCLASSW { lpfnWndProc: Some(window_proc), hInstance: instance.into(), lpszClassName: class, ..Default::default() };
+            let wc = WNDCLASSW { lpfnWndProc: Some(window_proc), hInstance: instance.into(), lpszClassName: CLASS, ..Default::default() };
             RegisterClassW(&wc);
             // A hidden top-level window rather than a message-only one, so it gets broadcasts.
-            let hwnd = CreateWindowExW(WINDOW_EX_STYLE(0), class, w!("Unofficial Uniwill Control Center tray"), WS_POPUP, 0, 0, 0, 0, None, None, Some(instance.into()), None)?;
+            let hwnd = CreateWindowExW(WINDOW_EX_STYLE(0), CLASS, w!("Unofficial Uniwill Control Center tray"), WS_POPUP, 0, 0, 0, 0, None, None, Some(instance.into()), None)?;
+            // A launch without administrator rights may ask this window to show the app (not to quit it).
+            let _ = ChangeWindowMessageFilterEx(hwnd, show_message(), MSGFLT_ALLOW, None);
             let tray = Tray { hwnd, icon: HICON::default(), tip: tip.to_string(), hidden: false };
             Ok(tray)
         }

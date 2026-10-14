@@ -10,7 +10,9 @@ Control Center's lighting, performance modes, fans and battery care, and a hardw
 
 It talks to the lighting controllers directly over HID, and to the embedded controller through the BIOS WMI interface.
 It does not need Control Center, its GCUBridge/GCUService service or its MQTT broker. It needs administrator rights;
-the "Start with Windows" option starts it elevated in the tray through Task Scheduler.
+the "Start with Windows" option starts it elevated in the tray through Task Scheduler. The exe doesn't ask for them
+itself: a launch without them shows the running app's window (its tray window lets that one message through), or
+starts the app through the startup task when that task starts the same exe, or else asks with a UAC prompt.
 
 ## From Control Center
 

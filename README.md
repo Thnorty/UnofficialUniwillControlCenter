@@ -110,8 +110,10 @@ in one small app that looks like Windows 11.
      sign in** (the same as **Start with Windows** in Settings, so it can be turned off there).
    - The installer isn't signed, so Windows SmartScreen may warn about it: choose **More info › Run anyway**.
    - Installing a new version over an old one closes the running app first, handing the Fn keys and fans back.
-2. The app asks for administrator rights, because the Fn keys, the performance modes, the fans and battery care go
-   through the BIOS's WMI interface.
+2. The app needs administrator rights, because the Fn keys, the performance modes, the fans and battery care go
+   through the BIOS's WMI interface. Opening it while it runs (from Start or a shortcut) just shows its window, with
+   no UAC prompt. When it isn't running, it starts through its startup task with no prompt too, or asks for them if
+   **Start with Windows** is off.
 3. On its first start it says what it does and asks whether to go on (see [Compatibility](#compatibility)).
 
 To keep it running without a tray icon, turn off **Show in the tray** in Settings; starting the app again opens its
@@ -214,7 +216,6 @@ It builds the app and writes `dist\UnofficialUniwillControlCenter-<version>-Setu
 <br>
 
 ```
-set UUCC_NO_ADMIN=1
 set CARGO_TARGET_DIR=target-demo
 cargo build --release
 target-demo\release\UnofficialUniwillControlCenter.exe --demo
