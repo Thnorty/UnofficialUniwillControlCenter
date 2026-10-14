@@ -4,6 +4,7 @@
 pub mod battery;
 pub mod ec;
 pub mod fans;
+pub mod gpu;
 pub mod hotkeys;
 pub mod performance;
 pub mod status;

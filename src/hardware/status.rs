@@ -24,6 +24,8 @@ pub struct SystemStatus {
     pub cpu_temperature: Option<f32>,
     /// The NVIDIA GPU's temperature in °C; None while the GPU is switched off or absent.
     pub gpu_temperature: Option<f32>,
+    /// The NVIDIA GPU is switched off to save power, so it isn't asked for its temperature: that would switch it on.
+    pub gpu_off: bool,
 
     last_times: Option<(u64, u64, u64)>,
     wmi: Option<WMIConnection>,
@@ -104,8 +106,18 @@ impl SystemStatus {
 
     fn read_gpu_temperature(&mut self) {
         self.gpu_temperature = None;
+        self.gpu_off = false;
         if self.nvml_missing {
             return;
+        }
+        // While it's off, NVML would switch it on, and until then report the last temperature it saw.
+        match super::gpu::nvidia_on() {
+            Some(true) => {}
+            Some(false) => {
+                self.gpu_off = true;
+                return;
+            }
+            None => return,
         }
         if self.nvml.is_none() {
             match Nvml::load() {

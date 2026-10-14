@@ -26,6 +26,7 @@ pub(super) struct Sample {
     cpu_temperature: Option<f32>,
     cpu_load: Option<f32>,
     gpu_temperature: Option<f32>,
+    gpu_off: bool,
     fans: Option<(FanReading, FanReading)>,
     memory: Option<(u64, u64)>,
     battery_percent: Option<u8>,
@@ -102,8 +103,20 @@ impl App {
         let gpu_temperature = Metric {
             icon: "\u{E7F4}".into(),
             title: "GPU temperature".into(),
-            value: last.gpu_temperature.map_or("—".into(), |t| format!("{t:.0} °C")).into(),
-            detail: if last.gpu_temperature.is_some() { "NVIDIA GPU" } else { "Not reported: the GPU is asleep, or has no NVIDIA driver" }.into(),
+            value: match last.gpu_temperature {
+                Some(t) => format!("{t:.0} °C"),
+                None if last.gpu_off => "Off".into(),
+                None => "—".into(),
+            }
+            .into(),
+            detail: if last.gpu_temperature.is_some() {
+                "NVIDIA GPU"
+            } else if last.gpu_off {
+                "Switched off while nothing uses it, which saves power. It isn't asked for a reading then, as that would switch it on."
+            } else {
+                "Not reported: no NVIDIA GPU or driver"
+            }
+            .into(),
             history: line(&|s| s.gpu_temperature, 30.0, 100.0).into(),
             level: last.gpu_temperature.map_or(-1.0, |t| (t - 30.0) / 70.0),
             warn: last.gpu_temperature.is_some_and(|t| t >= 87.0),
@@ -272,6 +285,7 @@ fn monitor_thread(wanted: Arc<AtomicBool>, stop: Arc<AtomicBool>, ec: Arc<Mutex<
                 cpu_temperature: status.cpu_temperature,
                 cpu_load: status.cpu_load,
                 gpu_temperature: status.gpu_temperature,
+                gpu_off: status.gpu_off,
                 fans,
                 memory: status::memory(),
                 battery_percent: status.battery_percent,
@@ -294,6 +308,7 @@ fn demo_sample(t: f32) -> Sample {
         cpu_temperature: Some(temperature),
         cpu_load: Some((0.35 + 0.25 * wave(23.0, 0.1) + 0.1 * wave(3.0, 0.0)).clamp(0.0, 1.0)),
         gpu_temperature: Some(temperature - 8.0),
+        gpu_off: false,
         fans: Some((fan(duty), fan(duty.saturating_sub(10)))),
         memory: Some((11_400_000_000, 34_100_000_000)),
         battery_percent: Some(82),

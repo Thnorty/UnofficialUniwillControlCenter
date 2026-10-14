@@ -187,7 +187,9 @@ Control Center's CPU overclocking settings for Intel laptops:
   - light bar: Battery (level bar, a pulse while charging), CPU load, CPU temperature and GPU temperature gauges;
   - keyboard: CPU temperature and GPU temperature colors, blue when cool to red when hot.
   - The CPU temperature is the hottest ACPI thermal zone, the same reading Control Center uses. The GPU temperature
-    comes from the NVIDIA driver (NVML) and shows "no reading" while the GPU is switched off.
+    comes from the NVIDIA driver (NVML), only while the GPU is on: with Optimus it switches off while nothing uses
+    it, and asking the driver anything would switch it back on (about 25 W on the Tulpar), so the app checks its
+    power state with Windows first and shows "no reading" (Off on the Monitor page) meanwhile.
 - **Light bar indicators:** the bar flashes when Caps Lock (white) or Num Lock (blue) changes: opening from the middle for on, closing to the middle for off. Each can be
   turned off. Over effects this app draws the flash is drawn on top; over firmware effects the effect comes back
   after the flash.

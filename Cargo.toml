@@ -30,6 +30,7 @@ features = [
     "UI_Notifications_Management",
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Devices_HumanInterfaceDevice",
+    "Win32_Devices_Properties",
     "Win32_Foundation",
     "Win32_Graphics_Direct2D",
     "Win32_Graphics_Direct2D_Common",
