@@ -1,6 +1,6 @@
-//! Tulpar Control: the Monster Tulpar T5 V21.4's keyboard and light bar lighting, performance modes, fans, battery
-//! protection and a hardware monitor, replacing Control
-//! Center's lighting pages, with Fn keys, pop-ups, effects drawn by the app, a timer and indicators.
+//! Unofficial Uniwill Control Center: keyboard and light bar lighting, performance modes, fans, battery care and a hardware monitor for laptops
+//! built by Uniwill, replacing their Control Center, with Fn keys, pop-ups, effects drawn by the app, a timer and
+//! plugins. Made on a Monster Tulpar T5 V21.4.
 #![windows_subsystem = "windows"]
 
 mod app;
@@ -15,7 +15,7 @@ pub mod ui {
     slint::include_modules!();
 }
 
-use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
+use windows::Win32::UI::WindowsAndMessaging::{IDOK, MB_DEFBUTTON2, MB_ICONERROR, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MessageBoxW};
 use windows::core::{HSTRING, w};
 
 fn main() {
@@ -36,6 +36,12 @@ fn main() {
     if !demo && !shell::instance::acquire() {
         return;
     }
+    if !demo {
+        settings::migrate_folder();
+        if !accept_risk() {
+            return;
+        }
+    }
 
     // Never leave the firmware's hotkeys pointed at a process that is gone, or the fans on a curve nothing watches.
     let default_hook = std::panic::take_hook();
@@ -43,7 +49,7 @@ fn main() {
         hardware::release_current();
         let message = format!("{info}");
         unsafe {
-            MessageBoxW(None, &HSTRING::from(message), w!("Tulpar Control crashed"), MB_OK | MB_ICONERROR);
+            MessageBoxW(None, &HSTRING::from(message), w!("Unofficial Uniwill Control Center crashed"), MB_OK | MB_ICONERROR);
         }
         default_hook(info);
     }));
@@ -51,16 +57,54 @@ fn main() {
     if let Err(e) = run(demo, start_hidden) {
         hardware::release_current();
         unsafe {
-            MessageBoxW(None, &HSTRING::from(format!("Tulpar Control couldn't start: {e}")), w!("Tulpar Control"), MB_OK | MB_ICONERROR);
+            MessageBoxW(None, &HSTRING::from(format!("Unofficial Uniwill Control Center couldn't start: {e}")), w!("Unofficial Uniwill Control Center"), MB_OK | MB_ICONERROR);
         }
     }
     hardware::release_current();
 }
 
+/// The laptop the app was made and tested on.
+const TESTED: (&str, &str) = ("MONSTER", "TULPAR T5 V21.4");
+
+/// Asks once, before anything is sent to the laptop, whether to go on: the app is unofficial, and on laptops other
+/// than the one it was tested on, its writes to the embedded controller are untested.
+fn accept_risk() -> bool {
+    let mut settings = settings::Settings::load();
+    if settings.accepted_risk {
+        return true;
+    }
+    let (maker, model) = hardware::system::laptop_model();
+    let tested = maker.eq_ignore_ascii_case(TESTED.0) && model.eq_ignore_ascii_case(TESTED.1);
+    let text = if tested {
+        "This app is unofficial: it isn't made or supported by Uniwill or by your laptop's maker.\n\n\
+         It changes the fans, the performance modes, the power limits and battery care by writing to the laptop's \
+         embedded controller. It was made and tested on this laptop, the Monster Tulpar T5 V21.4.\n\n\
+         Use it at your own risk. Start it?"
+            .to_string()
+    } else {
+        let laptop = if model.is_empty() { "This laptop".to_string() } else { format!("This laptop ({maker} {model})") };
+        format!(
+            "This app is unofficial: it isn't made or supported by Uniwill or by your laptop's maker.\n\n\
+             It changes the fans, the performance modes, the power limits and battery care by writing to the laptop's \
+             embedded controller. It was only tested on a Monster Tulpar T5 V21.4. {laptop} is untested: it may be \
+             built differently, and wrong writes to the embedded controller could make it misbehave or damage it.\n\n\
+             Use it at your own risk. Start it anyway?"
+        )
+    };
+    let style = MB_OKCANCEL | MB_ICONWARNING | if tested { Default::default() } else { MB_DEFBUTTON2 };
+    let answer = unsafe { MessageBoxW(None, &HSTRING::from(text), w!("Unofficial Uniwill Control Center"), style) };
+    if answer != IDOK {
+        return false;
+    }
+    settings.accepted_risk = true;
+    settings.save();
+    true
+}
+
 fn run(demo: bool, start_hidden: bool) -> Result<(), slint::PlatformError> {
     // Skia draws through Direct3D. The OpenGL renderer (femtovg) shows a blank white window on some drivers, so it
     // isn't used; the software renderer is the fallback (it has no shadows).
-    let renderer = std::env::var("TULPAR_RENDERER").unwrap_or_else(|_| "skia".into());
+    let renderer = std::env::var("UUCC_RENDERER").unwrap_or_else(|_| "skia".into());
     let select = |name: &str| slint::BackendSelector::new().backend_name("winit".into()).renderer_name(name.into()).select();
     if select(&renderer).is_err() {
         select("software")?;

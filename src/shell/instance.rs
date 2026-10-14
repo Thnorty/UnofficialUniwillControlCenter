@@ -10,6 +10,7 @@ use windows::core::w;
 
 use super::tray;
 
+// The names from when the app was called Tulpar Control, so this copy and one of then never run together.
 const LOCK: windows::core::PCWSTR = w!("Local\\TulparControl");
 const EXITING: windows::core::PCWSTR = w!("Local\\TulparControl.Exiting");
 const EXIT_WAIT: Duration = Duration::from_secs(15);

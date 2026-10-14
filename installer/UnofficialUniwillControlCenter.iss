@@ -1,11 +1,11 @@
-; The Tulpar Control installer (Inno Setup 6). Build it with installer\build.ps1, which builds the app first and
+; The Unofficial Uniwill Control Center installer (Inno Setup 6). Build it with installer\build.ps1, which builds the app first and
 ; passes the version from Cargo.toml.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
-#define AppName "Tulpar Control"
-#define AppExe "TulparControl.exe"
+#define AppName "Unofficial Uniwill Control Center"
+#define AppExe "UnofficialUniwillControlCenter.exe"
 
 [Setup]
 AppId={{7B35BD08-3A02-4F7E-8F9F-A0355537E388}
@@ -13,8 +13,8 @@ AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=Thnorty
-AppPublisherURL=https://github.com/Thnorty/TulparControl
-AppComments=Lighting, performance modes, fan curves and battery care for the Monster Tulpar T5 V21.4
+AppPublisherURL=https://github.com/Thnorty/UnofficialUniwillControlCenter
+AppComments=Lighting, performance modes, fan curves and battery care for laptops built by Uniwill (unofficial)
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
@@ -24,7 +24,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
 OutputDir=..\dist
-OutputBaseFilename=TulparControl-{#AppVersion}-Setup
+OutputBaseFilename=UnofficialUniwillControlCenter-{#AppVersion}-Setup
 SetupIconFile=..\res\app.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
@@ -47,6 +47,12 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "..\target\release\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\FEATURES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\PLUGINS.md"; DestDir: "{app}"; Flags: ignoreversion
+
+[InstallDelete]
+; Left from when the app was called Tulpar Control. An update keeps the folder it was installed in.
+Type: files; Name: "{app}\TulparControl.exe"
+Type: files; Name: "{autoprograms}\Tulpar Control.lnk"
+Type: files; Name: "{autodesktop}\Tulpar Control.lnk"
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"

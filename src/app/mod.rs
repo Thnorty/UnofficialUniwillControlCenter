@@ -413,6 +413,7 @@ impl App {
         ui.set_flash_num(settings.flash_num_lock);
         ui.set_popup_caps(settings.popup_caps_lock);
         ui.set_popup_num(settings.popup_num_lock);
+        ui.set_version(env!("CARGO_PKG_VERSION").into());
         if !demo {
             startup::migrate();
         }
@@ -1391,7 +1392,7 @@ impl App {
 
     fn create_tray(&mut self) {
         let tray = Tray::create(
-            "Tulpar Control",
+            "Unofficial Uniwill Control Center",
             || {
                 let mut items = Vec::new();
                 APP.with(|cell| {
@@ -1493,7 +1494,7 @@ impl App {
             menu.push(MenuItem::Submenu { text: "Setups".into(), enabled: true, items });
         }
         menu.push(MenuItem::Separator);
-        menu.push(MenuItem::item(CMD_OPEN, "Open Tulpar Control"));
+        menu.push(MenuItem::item(CMD_OPEN, "Open Unofficial Uniwill Control Center"));
         menu.push(MenuItem::item(CMD_EXIT, "Exit"));
         menu
     }

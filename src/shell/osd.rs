@@ -212,7 +212,7 @@ impl Osd {
             let hwnd = CreateWindowExW(
                 WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TRANSPARENT,
                 class,
-                w!("Tulpar Control"),
+                w!("Unofficial Uniwill Control Center"),
                 WS_POPUP,
                 0,
                 0,

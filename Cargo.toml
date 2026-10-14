@@ -1,12 +1,12 @@
 [package]
-name = "tulpar-control"
-version = "3.0.2"
+name = "unofficial-uniwill-control-center"
+version = "3.1.0"
 edition = "2024"
-description = "Keyboard and light bar lighting for the Monster Tulpar T5 V21.4"
+description = "Lighting, performance modes, fans and battery care for laptops built by Uniwill"
 publish = false
 
 [[bin]]
-name = "TulparControl"
+name = "UnofficialUniwillControlCenter"
 path = "src/main.rs"
 
 [dependencies]

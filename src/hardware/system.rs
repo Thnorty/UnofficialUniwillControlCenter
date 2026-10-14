@@ -8,7 +8,10 @@ use anyhow::{Result, bail};
 use windows::Win32::Foundation::CloseHandle;
 use windows::Win32::Security::Authentication::Identity::{EXTENDED_NAME_FORMAT, GetUserNameExW};
 use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
-use windows::Win32::System::Registry::{HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, RRF_RT_REG_DWORD, RegCloseKey, RegDeleteValueW, RegGetValueW, RegOpenKeyExW};
+use windows::Win32::System::Registry::{
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_SET_VALUE, RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegCloseKey, RegDeleteValueW, RegGetValueW,
+    RegOpenKeyExW,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_CAPITAL,
     VK_CONTROL, VK_F24, VK_LWIN, VK_NUMLOCK,
@@ -16,6 +19,31 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::core::{HSTRING, PWSTR, w};
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// The laptop's maker and model as its firmware reports them ("MONSTER", "TULPAR T5 V21.4"), empty if unknown.
+pub fn laptop_model() -> (String, String) {
+    let read = |name: windows::core::PCWSTR| -> String {
+        let mut buffer = [0u16; 256];
+        let mut size = (buffer.len() * 2) as u32;
+        let result = unsafe {
+            RegGetValueW(
+                HKEY_LOCAL_MACHINE,
+                w!("HARDWARE\\DESCRIPTION\\System\\BIOS"),
+                name,
+                RRF_RT_REG_SZ,
+                None,
+                Some(buffer.as_mut_ptr() as _),
+                Some(&mut size),
+            )
+        };
+        if result.is_err() {
+            return String::new();
+        }
+        let length = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
+        String::from_utf16_lossy(&buffer[..length]).trim().to_string()
+    };
+    (read(w!("SystemManufacturer")), read(w!("SystemProductName")))
+}
 
 /// Reads a DWORD from HKEY_CURRENT_USER.
 pub fn read_user_dword(key: &str, value: &str) -> Option<u32> {
@@ -131,12 +159,15 @@ fn process_running(name: &str) -> bool {
 }
 
 /// Starts the app at logon through Task Scheduler with highest privileges. The Run key can't start an app that needs
-/// administrator rights without a UAC prompt. The task the app had when it was called Keyboard RGB is removed.
+/// administrator rights without a UAC prompt. The tasks the app had under its earlier names are removed.
 pub mod startup {
     use super::*;
 
-    const TASK_NAME: &str = "TulparControl";
-    const OLD_TASK_NAME: &str = "MonsterKeyboardRGB";
+    const TASK_NAME: &str = "UnofficialUniwillControlCenter";
+    /// The task's names when the app was called Tulpar Control, and before that Keyboard RGB.
+    const OLD_TASK_NAMES: &[&str] = &["TulparControl", "MonsterKeyboardRGB"];
+    /// The Run key entry the first versions of Keyboard RGB used.
+    const OLD_RUN_VALUE: &str = "MonsterKeyboardRGB";
 
     pub fn is_enabled() -> bool {
         schtasks(&["/Query", "/TN", TASK_NAME]).is_ok_and(|code| code == 0)
@@ -148,7 +179,7 @@ pub mod startup {
         let xml = format!(
             r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Tulpar Control tray app</Description></RegistrationInfo>
+  <RegistrationInfo><Description>Unofficial Uniwill Control Center</Description></RegistrationInfo>
   <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger></Triggers>
   <Principals>
     <Principal id="Author">
@@ -196,9 +227,13 @@ pub mod startup {
         Ok(())
     }
 
-    /// Moves Keyboard RGB's startup task over to this name, pointing at this exe.
+    fn exists(name: &str) -> bool {
+        schtasks(&["/Query", "/TN", name]).is_ok_and(|code| code == 0)
+    }
+
+    /// Moves a startup task under an earlier name over to this one, pointing at this exe.
     pub fn migrate() {
-        if schtasks(&["/Query", "/TN", OLD_TASK_NAME]).is_ok_and(|code| code == 0) {
+        if OLD_TASK_NAMES.iter().any(|name| exists(name)) {
             if is_enabled() {
                 remove_legacy_entries();
             } else {
@@ -207,15 +242,18 @@ pub mod startup {
         }
     }
 
-    /// Keyboard RGB's startup task, and the Run key entry the first versions used (which can't launch an elevated app).
+    /// The startup tasks under earlier names, and the Run key entry the first versions used (which can't launch an
+    /// elevated app).
     pub fn remove_legacy_entries() {
-        if schtasks(&["/Query", "/TN", OLD_TASK_NAME]).is_ok_and(|code| code == 0) {
-            let _ = schtasks(&["/Delete", "/TN", OLD_TASK_NAME, "/F"]);
+        for name in OLD_TASK_NAMES {
+            if exists(name) {
+                let _ = schtasks(&["/Delete", "/TN", name, "/F"]);
+            }
         }
         unsafe {
             let mut key = HKEY::default();
             if RegOpenKeyExW(HKEY_CURRENT_USER, w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run"), Some(0), KEY_SET_VALUE, &mut key).is_ok() {
-                let _ = RegDeleteValueW(key, &HSTRING::from(OLD_TASK_NAME));
+                let _ = RegDeleteValueW(key, &HSTRING::from(OLD_RUN_VALUE));
                 let _ = RegCloseKey(key);
             }
         }

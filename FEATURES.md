@@ -1,7 +1,8 @@
-# Tulpar Control — feature overview
+# Unofficial Uniwill Control Center — feature overview
 
-A replacement for Control Center (v4.8.47.13, installed as Control Center 3 4.9.47.11) on the Monster Tulpar T5
-V21.4: its lighting, performance modes, fans and battery care, and a hardware monitor. This is a Uniwill/Tongfang platform with two ITE lighting controllers:
+An unofficial replacement for Uniwill's Control Center, made and tested on the Monster Tulpar T5 V21.4 against Control
+Center v4.8.47.13 (installed as Control Center 3 4.9.47.11). It was called Tulpar Control before 3.1. It covers
+Control Center's lighting, performance modes, fans and battery care, and a hardware monitor. This is a Uniwill/Tongfang platform with two ITE lighting controllers:
 - the four-zone keyboard (ITE 8291, USB 048D:CE00, firmware 11.04);
 - the light bar on the front edge (USB 048D:6005, firmware 15.04, Control Center's `MEZone_Lighbar` type);
 - the embedded controller (EC), for the Fn keys, performance modes, fans and charging; this model uses Control
@@ -121,6 +122,14 @@ Control Center's CPU overclocking settings for Intel laptops:
   upgrade closes the running app first (`--exit`, which hands the Fn keys and fans back); uninstalling removes the
   startup task and keeps the settings.
 - **Tray:** runs in the tray and can start with Windows. The tray menu has the performance mode and Fan Boost.
+  **Show in the tray** (Settings) turns the icon off: the app keeps running, notifications still show, starting it
+  again opens the window, and an Exit button is in Settings.
+- **First start:** before it sends anything to the laptop, a one-time question says the app is unofficial and what it
+  writes to, and whether this laptop is the tested Monster Tulpar T5 V21.4 (from the firmware's maker and model).
+  Cancel quits.
+- **Earlier names:** the first start moves `%APPDATA%\TulparControl` (Tulpar Control) over, and replaces the startup
+  task of Tulpar Control and of Keyboard RGB; settings from Keyboard RGB are read too. The single-instance lock and
+  the window messages keep Tulpar Control's names, so an installer can close a running Tulpar Control.
 - **Coexists with Control Center:** steps back and leaves the Fn keys, the modes, the fans and battery care alone
   while Control Center's service is running; the Performance and Battery pages then only show what it set.
 - **Display color modes:** Control Center's Display page (Display page): Vibrant (1.5× saturation, as Control
@@ -263,9 +272,9 @@ Not implemented:
 
 ## Building
 
-The app is written in Rust. Build it with `cargo build --release`; the output is `target\release\TulparControl.exe`, a
+The app is written in Rust. Build it with `cargo build --release`; the output is `target\release\UnofficialUniwillControlCenter.exe`, a
 single exe with nothing to install. See `README.md` for the demo mode and a map of the code. Settings are kept in
-`%APPDATA%\TulparControl\settings.json`. Scripts that were used to test the embedded controller behavior are in
+`%APPDATA%\UnofficialUniwillControlCenter\settings.json`. Scripts that were used to test the embedded controller behavior are in
 `tools\`.
 
 Version 1 (Keyboard RGB) was written in C#; it's in the git history.

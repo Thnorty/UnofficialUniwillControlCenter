@@ -1,8 +1,8 @@
 {
   "id": "focus-timer",
   "name": "Focus timer",
-  "version": "1.0.0",
-  "author": "Tulpar Control",
+  "version": "1.0.1",
+  "author": "Unofficial Uniwill Control Center",
   "description": "A Pomodoro-style timer on the light bar: the bar fills while you focus and empties during the break, and every few rounds the break is a long one. Press Start; a blink and a notification mark each change.",
   "settings": [
     { "key": "focus", "label": "Focus", "type": "slider", "min": 5, "max": 90, "step": 5, "unit": " min", "default": 25 },

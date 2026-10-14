@@ -1,4 +1,4 @@
-// Reports the downloads in progress to Tulpar Control's Downloads plugin while there are any.
+// Reports the downloads in progress to Unofficial Uniwill Control Center's Downloads plugin while there are any.
 const ADDRESS = "http://127.0.0.1:47823/plugins/downloads";
 let timer = null;
 
@@ -6,7 +6,7 @@ async function post(path, body) {
   try {
     await fetch(ADDRESS + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   } catch (e) {
-    // Tulpar Control isn't running.
+    // The app isn't running.
   }
 }
 

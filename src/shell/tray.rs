@@ -74,6 +74,7 @@ pub struct Tray {
 
 /// The message a second launch broadcasts so the running instance shows itself.
 pub fn show_message() -> u32 {
+    // The names from when the app was called Tulpar Control, so an installer can still close a copy of then.
     unsafe { RegisterWindowMessageW(w!("TulparControl.Show")) }
 }
 
@@ -109,7 +110,7 @@ impl Tray {
             let wc = WNDCLASSW { lpfnWndProc: Some(window_proc), hInstance: instance.into(), lpszClassName: class, ..Default::default() };
             RegisterClassW(&wc);
             // A hidden top-level window rather than a message-only one, so it gets broadcasts.
-            let hwnd = CreateWindowExW(WINDOW_EX_STYLE(0), class, w!("Tulpar Control tray"), WS_POPUP, 0, 0, 0, 0, None, None, Some(instance.into()), None)?;
+            let hwnd = CreateWindowExW(WINDOW_EX_STYLE(0), class, w!("Unofficial Uniwill Control Center tray"), WS_POPUP, 0, 0, 0, 0, None, None, Some(instance.into()), None)?;
             let tray = Tray { hwnd, icon: HICON::default(), tip: tip.to_string(), hidden: false };
             Ok(tray)
         }

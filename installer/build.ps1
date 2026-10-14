@@ -1,4 +1,4 @@
-# Builds the app and its installer: dist\TulparControl-<version>-Setup.exe. Needs Inno Setup 6
+# Builds the app and its installer: dist\UnofficialUniwillControlCenter-<version>-Setup.exe. Needs Inno Setup 6
 # (winget install JRSoftware.InnoSetup).
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
@@ -14,12 +14,12 @@ if (-not $iscc) { throw "Inno Setup 6 isn't installed: winget install JRSoftware
 Push-Location $root
 try {
     # The real build: not the demo one.
-    Remove-Item Env:TULPAR_NO_ADMIN, Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+    Remove-Item Env:UUCC_NO_ADMIN, Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
     cargo build --release
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
-    & $iscc "/DAppVersion=$version" "$PSScriptRoot\TulparControl.iss"
+    & $iscc "/DAppVersion=$version" "$PSScriptRoot\UnofficialUniwillControlCenter.iss"
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
-    Write-Output "Built dist\TulparControl-$version-Setup.exe"
+    Write-Output "Built dist\UnofficialUniwillControlCenter-$version-Setup.exe"
 } finally {
     Pop-Location
 }

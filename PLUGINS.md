@@ -1,4 +1,4 @@
-# Tulpar Control plugins
+# Unofficial Uniwill Control Center plugins
 
 A plugin shows something on the light bar: Claude Code at work, a download's progress, a build, anything that can
 send an HTTP request. Plugins are small [Rhai](https://rhai.rs) scripts that run inside the app. A script can't
@@ -14,7 +14,8 @@ These plugins come with the app:
   - a flash when it's finished.
 
   Press **Connect Claude Code** once. This adds hooks to `%USERPROFILE%\.claude\settings.json`, and a copy of
-  the file as it was is kept next to it as `settings.json.tulpar-backup`. **Disconnect** removes only those hooks.
+  the file as it was is kept next to it as `settings.json.uucc-backup` (`settings.json.tulpar-backup` if it was
+  connected while the app was called Tulpar Control). **Disconnect** removes only those hooks.
   Each hook sends its event to the app with `curl.exe` in the background, so Claude Code doesn't wait for it, and
   while the app is closed nothing is reported. Hooks added by an earlier version (HTTP hooks, which Claude Code
   showed as failed while the app was closed) are replaced when the app starts.
@@ -27,7 +28,7 @@ These plugins come with the app:
 - **Example:**
   - It's off until you turn it on. Then it fills the bar again and again.
   - It uses every kind of setting and a button, so it's a way to try plugins out.
-  - Its files (`%APPDATA%\TulparControl\plugins\example\`) are a starting point for your own plugin. Copy the folder,
+  - Its files (`%APPDATA%\UnofficialUniwillControlCenter\plugins\example\`) are a starting point for your own plugin. Copy the folder,
     give it a new `id`, and import its `plugin.json`.
 - **Focus timer:** a Pomodoro-style timer. Press **Start**: the bar fills while you focus (25 minutes) and empties
   during the break (5 minutes, and 15 after every fourth round). A blink and a notification mark each change.
@@ -56,7 +57,7 @@ These plugins come with the app:
   off, so you see them before you turn it on. So does a new version that asks for more than before.
 - **Remove** deletes an imported plugin. The ones that come with the app can only be turned off.
 
-Plugins live in `%APPDATA%\TulparControl\plugins\<id>\`, and their settings are in the app's `settings.json`.
+Plugins live in `%APPDATA%\UnofficialUniwillControlCenter\plugins\<id>\`, and their settings are in the app's `settings.json`.
 
 ## Making a plugin
 

@@ -1,8 +1,8 @@
 {
   "id": "downloads",
   "name": "Downloads",
-  "version": "1.0.0",
-  "author": "Tulpar Control",
+  "version": "1.0.1",
+  "author": "Unofficial Uniwill Control Center",
   "description": "Shows downloads on the light bar. With the browser extension (Chrome or Edge) the bar fills as the download progresses; without it, a sweep runs while a browser writes an unfinished download to your Downloads folder.",
   "permissions": ["downloads-folder"],
   "settings": [

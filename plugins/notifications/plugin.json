@@ -1,8 +1,8 @@
 {
   "id": "notifications",
   "name": "Notifications",
-  "version": "1.0.0",
-  "author": "Tulpar Control",
+  "version": "1.0.1",
+  "author": "Unofficial Uniwill Control Center",
   "description": "The light bar flashes when a Windows notification arrives from one of the apps you choose. It only sees which app sent it, not what it says.",
   "permissions": ["notifications"],
   "settings": [

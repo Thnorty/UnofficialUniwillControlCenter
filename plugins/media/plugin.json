@@ -1,8 +1,8 @@
 {
   "id": "media",
   "name": "Media",
-  "version": "1.0.0",
-  "author": "Tulpar Control",
+  "version": "1.0.1",
+  "author": "Unofficial Uniwill Control Center",
   "description": "The light bar fills as a song or video plays, in any app that shows up in Windows' media controls (Spotify, a browser, …), and shows the volume for two seconds when it changes.",
   "permissions": ["media"],
   "settings": [

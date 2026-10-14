@@ -1,4 +1,4 @@
-//! Where plugins live (`%APPDATA%\TulparControl\plugins\<id>`), the plugins that come with the app, and importing
+//! Where plugins live (`%APPDATA%\UnofficialUniwillControlCenter\plugins\<id>`), the plugins that come with the app, and importing
 //! one from a .zip file or a folder's plugin.json.
 
 use std::fs;
@@ -99,9 +99,9 @@ pub fn on_by_default(id: &str) -> bool {
 /// The plugins folder. Demo mode uses one in the temp folder, so it leaves the real one alone.
 pub fn plugins_dir(demo: bool) -> Option<PathBuf> {
     if demo {
-        return Some(std::env::temp_dir().join("TulparControl-demo").join("plugins"));
+        return Some(std::env::temp_dir().join("UnofficialUniwillControlCenter-demo").join("plugins"));
     }
-    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("TulparControl").join("plugins"))
+    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join(crate::settings::FOLDER).join("plugins"))
 }
 
 /// Writes the plugins that come with the app where they're missing or a different version.

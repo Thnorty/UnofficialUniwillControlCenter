@@ -1,8 +1,8 @@
 {
   "id": "example",
   "name": "Example",
-  "version": "1.0.0",
-  "author": "Tulpar Control",
+  "version": "1.0.1",
+  "author": "Unofficial Uniwill Control Center",
   "description": "Fills the light bar again and again, to try plugins out and to start your own from: it uses every kind of setting and a button. Its files are in the plugins folder, and PLUGINS.md explains them.",
   "settings": [
     { "key": "color", "label": "Color", "type": "color", "default": "#AA55FF" },

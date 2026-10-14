@@ -2,9 +2,10 @@
 
 <img src="res/app.png" width="88" alt="">
 
-# Tulpar Control
+# Unofficial Uniwill Control Center
 
-**A replacement for Control Center on the Monster Tulpar T5 V21.4**
+**An unofficial replacement for the Control Center that laptops built by Uniwill come with**<br>
+made and tested on the Monster Tulpar T5 V21.4
 
 Keyboard and light bar lighting, performance modes, fan curves, battery care, display colors and plugins,<br>
 in one small app that looks like Windows 11.
@@ -13,12 +14,12 @@ in one small app that looks like Windows 11.
 ![Rust](https://img.shields.io/badge/Rust-2024_edition-B7410E?logo=rust&logoColor=white)
 ![Slint](https://img.shields.io/badge/UI-Slint_1.18-2379F4)
 ![Single exe](https://img.shields.io/badge/install-a_single_.exe-6c757d)
-![Version](https://img.shields.io/badge/version-3.0-8a2be2)
+![Version](https://img.shields.io/badge/version-3.1-8a2be2)
 
 <img src="docs/images/keyboard-preview.gif" width="760" alt="The keyboard preview animating the Wave effect">
 
 [Highlights](#highlights) · [Screenshots](#screenshots) · [Getting started](#getting-started) ·
-[Plugins](#plugins) · [Building](#building) · [Code](#code) · [Full feature list](FEATURES.md)
+[Compatibility](#compatibility) · [Plugins](#plugins) · [Building](#building) · [Code](#code) · [Full feature list](FEATURES.md)
 
 </div>
 
@@ -104,28 +105,61 @@ in one small app that looks like Windows 11.
 
 ## Getting started
 
-1. Download **`TulparControl-<version>-Setup.exe`** from [Releases](../../releases/latest) and run it.
+1. Download **`UnofficialUniwillControlCenter-<version>-Setup.exe`** from [Releases](../../releases/latest) and run it.
    - It installs to `Program Files`, adds a Start menu entry, and by default **starts the app in the tray when you
      sign in** (the same as **Start with Windows** in Settings, so it can be turned off there).
    - The installer isn't signed, so Windows SmartScreen may warn about it: choose **More info › Run anyway**.
    - Installing a new version over an old one closes the running app first, handing the Fn keys and fans back.
 2. The app asks for administrator rights, because the Fn keys, the performance modes, the fans and battery care go
    through the BIOS's WMI interface.
+3. On its first start it says what it does and asks whether to go on (see [Compatibility](#compatibility)).
 
-Uninstalling (Settings › Apps) removes the app and its startup task, and keeps your settings.
+To keep it running without a tray icon, turn off **Show in the tray** in Settings; starting the app again opens its
+window. Uninstalling (Settings › Apps) removes the app and its startup task, and keeps your settings.
 
 > [!NOTE]
 > **Control Center can stay installed.** While its service (GCUService) runs, this app leaves the Fn keys, the
 > modes, the fans and battery care to it and only shows what it set. Stop the service to let this app set them.
+> Once it's uninstalled, this app does everything itself.
 
-Settings are kept in `%APPDATA%\TulparControl\settings.json`, and **Back up…** in Settings saves them to one file.
-The first run reads the old `%APPDATA%\MonsterKeyboardRGB\settings.json` if there is one, and replaces Keyboard RGB's
-startup task.
+Settings are kept in `%APPDATA%\UnofficialUniwillControlCenter\settings.json`, and **Back up…** in Settings saves them
+to one file. The app was called **Tulpar Control** before 3.1: its first start moves the old
+`%APPDATA%\TulparControl` folder (settings and plugins) over and replaces its startup task, and the installer updates
+an installed Tulpar Control in place.
+
+## Compatibility
 
 > [!WARNING]
-> This is an unofficial app, made for and tried on the **Monster Tulpar T5 V21.4**. It writes to the laptop's
-> embedded controller and BIOS variables the way Control Center does. Other models may use different registers.
-> Higher power limits and voltage offsets are at your own risk.
+> **Tested on one laptop: the Monster Tulpar T5 V21.4.** On any other laptop this app is **untested: use it at your
+> own risk.** It changes the fans, the performance modes, the power limits and battery care by writing to the
+> laptop's embedded controller (EC), at the addresses Control Center uses on this laptop. A laptop built differently
+> may use them for something else, and wrong writes to the EC can make a laptop misbehave or damage it. Higher power
+> limits and voltage offsets are at your own risk on any laptop.
+
+The app doesn't check the model. It needs, and checks for:
+
+- **The BIOS's EC interface** (`AcpiTest_MULong` in WMI), which laptops shipped with Uniwill's Control Center have. It
+  turns on only what the EC reports, such as Turbo mode, the custom fan tables and USB charging.
+- **For lighting, ITE controllers:** a four-zone keyboard (USB `048D:CE00` or `048D:6000`–`600A`) and a light bar
+  (`048D:6005`, `6008` or `6010`). Per-key RGB and white-only keyboards use other controllers and aren't supported.
+
+On its first start it shows what it does and asks whether to go on, naming your laptop if it isn't the tested one.
+
+**Laptops on the same platform, all untested.** Uniwill designs and builds laptops for many brands, often sold as
+Tongfang barebones. The Linux kernel's [uniwill-laptop driver][uniwill-driver] lists these as sharing its EC
+interface, though not necessarily the same addresses:
+
+| Brand | Models |
+| --- | --- |
+| Monster / Tulpar | Other Tulpar models on Uniwill/Tongfang boards, such as the [Tulpar T7 V20.6 (Tongfang GM7PG0R)][t7] |
+| XMG / Schenker | XMG Fusion 15 (L19) |
+| TUXEDO | Polaris, Stellaris, Trinity, Pulse and InfinityBook Pro models (sold with Linux) |
+| Others | Avell A60 MUV, Machenike L16 Pro, AiStone X4SP4NAL, Intel NUC X15, Commodore Omnia-Book and ORION |
+
+If you try it on one of them, which features worked (and which didn't) is useful to hear.
+
+[uniwill-driver]: https://docs.kernel.org/wmi/devices/uniwill-laptop.html
+[t7]: https://www.notebookcheck.net/Tulpar-T7-V20-6-Tongfang-GM7PG0R-laptop-review-Currently-one-of-the-cheapest-RTX-4060-gamers.840678.0.html
 
 ## Plugins
 
@@ -161,7 +195,7 @@ Needs Rust (MSVC toolchain) and the Windows SDK (for the icon and manifest).
 cargo build --release
 ```
 
-The app is `target\release\TulparControl.exe`, a single file with nothing else to install. `cargo test` checks the fan
+The app is `target\release\UnofficialUniwillControlCenter.exe`, a single file with nothing else to install. `cargo test` checks the fan
 curve rules, the BIOS variable edits, the display color math and the plugins (every bundled script included).
 
 To build the installer as well, install [Inno Setup 6](https://jrsoftware.org/isinfo.php)
@@ -171,20 +205,21 @@ To build the installer as well, install [Inno Setup 6](https://jrsoftware.org/is
 powershell -ExecutionPolicy Bypass -File installer\build.ps1
 ```
 
-It builds the app and writes `dist\TulparControl-<version>-Setup.exe`, with the version from `Cargo.toml`.
+It builds the app and writes `dist\UnofficialUniwillControlCenter-<version>-Setup.exe`, with the version from `Cargo.toml`.
 
 <details>
 <summary><b>Demo mode:</b> trying the window without touching the hardware</summary>
 <br>
 
 ```
-set TULPAR_NO_ADMIN=1
+set UUCC_NO_ADMIN=1
 set CARGO_TARGET_DIR=target-demo
 cargo build --release
-target-demo\release\TulparControl.exe --demo
+target-demo\release\UnofficialUniwillControlCenter.exe --demo
 ```
 
-- `--demo` opens no devices, sends nothing to the embedded controller, shows made-up readings and saves nothing.
+- `--demo` opens no devices, sends nothing to the embedded controller, shows made-up readings, saves nothing and
+  skips the first-start question.
 - `--page N` opens on a page: 0 Keyboard, 1 Light bar, 2 Timer & alerts, 3 Settings, 4 Performance, 5 Battery,
   6 Monitor, 7 Plugins, 8 Setups, 9 Display.
 - `--tray` starts in the tray, and `--osd-test` shows the pop-ups once.
@@ -229,5 +264,5 @@ target-demo\release\TulparControl.exe --demo
 ---
 
 <div align="center">
-<sub>Not affiliated with Monster Notebook. Control Center is theirs; this app was written by studying how it talks to the hardware.</sub>
+<sub>Not affiliated with Uniwill, Tongfang, Monster Notebook or any laptop maker. Control Center is Uniwill's; this app was written by studying how it talks to the hardware.</sub>
 </div>

@@ -383,7 +383,7 @@ fn engine(context: &Arc<Context>) -> Engine {
         let playing = if c.inert {
             // A made-up song that plays over and over.
             let position = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64()) % 200.0;
-            Some(readings::Playing { app: "Demo".into(), title: "Demo song".into(), artist: "Tulpar Control".into(), playing: true, position, duration: 200.0 })
+            Some(readings::Playing { app: "Demo".into(), title: "Demo song".into(), artist: "Demo artist".into(), playing: true, position, duration: 200.0 })
         } else {
             readings::playing()
         };
@@ -670,7 +670,7 @@ mod tests {
         bundled(&host, "media", true);
         let log = settle(&rx);
         assert!(matches!(layers.top_layer(), Some((_, Layer::Progress { .. }))), "{log:?}");
-        assert!(log.iter().any(|l| l.starts_with("status Demo song – Tulpar Control · ")), "{log:?}");
+        assert!(log.iter().any(|l| l.starts_with("status Demo song – Demo artist · ")), "{log:?}");
         no_errors(&log);
     }
 

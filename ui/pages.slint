@@ -633,6 +633,7 @@ export component SettingsPage inherits VerticalLayout {
     in property <bool> winkey-locked;
     in property <bool> start-with-windows;
     in property <bool> show-in-tray: true;
+    in property <string> version;
     in property <string> about;
     in property <string> fn-keys;
     callback set-idle(int);
@@ -722,7 +723,7 @@ export component SettingsPage inherits VerticalLayout {
         SettingRow {
             icon: Glyphs.app;
             title: "Show in the tray";
-            description: root.show-in-tray ? "The icon in the notification area opens this window, and its menu has quick settings." : "Off: the app keeps running in the background without an icon. To open this window, start Tulpar Control again (from Start or its shortcut). Notifications still show.";
+            description: root.show-in-tray ? "The icon in the notification area opens this window, and its menu has quick settings." : "Off: the app keeps running in the background without an icon. To open this window, start Unofficial Uniwill Control Center again (from Start or its shortcut). Notifications still show.";
             HorizontalLayout {
                 spacing: 12px;
                 if !root.show-in-tray: FluentButton {
@@ -753,7 +754,7 @@ export component SettingsPage inherits VerticalLayout {
         }
         SettingRow {
             icon: Glyphs.info;
-            title: "Tulpar Control 3.0";
+            title: "Unofficial Uniwill Control Center " + root.version;
             description: root.about + "\n" + root.fn-keys;
         }
     }

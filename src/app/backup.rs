@@ -6,13 +6,13 @@ use crate::shell;
 
 use super::App;
 
-const FILTER: &[(&str, &str)] = &[("Tulpar Control settings (*.json)", "*.json")];
+const FILTER: &[(&str, &str)] = &[("Unofficial Uniwill Control Center settings (*.json)", "*.json")];
 
 impl App {
     pub(super) fn export_settings(&mut self) {
         self.store_settings();
         let owner = self.window_hwnd();
-        let Some(path) = shell::pick_save_file(owner, "Back up settings", FILTER, "Tulpar Control settings.json") else { return };
+        let Some(path) = shell::pick_save_file(owner, "Back up settings", FILTER, "Unofficial Uniwill Control Center settings.json") else { return };
         let result = self.settings.to_backup().and_then(|text| Ok(std::fs::write(&path, text)?));
         match result {
             Ok(()) => self.set_status(&format!("Settings saved to {}.", path.display()), false, false),
@@ -35,7 +35,7 @@ impl App {
             return;
         }
         let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
-        let question = format!("Replace all of Tulpar Control's settings with the ones in \"{name}\"?\n\nThe app restarts to use them.");
+        let question = format!("Replace all of this app's settings with the ones in \"{name}\"?\n\nThe app restarts to use them.");
         if !shell::confirm(owner, "Restore settings", &question) {
             return;
         }

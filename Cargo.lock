@@ -4646,23 +4646,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
 
 [[package]]
-name = "tulpar-control"
-version = "3.0.2"
-dependencies = [
- "anyhow",
- "embed-resource",
- "raw-window-handle",
- "rhai",
- "serde",
- "serde_json",
- "slint",
- "slint-build",
- "windows",
- "wmi",
- "zip",
-]
-
-[[package]]
 name = "typed-index-collections"
 version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4754,6 +4737,23 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "unofficial-uniwill-control-center"
+version = "3.1.0"
+dependencies = [
+ "anyhow",
+ "embed-resource",
+ "raw-window-handle",
+ "rhai",
+ "serde",
+ "serde_json",
+ "slint",
+ "slint-build",
+ "windows",
+ "wmi",
+ "zip",
+]
 
 [[package]]
 name = "unty"

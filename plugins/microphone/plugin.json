@@ -1,8 +1,8 @@
 {
   "id": "microphone",
   "name": "Microphone",
-  "version": "1.0.0",
-  "author": "Tulpar Control",
+  "version": "1.0.1",
+  "author": "Unofficial Uniwill Control Center",
   "description": "The light bar glows red while Windows' microphone is muted, so you don't talk into a muted call. It can also glow while an app is listening, and Mute switches the microphone off and on. Apps with their own mute button (Discord, Teams) mute only themselves, which Windows doesn't see.",
   "permissions": ["microphone"],
   "settings": [

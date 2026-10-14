@@ -41,6 +41,8 @@ pub struct Settings {
     pub display: DisplaySettings,
     /// The window's navigation pane shows only icons.
     pub nav_collapsed: bool,
+    /// The first-launch warning (unofficial, untested on most laptops) was accepted.
+    pub accepted_risk: bool,
     /// No icon in the notification area; the app still runs, and starting it again opens the window.
     pub hide_tray_icon: bool,
 }
@@ -122,6 +124,7 @@ impl Default for Settings {
             app_profiles_enabled: true,
             display: DisplaySettings::default(),
             nav_collapsed: false,
+            accepted_risk: false,
             hide_tray_icon: false,
         }
     }
@@ -223,18 +226,33 @@ fn folder(name: &str) -> Option<PathBuf> {
     std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join(name))
 }
 
+/// The app's folder in %APPDATA%: its settings and its plugins.
+pub const FOLDER: &str = "UnofficialUniwillControlCenter";
+/// The folder when the app was called Tulpar Control.
+const TULPAR_FOLDER: &str = "TulparControl";
+
 fn path() -> Option<PathBuf> {
-    folder("TulparControl").map(|f| f.join("settings.json"))
+    folder(FOLDER).map(|f| f.join("settings.json"))
 }
 
-/// Where the app kept its settings when it was called Keyboard RGB.
-fn old_path() -> Option<PathBuf> {
-    folder("MonsterKeyboardRGB").map(|f| f.join("settings.json"))
+/// Where the app kept its settings when it was called Tulpar Control, and before that Keyboard RGB.
+fn old_paths() -> impl Iterator<Item = PathBuf> {
+    [TULPAR_FOLDER, "MonsterKeyboardRGB"].into_iter().filter_map(|name| folder(name).map(|f| f.join("settings.json")))
+}
+
+/// Moves the folder the app had as Tulpar Control (settings and plugins) to its name now, the first time.
+pub fn migrate_folder() {
+    if let (Some(old), Some(new)) = (folder(TULPAR_FOLDER), folder(FOLDER))
+        && old.is_dir()
+        && !new.exists()
+    {
+        let _ = std::fs::rename(old, new);
+    }
 }
 
 impl Settings {
     pub fn load() -> Settings {
-        let text = path().and_then(|p| std::fs::read_to_string(p).ok()).or_else(|| old_path().and_then(|p| std::fs::read_to_string(p).ok()));
+        let text = path().and_then(|p| std::fs::read_to_string(p).ok()).or_else(|| old_paths().find_map(|p| std::fs::read_to_string(p).ok()));
         let mut settings: Settings = text
             .and_then(|text| serde_json::from_str(text.trim_start_matches('\u{FEFF}')).ok())
             .unwrap_or_default();
@@ -252,7 +270,7 @@ impl Settings {
         let value: serde_json::Value = serde_json::from_str(text.trim_start_matches('\u{FEFF}')).map_err(|e| anyhow::anyhow!("The file isn't valid JSON ({e})"))?;
         let known = ["Keyboard", "LightBar", "Power", "Plugins", "IdleTimeoutSeconds"];
         if !value.as_object().is_some_and(|o| known.iter().any(|k| o.contains_key(*k))) {
-            anyhow::bail!("The file isn't a Tulpar Control settings backup");
+            anyhow::bail!("The file isn't a settings backup of this app");
         }
         let mut settings: Settings = serde_json::from_value(value).map_err(|e| anyhow::anyhow!("The settings in the file can't be read ({e})"))?;
         settings.keyboard.get_or_insert_with(LightingSettings::default);

@@ -44,11 +44,13 @@ fn write(path: &PathBuf, settings: &Map<String, Value>) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
-    let backup = path.with_extension("json.tulpar-backup");
-    if path.exists() && !backup.exists() {
+    let backup = path.with_extension("json.uucc-backup");
+    // A copy kept when the app was called Tulpar Control is from before any change too.
+    let earlier = path.with_extension("json.tulpar-backup");
+    if path.exists() && !backup.exists() && !earlier.exists() {
         fs::copy(path, &backup).context("Couldn't keep a copy of Claude Code's settings.json")?;
     }
-    let temp = path.with_extension("json.tulpar-new");
+    let temp = path.with_extension("json.uucc-new");
     fs::write(&temp, serde_json::to_string_pretty(settings)? + "\n")?;
     fs::rename(&temp, path).context("Couldn't write Claude Code's settings.json")
 }
