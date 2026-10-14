@@ -4,6 +4,7 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+mod cli;
 mod color;
 mod hardware;
 mod lighting;
