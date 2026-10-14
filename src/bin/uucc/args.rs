@@ -76,6 +76,7 @@ pub fn parse(args: &[String]) -> Result<Command, Usage> {
     let mut words: Vec<&str> = Vec::new();
     let mut options: Vec<(&str, &str)> = Vec::new();
     let mut help = false;
+    let mut colors_list: Option<String> = None;
     let mut i = 0;
     while i < args.len() {
         let arg = args[i].as_str();
@@ -102,6 +103,17 @@ pub fn parse(args: &[String]) -> Result<Command, Usage> {
                     }
                     None => return Err(Usage(format!("--{name} needs a value"))),
                 };
+                if name == "colors" {
+                    // PowerShell passes an unquoted list (ff0000,00ff00) as separate arguments.
+                    let mut list = value.trim_matches(',').to_string();
+                    while i < args.len() && looks_like_color(&args[i]) {
+                        list = format!("{list},{}", args[i].trim_matches(','));
+                        i += 1;
+                    }
+                    colors_list = Some(list);
+                    options.push((name, ""));
+                    continue;
+                }
                 options.push((name, value));
             }
             _ => return Err(Usage(format!("unknown option --{name}\n\n{USAGE}"))),
@@ -158,7 +170,7 @@ pub fn parse(args: &[String]) -> Result<Command, Usage> {
                 device,
                 changes: LightingChanges {
                     effect: option("effect").map(String::from),
-                    colors: option("colors").map(colors).transpose()?,
+                    colors: colors_list.as_deref().map(colors).transpose()?,
                     brightness: option("brightness").map(brightness).transpose()?,
                     speed: option("speed").map(speed).transpose()?,
                     on: value.map(switch).transpose()?,
@@ -187,6 +199,12 @@ fn speed(value: &str) -> Result<u8, Usage> {
         return if (1..=5).contains(&n) { Ok(n - 1) } else { Err(Usage(format!("speed {n}: give 1-5 or {}", SPEEDS.join(", ")))) };
     }
     resolve_kind("speed", value, &SPEEDS).map(|i| i as u8).map_err(Usage)
+}
+
+/// `ff8800`, `#ff8800` or `ff8800,` (one of a list PowerShell split up).
+fn looks_like_color(arg: &str) -> bool {
+    let hex = arg.trim_matches(',').trim_start_matches('#');
+    hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn colors(value: &str) -> Result<Vec<String>, Usage> {
@@ -259,6 +277,11 @@ mod tests {
             keyboard(LightingChanges { colors: Some(vec!["#ff0000".into(), "#00ff00".into()]), ..Default::default() })
         );
         assert!(usage(&["keyboard", "--colors", "red"]).contains("red"));
+        // PowerShell passes an unquoted ff0000,00ff00 as two arguments.
+        assert_eq!(
+            request(&["keyboard", "--colors", "ff0000", "00ff00", "on"]),
+            keyboard(LightingChanges { colors: Some(vec!["#ff0000".into(), "#00ff00".into()]), on: Some(true), ..Default::default() })
+        );
         assert!(usage(&["keyboard", "--linked", "on"]).contains("--linked"));
         assert_eq!(
             request(&["lightbar", "off", "--linked=on"]),

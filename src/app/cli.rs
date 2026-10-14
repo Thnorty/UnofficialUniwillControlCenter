@@ -7,11 +7,14 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{App, post};
+use super::{App, Lighting, post};
 use crate::cli::protocol::{
-    ChargeResult, DisplayResult, Envelope, FanBoostResult, GpuModeResult, ModeResult, ProfileResult, Reply, Request, SetupResult,
-    resolve_kind,
+    ChargeResult, Device, DisplayResult, EffectInfo, EffectsResult, Envelope, FanBoostResult, GpuModeResult, LightingChanges, LightingResult,
+    ModeResult, ProfileResult, Reply, Request, SetupResult, resolve_kind,
 };
+use crate::color::Rgb;
+use crate::lighting::device::Kind;
+use crate::lighting::effects::EffectColors;
 use crate::hardware::battery::ChargeMode;
 use crate::hardware::ec::Ec;
 use crate::hardware::performance::Mode;
@@ -196,7 +199,140 @@ impl App {
                 let restart_needed = self.bios.gpu_mode_started.is_some_and(|started| started != chosen);
                 ok(GpuModeResult { mode: word.into(), restart_needed })
             }
-            Request::Status | Request::Lighting { .. } | Request::Effects => Err(refused("This command isn't supported yet.")),
+            Request::Lighting { device, changes } => {
+                let kind = match device {
+                    Device::Keyboard => Kind::Keyboard,
+                    Device::LightBar => Kind::LightBar,
+                };
+                self.cli_lighting(kind, changes)?;
+                ok(self.lighting_result(kind))
+            }
+            Request::Effects => ok(EffectsResult { keyboard: effect_infos(&self.keyboard), light_bar: self.light_bar.as_ref().map(effect_infos) }),
+            Request::Status => Err(refused("This command isn't supported yet.")),
         }
     }
+
+    /// Applies `changes` in the order effect, colors, brightness, speed, on/off, linked; the first that fails stops
+    /// the rest.
+    fn cli_lighting(&mut self, kind: Kind, changes: LightingChanges) -> Result<(), Reply> {
+        let Some(lighting) = self.lighting(kind) else { return Err(refused("This laptop has no light bar.")) };
+        if let Some(wanted) = &changes.effect {
+            let keys: Vec<&str> = lighting.effects.iter().map(|e| e.key).collect();
+            let names: Vec<&str> = lighting.effects.iter().map(|e| e.name).collect();
+            let index = resolve_kind("effect", wanted, &keys).or_else(|e| resolve_kind("effect", wanted, &names).map_err(|_| e)).map_err(bad)?;
+            self.select_effect(kind, index);
+        }
+        if let Some(colors) = &changes.colors {
+            let colors: Vec<Rgb> = colors.iter().map(|c| Rgb::parse_hex(c).ok_or_else(|| bad(format!("color \"{c}\": give #rrggbb")))).collect::<Result<_, _>>()?;
+            self.cli_colors(kind, &colors)?;
+        }
+        if let Some(percent) = changes.brightness {
+            self.set_light(kind, percent.min(100));
+        }
+        if let Some(speed) = changes.speed {
+            let lighting = self.lighting(kind).expect("checked above");
+            let effect = &lighting.effects[lighting.effect];
+            if !effect.has_speed {
+                return Err(bad(format!("{} has no speed", effect.name)));
+            }
+            self.set_speed(kind, speed.min(4));
+        }
+        if let Some(on) = changes.on {
+            match kind {
+                Kind::LightBar => self.set_light_bar_on(on),
+                // The keyboard has no switch of its own: off is brightness 0, as with the Fn keys.
+                Kind::Keyboard => {
+                    let percent = self.keyboard.percent;
+                    if !on && percent > 0 {
+                        self.keyboard_before_off = Some(percent);
+                        self.set_light(kind, 0);
+                    } else if on && percent == 0 && changes.brightness.is_none() {
+                        let back = self.keyboard_before_off.take().unwrap_or(100);
+                        self.set_light(kind, back);
+                    }
+                }
+            }
+        }
+        if let Some(linked) = changes.linked {
+            if kind != Kind::LightBar {
+                return Err(bad("--linked is for the light bar".into()));
+            }
+            self.set_linked(linked);
+        }
+        Ok(())
+    }
+
+    /// The effect's colors, as the window edits them: one or four zone colors, or the palette.
+    fn cli_colors(&mut self, kind: Kind, colors: &[Rgb]) -> Result<(), Reply> {
+        let lighting = self.lighting(kind).expect("checked by the caller");
+        let effect = &lighting.effects[lighting.effect];
+        match effect.colors {
+            EffectColors::None => Err(bad(format!("{} has no colors", effect.name))),
+            EffectColors::Zones => match colors {
+                [one] => {
+                    self.edit_color(kind, 2, 0, *one);
+                    Ok(())
+                }
+                [_, _, _, _] => {
+                    for (i, color) in colors.iter().enumerate() {
+                        self.edit_color(kind, 0, i, *color);
+                    }
+                    Ok(())
+                }
+                _ => Err(bad(format!("{} takes 1 color (all zones) or 4 (one per zone)", effect.name))),
+            },
+            EffectColors::Palette => {
+                let (min, max, name) = (effect.min_colors, effect.max_colors, effect.name);
+                if !(min..=max).contains(&colors.len()) {
+                    return Err(bad(format!("{name} takes {min} to {max} colors")));
+                }
+                let effect_index = lighting.effect;
+                while self.lighting(kind).is_some_and(|l| l.palettes[effect_index].len() < colors.len()) {
+                    self.add_color(kind);
+                }
+                while let Some(len) = self.lighting(kind).map(|l| l.palettes[effect_index].len()).filter(|len| *len > colors.len()) {
+                    self.remove_color(kind, len - 1);
+                }
+                for (i, color) in colors.iter().enumerate() {
+                    self.edit_color(kind, 1, i, *color);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    pub(super) fn lighting_result(&self, kind: Kind) -> Option<LightingResult> {
+        let lighting = self.lighting(kind)?;
+        let effect = &lighting.effects[lighting.effect];
+        let colors: Vec<Rgb> = match effect.colors {
+            EffectColors::None => Vec::new(),
+            EffectColors::Zones => lighting.zones.to_vec(),
+            EffectColors::Palette => lighting.palettes[lighting.effect].clone(),
+        };
+        Some(LightingResult {
+            device: if kind == Kind::Keyboard { Device::Keyboard } else { Device::LightBar },
+            on: if kind == Kind::Keyboard { lighting.percent > 0 } else { lighting.on },
+            effect: effect.key.into(),
+            effect_name: effect.name.into(),
+            brightness: lighting.percent,
+            speed: effect.has_speed.then_some(lighting.speed),
+            colors: colors.iter().map(|c| c.hex().to_lowercase()).collect(),
+            linked: (kind == Kind::LightBar).then_some(lighting.linked),
+        })
+    }
+}
+
+fn effect_infos(lighting: &Lighting) -> Vec<EffectInfo> {
+    lighting
+        .effects
+        .iter()
+        .map(|e| {
+            let (min_colors, max_colors) = match e.colors {
+                EffectColors::None => (0, 0),
+                EffectColors::Zones => (1, 4),
+                EffectColors::Palette => (e.min_colors, e.max_colors),
+            };
+            EffectInfo { id: e.key.into(), name: e.name.into(), min_colors, max_colors, has_speed: e.has_speed }
+        })
+        .collect()
 }

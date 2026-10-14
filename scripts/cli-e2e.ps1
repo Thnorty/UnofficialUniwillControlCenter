@@ -61,6 +61,30 @@ try {
     Check "display off" { (U display off).Code -eq 0 -and (Json display).on -eq $false }
     Check "gpu-mode shows" { (U gpu-mode).Code -eq 0 }
     Check "gpu-mode intel is code 3 in the demo" { $r = U gpu-mode intel; $r.Code -eq 3 -and $r.Out -match "Demo mode" }
+
+    # Task 5: lighting and effects.
+    Check "effects lists static" { (Json effects).keyboard.id -contains "static" }
+    Check "keyboard breathing, two colors, slow" {
+        $r = Json keyboard --effect breathing --colors ff0000,00ff00 --speed slow
+        $r.effect -eq "breathing" -and ($r.colors -join ",") -eq "#ff0000,#00ff00" -and $r.speed -eq 1
+    }
+    Check "keyboard static, one color for all zones" {
+        $r = Json keyboard --effect static --colors 112233
+        ($r.colors -join ",") -eq "#112233,#112233,#112233,#112233"
+    }
+    Check "static with 2 colors is code 1" { (U keyboard --effect static --colors 111111,222222).Code -eq 1 }
+    Check "rainbow has no colors: code 1" { (U keyboard --effect rainbow --colors ff0000).Code -eq 1 }
+    Check "speed on static is code 1" { (U keyboard --effect static --speed fast).Code -eq 1 }
+    Check "unknown effect is code 1" { (U keyboard --effect sparkles).Code -eq 1 }
+    Check "keyboard off, then on brings the brightness back" {
+        $null = U keyboard --brightness 70
+        $off = Json keyboard off
+        $on = Json keyboard on
+        $off.brightness -eq 0 -and $off.on -eq $false -and $on.brightness -eq 70
+    }
+    Check "lightbar off" { $r = Json lightbar off; $r.on -eq $false }
+    Check "lightbar on, linked" { $r = Json lightbar on --linked on; $r.on -eq $true -and $r.linked -eq $true }
+    Check "keyboard text" { (U keyboard).Out -match "Keyboard: Static" }
 } finally {
     $tray = [DemoWindow]::Tray($demo.Id)
     if ($tray -ne [IntPtr]::Zero) { [DemoWindow]::PostMessage($tray, [DemoWindow]::RegisterWindowMessage("TulparControl.Exit"), [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
