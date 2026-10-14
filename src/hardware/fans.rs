@@ -140,6 +140,10 @@ fn write_steps(ec: &Registers, steps: &[Step], up: u16, down: u16, duty: u16) ->
 
 /// Reads the built-in table of each mode from the EC (FanTable_Manager1p5.RefreshDefaultFanTableAll). Takes a few
 /// seconds; meanwhile the Fn keys go to the firmware and the fans follow the EC's own tables.
+///
+/// The request bytes are also the GPU's last three duties: the EC copies the mode's table as soon as 0xF5D holds 0xFD
+/// and 0xF5E 0xC9, over the request. It often leaves the 0xC9 in 0xF5E, so a request starts with both cleared (or
+/// the copy would start early, under the next write), and it's done once 0xF5F and 0xF5D have changed.
 pub fn read_defaults(ec: &Registers) -> Result<Vec<(Mode, Table)>> {
     set_custom(ec, false)?;
     let tables = hotkeys::without_app_present(ec, || -> Result<Vec<(Mode, Table)>> {
@@ -150,13 +154,15 @@ pub fn read_defaults(ec: &Registers) -> Result<Vec<(Mode, Table)>> {
                 Mode::Gaming => 2,
                 Mode::Office => 3,
             };
+            ec.write(TABLE_STATUS1, 0)?;
+            ec.write(TABLE_STATUS2, 0)?;
             ec.write(TABLE_REQUEST, request)?;
             ec.write(TABLE_STATUS1, 0xFD)?;
             ec.write(TABLE_STATUS2, 0xC9)?;
             let mut ready = false;
-            for _ in 0..3 {
+            for _ in 0..6 {
                 std::thread::sleep(Duration::from_millis(500));
-                if ec.read(TABLE_STATUS1)? != 0xFD && ec.read(TABLE_STATUS2)? != 0xC9 {
+                if ec.read(TABLE_REQUEST)? != request && ec.read(TABLE_STATUS1)? != 0xFD {
                     ready = true;
                     break;
                 }
@@ -164,7 +170,12 @@ pub fn read_defaults(ec: &Registers) -> Result<Vec<(Mode, Table)>> {
             if !ready {
                 bail!("The EC didn't hand over its {} fan table", mode.name());
             }
-            let table = Table { cpu: read_steps(ec, CPU_UP, CPU_DOWN, CPU_DUTY)?, gpu: read_steps(ec, GPU_UP, GPU_DOWN, GPU_DUTY)? };
+            let mut table = Table { cpu: read_steps(ec, CPU_UP, CPU_DOWN, CPU_DUTY)?, gpu: read_steps(ec, GPU_UP, GPU_DOWN, GPU_DUTY)? };
+            if ec.read(TABLE_STATUS2)? == 0xC9 {
+                // The marker, not a duty: that step (past the used ones) takes the one before's.
+                let step = (TABLE_STATUS2 - GPU_DUTY) as usize;
+                table.gpu[step].duty = table.gpu[step - 1].duty;
+            }
             if !table.is_valid() {
                 bail!("The EC's {} fan table doesn't look right", mode.name());
             }
