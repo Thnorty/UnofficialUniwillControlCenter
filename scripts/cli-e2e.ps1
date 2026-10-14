@@ -85,6 +85,15 @@ try {
     Check "lightbar off" { $r = Json lightbar off; $r.on -eq $false }
     Check "lightbar on, linked" { $r = Json lightbar on --linked on; $r.on -eq $true -and $r.linked -eq $true }
     Check "keyboard text" { (U keyboard).Out -match "Keyboard: Static" }
+
+    # Task 6: status, with fresh readings.
+    Check "status --json, within 4 s" {
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        $r = U status --json
+        $s = $r.Out | ConvertFrom-Json
+        $r.Code -eq 0 -and $timer.Elapsed.TotalSeconds -lt 4 -and $s.cpu_temperature -is [ValueType] -and $s.cpu_temperature -gt 0 -and $null -ne $s.cpu_fan.rpm -and $s.keyboard.effect
+    }
+    Check "status text" { $r = U status; $r.Code -eq 0 -and $r.Out -match "CPU" -and $r.Out -match "Battery" }
 } finally {
     $tray = [DemoWindow]::Tray($demo.Id)
     if ($tray -ne [IntPtr]::Zero) { [DemoWindow]::PostMessage($tray, [DemoWindow]::RegisterWindowMessage("TulparControl.Exit"), [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }

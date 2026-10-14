@@ -21,29 +21,37 @@ const PERFORMANCE_PAGE: i32 = 4;
 const BATTERY_PAGE: i32 = 5;
 const MONITOR_PAGE: i32 = 6;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub(super) struct Sample {
-    cpu_temperature: Option<f32>,
-    cpu_load: Option<f32>,
-    gpu_temperature: Option<f32>,
-    gpu_off: bool,
-    fans: Option<(FanReading, FanReading)>,
+    pub(super) taken: Instant,
+    pub(super) cpu_temperature: Option<f32>,
+    pub(super) cpu_load: Option<f32>,
+    pub(super) gpu_temperature: Option<f32>,
+    pub(super) gpu_off: bool,
+    pub(super) fans: Option<(FanReading, FanReading)>,
     memory: Option<(u64, u64)>,
-    battery_percent: Option<u8>,
-    charging: bool,
-    on_ac: bool,
+    pub(super) battery_percent: Option<u8>,
+    pub(super) charging: bool,
+    pub(super) on_ac: bool,
     battery: BatteryDetails,
 }
 
 pub(super) struct Monitor {
     wanted: Arc<AtomicBool>,
+    /// For `uucc status`: the thread also reads until then, whatever page shows.
+    wanted_until: Arc<Mutex<Option<Instant>>>,
     stop: Arc<AtomicBool>,
     history: VecDeque<Sample>,
 }
 
 impl Monitor {
     pub fn new() -> Monitor {
-        Monitor { wanted: Arc::new(AtomicBool::new(false)), stop: Arc::new(AtomicBool::new(false)), history: VecDeque::new() }
+        Monitor {
+            wanted: Arc::new(AtomicBool::new(false)),
+            wanted_until: Arc::new(Mutex::new(None)),
+            stop: Arc::new(AtomicBool::new(false)),
+            history: VecDeque::new(),
+        }
     }
 
     pub fn stop(&self) {
@@ -53,8 +61,27 @@ impl Monitor {
 
 impl App {
     pub(super) fn start_monitor(&self) {
-        let (wanted, stop, ec, demo) = (self.monitor.wanted.clone(), self.monitor.stop.clone(), self.power.shared_ec.clone(), self.demo);
-        let _ = std::thread::Builder::new().name("Monitor".into()).spawn(move || monitor_thread(wanted, stop, ec, demo));
+        let (wanted, until, stop) = (self.monitor.wanted.clone(), self.monitor.wanted_until.clone(), self.monitor.stop.clone());
+        let (ec, demo) = (self.power.shared_ec.clone(), self.demo);
+        let _ = std::thread::Builder::new().name("Monitor".into()).spawn(move || monitor_thread(wanted, until, stop, ec, demo));
+    }
+
+    /// Has the monitor read for the next 5 s, whatever page shows; returns when it was asked.
+    pub(super) fn want_readings(&self) -> Instant {
+        let now = Instant::now();
+        *self.monitor.wanted_until.lock().unwrap_or_else(|e| e.into_inner()) = Some(now + Duration::from_secs(5));
+        now
+    }
+
+    /// Whether a reading taken after `t` is in: one with the CPU load, or a second one (the load needs two reads, and
+    /// may not come at all).
+    pub(super) fn fresh_sample_since(&self, t: Instant) -> bool {
+        let newer = self.monitor.history.iter().filter(|s| s.taken > t).count();
+        newer >= 2 || self.monitor.history.back().is_some_and(|s| s.taken > t && s.cpu_load.is_some())
+    }
+
+    pub(super) fn latest_sample(&self) -> Option<Sample> {
+        self.monitor.history.back().copied()
     }
 
     /// Reads only while a page that shows the readings is open.
@@ -255,7 +282,7 @@ fn history_path(values: impl ExactSizeIterator<Item = Option<f32>>, low: f32, hi
     path
 }
 
-fn monitor_thread(wanted: Arc<AtomicBool>, stop: Arc<AtomicBool>, ec: Arc<Mutex<Option<Ec>>>, demo: bool) {
+fn monitor_thread(wanted: Arc<AtomicBool>, until: Arc<Mutex<Option<Instant>>>, stop: Arc<AtomicBool>, ec: Arc<Mutex<Option<Ec>>>, demo: bool) {
     let mut status = SystemStatus::default();
     let mut wmi: Option<WMIConnection> = None;
     let mut battery = BatteryDetails::default();
@@ -263,7 +290,8 @@ fn monitor_thread(wanted: Arc<AtomicBool>, stop: Arc<AtomicBool>, ec: Arc<Mutex<
     let started = Instant::now();
     while !stop.load(Ordering::Acquire) {
         std::thread::sleep(Duration::from_millis(1000));
-        if !wanted.load(Ordering::Acquire) {
+        let asked = until.lock().unwrap_or_else(|e| e.into_inner()).is_some_and(|until| Instant::now() < until);
+        if !wanted.load(Ordering::Acquire) && !asked {
             continue;
         }
         let sample = if demo {
@@ -282,6 +310,7 @@ fn monitor_thread(wanted: Arc<AtomicBool>, stop: Arc<AtomicBool>, ec: Arc<Mutex<
                 battery_read = Some(Instant::now());
             }
             Sample {
+                taken: Instant::now(),
                 cpu_temperature: status.cpu_temperature,
                 cpu_load: status.cpu_load,
                 gpu_temperature: status.gpu_temperature,
@@ -305,6 +334,7 @@ fn demo_sample(t: f32) -> Sample {
     let duty = (((temperature - 50.0) * 2.2).clamp(0.0, 100.0)) as u8;
     let fan = |duty: u8| FanReading { duty, rpm: if duty == 0 { 0 } else { 1800 + duty as u16 * 32 } };
     Sample {
+        taken: Instant::now(),
         cpu_temperature: Some(temperature),
         cpu_load: Some((0.35 + 0.25 * wave(23.0, 0.1) + 0.1 * wave(3.0, 0.0)).clamp(0.0, 1.0)),
         gpu_temperature: Some(temperature - 8.0),

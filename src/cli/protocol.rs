@@ -176,6 +176,7 @@ pub struct StatusResult {
 }
 
 /// Which of `names` the user means: the same name in any case, or else the only one it starts.
+#[cfg(test)]
 pub fn resolve(input: &str, names: &[&str]) -> Result<usize, String> {
     resolve_kind("value", input, names)
 }

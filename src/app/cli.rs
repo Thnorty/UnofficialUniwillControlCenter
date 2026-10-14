@@ -10,13 +10,14 @@ use serde_json::Value;
 use super::{App, Lighting, post};
 use crate::cli::protocol::{
     ChargeResult, Device, DisplayResult, EffectInfo, EffectsResult, Envelope, FanBoostResult, GpuModeResult, LightingChanges, LightingResult,
-    ModeResult, ProfileResult, Reply, Request, SetupResult, resolve_kind,
+    FanResult, ModeResult, ProfileResult, Reply, Request, SetupResult, StatusResult, resolve_kind,
 };
 use crate::color::Rgb;
 use crate::lighting::device::Kind;
 use crate::lighting::effects::EffectColors;
 use crate::hardware::battery::ChargeMode;
 use crate::hardware::ec::Ec;
+use crate::hardware::fans::FanReading;
 use crate::hardware::performance::Mode;
 use crate::hardware::uefi::GpuMode;
 
@@ -24,6 +25,8 @@ use crate::hardware::uefi::GpuMode;
 const UI_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long the EC's queued writes and a BIOS write may take before the reply.
 const SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long `status` waits for a fresh reading.
+const READING_TIMEOUT: Duration = Duration::from_millis(2500);
 
 const MODE_WORDS: [&str; 3] = ["office", "gaming", "turbo"];
 const CHARGE_WORDS: [&str; 3] = ["full", "balanced", "long-life"];
@@ -52,6 +55,15 @@ fn no_answer() -> Reply {
 /// message the app showed meanwhile into the reply.
 pub(super) fn handle(envelope: Envelope) -> Reply {
     let request = envelope.request;
+    if matches!(request, Request::Status) {
+        // The monitor reads only while a page shows its readings; have it read now.
+        if let Some(asked) = on_ui(|app| app.want_readings()) {
+            let deadline = Instant::now() + READING_TIMEOUT;
+            while !on_ui(move |app| app.fresh_sample_since(asked)).unwrap_or(true) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
+    }
     let Some(done) = on_ui(move |app| {
         app.cli_capture.set(true);
         *app.cli_error.borrow_mut() = None;
@@ -208,7 +220,39 @@ impl App {
                 ok(self.lighting_result(kind))
             }
             Request::Effects => ok(EffectsResult { keyboard: effect_infos(&self.keyboard), light_bar: self.light_bar.as_ref().map(effect_infos) }),
-            Request::Status => Err(refused("This command isn't supported yet.")),
+            Request::Status => ok(self.status_result()),
+        }
+    }
+
+    fn status_result(&self) -> StatusResult {
+        let sample = self.latest_sample();
+        let fan = |which: fn(&(FanReading, FanReading)) -> FanReading| {
+            sample.and_then(|s| s.fans).map(|f| which(&f)).map(|r| FanResult { rpm: r.rpm, duty: r.duty })
+        };
+        let i = self.power.mode.index();
+        let names = App::display_mode_names();
+        StatusResult {
+            mode: self.power.mode.name().into(),
+            fan_boost: self.power.fan_boost,
+            profile: self.power.profiles[i].get(self.power.active_profile[i]).map(|p| p.name.clone()).unwrap_or_default(),
+            cpu_temperature: sample.and_then(|s| s.cpu_temperature),
+            cpu_load: sample.and_then(|s| s.cpu_load),
+            gpu_temperature: sample.and_then(|s| s.gpu_temperature),
+            gpu_off: sample.is_some_and(|s| s.gpu_off),
+            cpu_fan: fan(|f| f.0),
+            gpu_fan: fan(|f| f.1),
+            battery_percent: sample.and_then(|s| s.battery_percent),
+            charging: sample.is_some_and(|s| s.charging),
+            on_ac: sample.is_some_and(|s| s.on_ac),
+            charge: CHARGE_WORDS[self.power.charge as usize].into(),
+            keyboard: self.lighting_result(Kind::Keyboard).expect("the keyboard is always there"),
+            light_bar: self.lighting_result(Kind::LightBar),
+            display: DisplayResult {
+                on: self.settings.display.on,
+                mode: names[self.display_mode()].into(),
+                modes: names.iter().map(|n| n.to_string()).collect(),
+            },
+            gpu_mode: self.gpu_mode().map(|m| GPU_WORDS[GpuMode::ALL.iter().position(|g| *g == m).unwrap_or(0)].into()),
         }
     }
 
