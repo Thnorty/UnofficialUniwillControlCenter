@@ -87,6 +87,8 @@ fn effect_list(effects: &[EffectInfo]) -> String {
             let colors = match (e.min_colors, e.max_colors) {
                 (_, 0) => String::new(),
                 (min, max) if min == max => format!(", {min} color{}", if min == 1 { "" } else { "s" }),
+                // Not every count between: Static takes 1 or 4.
+                _ if e.color_counts.len() == 2 && e.max_colors - e.min_colors > 1 => format!(", {} or {} colors", e.min_colors, e.max_colors),
                 (min, max) => format!(", {min}-{max} colors"),
             };
             let speed = if e.has_speed { ", speed" } else { "" };
@@ -107,7 +109,13 @@ fn status(s: StatusResult) -> String {
         reading(s.cpu_load, |l| format!("{:.0}%", l * 100.0)),
         fan(s.cpu_fan)
     );
-    let gpu_temperature = if s.gpu_off { "off (asleep)".to_string() } else { reading(s.gpu_temperature, |t| format!("{t:.0} °C")) };
+    let gpu_temperature = if s.gpu_off {
+        "off (asleep)".to_string()
+    } else if s.gpu_temperature.is_none() && s.gpu_mode.as_deref() == Some("intel") {
+        "off (Intel GPU mode)".to_string()
+    } else {
+        reading(s.gpu_temperature, |t| format!("{t:.0} °C"))
+    };
     let battery = format!(
         "{}{}{}, charge mode {}",
         reading(s.battery_percent, |p| format!("{p}%")),
@@ -153,6 +161,31 @@ mod tests {
     use super::*;
     use crate::protocol::{Request, SetupResult};
     use serde_json::json;
+
+    #[test]
+    fn status_says_the_gpu_is_off_in_intel_mode() {
+        let status = json!({
+            "mode": "Office", "fan_boost": false, "profile": "Standard", "cpu_temperature": 60.0, "cpu_load": 0.2,
+            "gpu_temperature": null, "gpu_off": false, "cpu_fan": null, "gpu_fan": null, "battery_percent": 90,
+            "charging": false, "on_ac": true, "charge": "full",
+            "keyboard": {"device": "keyboard", "on": true, "effect": "static", "effect_name": "Static", "brightness": 50,
+                         "speed": null, "colors": [], "linked": null},
+            "light_bar": null, "display": {"on": false, "mode": "Vibrant", "modes": []}, "gpu_mode": "intel"
+        });
+        let shown = text(&Request::Status, &status);
+        assert!(shown.contains("GPU:       off (Intel GPU mode)"), "{shown}");
+    }
+
+    #[test]
+    fn effects_say_static_takes_1_or_4_colors() {
+        let effects = json!({"keyboard": [
+            {"id": "static", "name": "Static", "min_colors": 1, "max_colors": 4, "color_counts": [1, 4], "has_speed": false},
+            {"id": "breathing", "name": "Breathing", "min_colors": 1, "max_colors": 7, "color_counts": [1, 2, 3, 4, 5, 6, 7], "has_speed": true}
+        ], "light_bar": null});
+        let shown = text(&Request::Effects, &effects);
+        assert!(shown.contains("Static, 1 or 4 colors"), "{shown}");
+        assert!(shown.contains("Breathing, 1-7 colors, speed"), "{shown}");
+    }
 
     #[test]
     fn json_is_ascii() {

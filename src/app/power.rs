@@ -418,6 +418,7 @@ impl App {
         let tuning = self.power.tuning_for(mode);
         let gpu = self.power.gpu_power_for(mode);
         let usb_power = (self.power.usb_supported && self.power.usb_chosen).then_some(self.power.usb_power);
+        let cli = self.cli.tag();
         ec.spawn(move |ec| {
             let result = (|| -> Result<PowerLimits> {
                 let limits = performance::apply(ec, mode, boost, on_ac, tuning.as_ref(), gpu)?;
@@ -431,18 +432,22 @@ impl App {
                 Ok(limits)
             })();
             let result = result.map_err(error_text);
-            post(move |app| app.power_applied(result, custom));
+            post(move |app| app.power_applied(result, custom, cli));
         });
     }
 
-    fn power_applied(&mut self, result: std::result::Result<PowerLimits, String>, custom: bool) {
+    fn power_applied(&mut self, result: std::result::Result<PowerLimits, String>, custom: bool, cli: Option<u64>) {
         match result {
             Ok(limits) => {
                 self.power.limits = Some(limits);
                 self.note_custom(custom);
                 self.queue_gpu_own_read();
             }
-            Err(reason) => self.set_status(&format!("Couldn't set the performance mode: {reason}"), true, false),
+            Err(reason) => {
+                let text = format!("Couldn't set the performance mode: {reason}");
+                self.cli.reported(cli, &text);
+                self.set_status(&text, true, false);
+            }
         }
         self.refresh_power();
     }
@@ -660,10 +665,14 @@ impl App {
         self.power.chosen = true;
         self.settings_dirty = true;
         if let Some(ec) = &self.power.ec {
+            let cli = self.cli.tag();
             ec.spawn(move |ec| {
                 if let Err(e) = battery::set(ec, mode) {
-                    let reason = error_text(e);
-                    post(move |app| app.set_status(&format!("Couldn't set battery care: {reason}"), true, false));
+                    let text = format!("Couldn't set battery care: {}", error_text(e));
+                    post(move |app| {
+                        app.cli.reported(cli, &text);
+                        app.set_status(&text, true, false);
+                    });
                 }
             });
         }

@@ -117,6 +117,7 @@ impl App {
         let Some(variable) = self.bios.variable.clone() else { return };
         self.bios.busy = true;
         self.refresh_bios();
+        let cli = self.cli.tag();
         let _ = std::thread::Builder::new().name("BIOS write".into()).spawn(move || {
             let result = write(variable).map_err(error_text);
             post(move |app| {
@@ -127,7 +128,11 @@ impl App {
                         app.bios.error = None;
                         done(app);
                     }
-                    Err(reason) => app.set_status(&format!("Couldn't save to the BIOS: {reason}"), true, false),
+                    Err(reason) => {
+                        let text = format!("Couldn't save to the BIOS: {reason}");
+                        app.cli.reported(cli, &text);
+                        app.set_status(&text, true, false);
+                    }
                 }
                 app.refresh_bios();
             });

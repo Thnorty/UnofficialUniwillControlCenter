@@ -64,6 +64,8 @@ try {
 
     # Task 5: lighting and effects.
     Check "effects lists static" { (Json effects).keyboard.id -contains "static" }
+    Check "effects: static takes 1 or 4 colors" { (((Json effects).keyboard | Where-Object id -eq "static").color_counts -join ",") -eq "1,4" }
+    Check "a mistake with --json is JSON" { $r = U mode nosuch --json; $r.Code -eq 1 -and ($r.Out | ConvertFrom-Json).error.code -eq 1 }
     Check "keyboard breathing, two colors, slow" {
         $r = Json keyboard --effect breathing --colors ff0000,00ff00 --speed slow
         $r.effect -eq "breathing" -and ($r.colors -join ",") -eq "#ff0000,#00ff00" -and $r.speed -eq 1

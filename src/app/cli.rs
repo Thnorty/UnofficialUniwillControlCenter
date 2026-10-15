@@ -1,7 +1,9 @@
 //! The app's answers to `uucc`. Each request runs on the window's thread and calls the same methods the window's
 //! callbacks call, so the window, tray and pop-ups follow as if clicked.
 
-use std::sync::mpsc;
+use std::cell::{Cell, RefCell};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -26,7 +28,7 @@ const UI_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long the EC's queued writes and a BIOS write may take before the reply.
 const SETTLE_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long `status` waits for a fresh reading.
-const READING_TIMEOUT: Duration = Duration::from_millis(2500);
+const READING_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MODE_WORDS: [&str; 3] = ["office", "gaming", "turbo"];
 const CHARGE_WORDS: [&str; 3] = ["full", "balanced", "long-life"];
@@ -40,11 +42,104 @@ pub(super) struct Done {
 
 /// Runs `f` with the app on the window's thread and waits for its result; `None` if the thread didn't get to it.
 fn on_ui<T: Send + 'static>(f: impl FnOnce(&mut App) -> T + Send + 'static) -> Option<T> {
+    call_claimed(|job| post(job), f, UI_TIMEOUT)
+}
+
+/// Runs `f` through `post` and waits up to `timeout` for its result. If it hasn't started by then, it never runs: uucc
+/// has been told the app didn't answer, and doing it later would surprise whoever ran it.
+fn call_claimed<C: 'static, T: Send + 'static>(
+    post: impl FnOnce(Box<dyn FnOnce(&mut C) + Send>),
+    f: impl FnOnce(&mut C) -> T + Send + 'static,
+    timeout: Duration,
+) -> Option<T> {
+    let claimed = Arc::new(AtomicBool::new(false));
     let (tx, rx) = mpsc::channel();
-    post(move |app| {
-        let _ = tx.send(f(app));
-    });
-    rx.recv_timeout(UI_TIMEOUT).ok()
+    let started = claimed.clone();
+    post(Box::new(move |c| {
+        if started.swap(true, Ordering::AcqRel) {
+            return; // given up on
+        }
+        let _ = tx.send(f(c));
+    }));
+    match rx.recv_timeout(timeout) {
+        Ok(result) => Some(result),
+        // It started just as the time ran out: it's running, so its result comes.
+        Err(_) if claimed.swap(true, Ordering::AcqRel) => rx.recv_timeout(timeout).ok(),
+        Err(_) => None,
+    }
+}
+
+/// Which errors are a uucc command's: those shown while it runs, and those from work it set off (power, battery care,
+/// BIOS writes), until its reply is made. Not those something else shows meanwhile.
+#[derive(Default)]
+pub(super) struct CliCapture {
+    running: Cell<bool>,
+    waiting: Cell<Option<u64>>,
+    last: Cell<u64>,
+    error: RefCell<Option<String>>,
+}
+
+impl CliCapture {
+    /// A command starts.
+    fn begin(&self) {
+        let id = self.last.get() + 1;
+        self.last.set(id);
+        self.waiting.set(Some(id));
+        self.running.set(true);
+        *self.error.borrow_mut() = None;
+    }
+
+    /// It has returned; the work it set off may still report.
+    fn returned(&self) {
+        self.running.set(false);
+    }
+
+    /// For work set off now: the command it's for, if one is running.
+    pub(super) fn tag(&self) -> Option<u64> {
+        if self.running.get() { self.waiting.get() } else { None }
+    }
+
+    /// An error the app shows now.
+    pub(super) fn shown(&self, text: &str) {
+        if self.running.get() {
+            self.keep(text);
+        }
+    }
+
+    /// An error from work set off for `tag`.
+    pub(super) fn reported(&self, tag: Option<u64>, text: &str) {
+        if tag.is_some() && tag == self.waiting.get() {
+            self.keep(text);
+        }
+    }
+
+    /// The first error: what went wrong; any after it follow from it.
+    fn keep(&self, text: &str) {
+        self.error.borrow_mut().get_or_insert_with(|| text.to_string());
+    }
+
+    /// The reply is being made: the command's error, if any.
+    fn finish(&self) -> Option<String> {
+        self.running.set(false);
+        self.waiting.set(None);
+        self.error.borrow_mut().take()
+    }
+}
+
+/// Why uucc can't reach the app, for whoever looks (uucc names the file); a stale note goes once the pipe is there.
+pub(super) fn log_pipe(result: &anyhow::Result<()>) {
+    let Some(path) = std::env::var_os("APPDATA").map(|a| std::path::PathBuf::from(a).join(crate::settings::FOLDER).join("uucc.log")) else {
+        return;
+    };
+    match result {
+        Ok(()) => {
+            let _ = std::fs::remove_file(path);
+        }
+        Err(e) => {
+            let since_1970 = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+            let _ = std::fs::write(path, format!("{since_1970} (Unix time): couldn't open the connection for uucc: {e:#}\n"));
+        }
+    }
 }
 
 fn no_answer() -> Reply {
@@ -65,10 +160,10 @@ pub(super) fn handle(envelope: Envelope) -> Reply {
         }
     }
     let Some(done) = on_ui(move |app| {
-        app.cli_capture.set(true);
-        *app.cli_error.borrow_mut() = None;
+        app.cli.begin();
         let done = app.run_cli(request);
         app.send_pending_lighting();
+        app.cli.returned();
         done
     }) else {
         return no_answer();
@@ -83,10 +178,7 @@ pub(super) fn handle(envelope: Envelope) -> Reply {
     while on_ui(|app| app.bios.busy).unwrap_or(false) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(100));
     }
-    let Some(error) = on_ui(|app| {
-        app.cli_capture.set(false);
-        app.cli_error.borrow_mut().take()
-    }) else {
+    let Some(error) = on_ui(|app| app.cli.finish()) else {
         return no_answer();
     };
     match error {
@@ -231,6 +323,11 @@ impl App {
         let fan = |which: fn(&(FanReading, FanReading)) -> FanReading| {
             sample.and_then(|s| s.fans).map(|f| which(&f)).map(|r| FanResult { rpm: r.rpm, duty: r.duty })
         };
+        // Without a reading (none came in time), the battery is read here: it's quick.
+        let (battery_percent, charging, on_ac) = match sample {
+            Some(s) => (s.battery_percent, s.charging, s.on_ac),
+            None => crate::hardware::status::power_now(),
+        };
         let i = self.power.mode.index();
         let names = App::display_mode_names();
         StatusResult {
@@ -243,9 +340,9 @@ impl App {
             gpu_off: sample.is_some_and(|s| s.gpu_off),
             cpu_fan: fan(|f| f.0),
             gpu_fan: fan(|f| f.1),
-            battery_percent: sample.and_then(|s| s.battery_percent),
-            charging: sample.is_some_and(|s| s.charging),
-            on_ac: sample.is_some_and(|s| s.on_ac),
+            battery_percent,
+            charging,
+            on_ac,
             charge: CHARGE_WORDS[self.power.charge as usize].into(),
             keyboard: self.lighting_result(Kind::Keyboard).expect("the keyboard is always there"),
             light_bar: self.lighting_result(Kind::LightBar),
@@ -387,12 +484,80 @@ fn effect_infos(lighting: &Lighting) -> Vec<EffectInfo> {
         .effects
         .iter()
         .map(|e| {
-            let (min_colors, max_colors) = match e.colors {
-                EffectColors::None => (0, 0),
-                EffectColors::Zones => (1, 4),
-                EffectColors::Palette => (e.min_colors, e.max_colors),
+            // Zone colors: one for all four zones, or one each.
+            let color_counts: Vec<usize> = match e.colors {
+                EffectColors::None => Vec::new(),
+                EffectColors::Zones => vec![1, 4],
+                EffectColors::Palette => (e.min_colors..=e.max_colors).collect(),
             };
-            EffectInfo { id: e.key.into(), name: e.name.into(), min_colors, max_colors, has_speed: e.has_speed }
+            let (min_colors, max_colors) = (color_counts.first().copied().unwrap_or(0), color_counts.last().copied().unwrap_or(0));
+            EffectInfo { id: e.key.into(), name: e.name.into(), min_colors, max_colors, color_counts, has_speed: e.has_speed }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    type Parked = Arc<Mutex<Option<Box<dyn FnOnce(&mut i32) + Send>>>>;
+
+    #[test]
+    fn a_call_given_up_on_never_runs() {
+        let parked: Parked = Arc::default();
+        let park = parked.clone();
+        let result = call_claimed(move |job| *park.lock().unwrap() = Some(job), |n: &mut i32| *n += 1, Duration::from_millis(50));
+        assert_eq!(result, None);
+        let mut n = 0;
+        let job = parked.lock().unwrap().take().unwrap();
+        job(&mut n); // the window's thread gets to it after all
+        assert_eq!(n, 0, "it ran after uucc was told the app didn't answer");
+    }
+
+    #[test]
+    fn a_call_in_time_answers() {
+        let result = call_claimed(
+            |job| {
+                let mut n = 41;
+                job(&mut n);
+            },
+            |n: &mut i32| *n + 1,
+            Duration::from_millis(50),
+        );
+        assert_eq!(result, Some(42));
+    }
+
+    #[test]
+    fn an_error_while_it_runs_is_its_reply() {
+        let capture = CliCapture::default();
+        capture.begin();
+        capture.shown("Sending to the keyboard failed");
+        capture.returned();
+        assert_eq!(capture.finish().as_deref(), Some("Sending to the keyboard failed"));
+    }
+
+    #[test]
+    fn an_error_from_something_else_isnt_the_commands() {
+        let capture = CliCapture::default();
+        capture.begin();
+        capture.returned();
+        capture.shown("Couldn't save the settings"); // a click in the window meanwhile
+        assert_eq!(capture.finish(), None);
+    }
+
+    #[test]
+    fn an_error_from_the_commands_work_is_its_reply() {
+        let capture = CliCapture::default();
+        capture.begin();
+        let tag = capture.tag();
+        capture.returned();
+        capture.reported(tag, "Couldn't set battery care");
+        assert_eq!(capture.finish().as_deref(), Some("Couldn't set battery care"));
+        // The next command doesn't get this one's late errors.
+        capture.begin();
+        capture.returned();
+        capture.reported(tag, "Couldn't set battery care");
+        assert_eq!(capture.finish(), None);
+    }
 }

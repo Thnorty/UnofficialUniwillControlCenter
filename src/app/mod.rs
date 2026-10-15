@@ -12,7 +12,7 @@ mod plugins;
 mod power;
 mod setups;
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -344,9 +344,8 @@ pub struct App {
     bios: bios::Bios,
     plugins: plugins::Plugins,
     setups: setups::Setups,
-    /// While a `uucc` command runs: error messages shown are also kept for its reply.
-    cli_capture: Cell<bool>,
-    cli_error: RefCell<Option<String>>,
+    /// The error messages that are a `uucc` command's, for its reply.
+    cli: cli::CliCapture,
     /// The keyboard's brightness before `uucc keyboard off`, for `uucc keyboard on`.
     keyboard_before_off: Option<u8>,
 }
@@ -462,14 +461,16 @@ impl App {
             bios: bios::Bios::default(),
             plugins: plugins::Plugins::default(),
             setups: setups::Setups::default(),
-            cli_capture: Cell::new(false),
-            cli_error: RefCell::new(None),
+            cli: cli::CliCapture::default(),
             keyboard_before_off: None,
         };
         APP.with(|cell| *cell.borrow_mut() = Some(app));
         connect_callbacks(ui);
         // Without the pipe (another program has its name) the app runs on, without uucc.
-        let _ = crate::cli::server::start(crate::cli::protocol::pipe_name(demo), cli::handle);
+        let pipe = crate::cli::server::start(crate::cli::protocol::pipe_name(demo), cli::handle);
+        if !demo {
+            cli::log_pipe(&pipe);
+        }
 
         with_app(move |app| {
             app.create_tray();
@@ -1249,8 +1250,8 @@ impl App {
     }
 
     fn set_status(&self, text: &str, error: bool, retry: bool) {
-        if error && self.cli_capture.get() {
-            *self.cli_error.borrow_mut() = Some(text.to_string());
+        if error {
+            self.cli.shown(text);
         }
         let Some(ui) = self.ui() else { return };
         ui.set_status_text(text.into());

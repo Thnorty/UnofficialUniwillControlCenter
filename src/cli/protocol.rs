@@ -109,6 +109,9 @@ pub struct EffectInfo {
     pub name: String,
     pub min_colors: usize,
     pub max_colors: usize,
+    /// Every number of colors it takes (Static: 1 or 4).
+    #[serde(default)]
+    pub color_counts: Vec<usize>,
     pub has_speed: bool,
 }
 

@@ -6,7 +6,9 @@ use std::process::Command;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use windows::Win32::Foundation::{CloseHandle, E_ACCESSDENIED};
 use windows::Win32::System::Pipes::WaitNamedPipeW;
+use windows::Win32::System::Threading::{OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
 use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows::core::{HSTRING, w};
@@ -19,6 +21,8 @@ const READ_TIMEOUT: Duration = Duration::from_secs(20);
 const START_TIMEOUT: Duration = Duration::from_secs(15);
 const TASK: &str = "UnofficialUniwillControlCenter";
 const APP_EXE: &str = "UnofficialUniwillControlCenter.exe";
+/// The app's single-instance lock (src/shell/instance.rs): held while it runs.
+const APP_LOCK: &str = r"Local\TulparControl";
 
 #[derive(Debug)]
 pub enum Failure {
@@ -27,6 +31,8 @@ pub enum Failure {
     /// The app couldn't be started at all: why.
     CantStart(String),
     NoAnswer,
+    /// The app runs, but its pipe isn't there.
+    NoPipe,
     Io(String),
 }
 
@@ -34,7 +40,7 @@ impl Failure {
     pub fn code(&self) -> i32 {
         match self {
             Failure::NotRunning | Failure::DidntStart | Failure::CantStart(_) => 2,
-            Failure::NoAnswer | Failure::Io(_) => 3,
+            Failure::NoAnswer | Failure::NoPipe | Failure::Io(_) => 3,
         }
     }
 
@@ -44,6 +50,10 @@ impl Failure {
             Failure::DidntStart => "Unofficial Uniwill Control Center didn't start within 15 s. If it's new on this PC, it may be waiting for its first-start question: open it once from Start.".into(),
             Failure::CantStart(why) => format!("Couldn't start Unofficial Uniwill Control Center: {why}"),
             Failure::NoAnswer => "The app didn't answer.".into(),
+            Failure::NoPipe => "Unofficial Uniwill Control Center is running, but uucc can't reach it. It may still be starting \
+                (or waiting for its first-start question); otherwise it couldn't open its connection for uucc: see \
+                %APPDATA%\\UnofficialUniwillControlCenter\\uucc.log, and restart the app."
+                .into(),
             Failure::Io(e) => format!("Couldn't talk to the app: {e}"),
         }
     }
@@ -52,12 +62,13 @@ impl Failure {
 /// Sends `envelope` to the app (the demo's when `demo`) and returns its reply. With `start`, starts the app first if
 /// it isn't running.
 pub fn send(envelope: &Envelope, demo: bool, start: bool) -> Result<Reply, Failure> {
-    send_with_timeout(pipe_name(demo), envelope, start && !demo, READ_TIMEOUT)
+    send_with_timeout(pipe_name(demo), (!demo).then_some(APP_LOCK), envelope, start && !demo, READ_TIMEOUT)
 }
 
 /// `read_timeout` also limits the wait while other clients are answered.
-pub fn send_with_timeout(name: &str, envelope: &Envelope, start: bool, read_timeout: Duration) -> Result<Reply, Failure> {
-    let mut pipe = open(name, start, read_timeout)?;
+/// `lock`: the app's single-instance lock, which tells a running app without its pipe from one that isn't running.
+pub fn send_with_timeout(name: &str, lock: Option<&str>, envelope: &Envelope, start: bool, read_timeout: Duration) -> Result<Reply, Failure> {
+    let mut pipe = open(name, lock, start, read_timeout)?;
     let envelope = envelope.clone();
     let (tx, rx) = mpsc::channel();
     // The read blocks; a thread lets it give up. A thread still waiting ends with the process.
@@ -73,8 +84,10 @@ pub fn send_with_timeout(name: &str, envelope: &Envelope, start: bool, read_time
 }
 
 /// Connects, waiting up to `busy_limit` while other clients are being answered.
-fn open(name: &str, start: bool, busy_limit: Duration) -> Result<std::fs::File, Failure> {
+fn open(name: &str, lock: Option<&str>, start: bool, busy_limit: Duration) -> Result<std::fs::File, Failure> {
+    // When this started the app, or found it running without its pipe and waits for it (with --start).
     let mut started: Option<Instant> = None;
+    let mut started_here = false;
     let mut busy_since: Option<Instant> = None;
     loop {
         match OpenOptions::new().read(true).write(true).open(name) {
@@ -92,16 +105,35 @@ fn open(name: &str, start: bool, busy_limit: Duration) -> Result<std::fs::File, 
             }
             // ERROR_FILE_NOT_FOUND: the app isn't running (yet).
             Err(e) if e.raw_os_error() == Some(2) => match started {
+                None if lock.is_some_and(app_running) => {
+                    if !start {
+                        return Err(Failure::NoPipe);
+                    }
+                    started = Some(Instant::now());
+                }
                 None if start => {
                     start_app()?;
                     started = Some(Instant::now());
+                    started_here = true;
                 }
                 None => return Err(Failure::NotRunning),
-                Some(at) if at.elapsed() > START_TIMEOUT => return Err(Failure::DidntStart),
+                Some(at) if at.elapsed() > START_TIMEOUT => return Err(if started_here { Failure::DidntStart } else { Failure::NoPipe }),
                 Some(_) => std::thread::sleep(Duration::from_millis(250)),
             },
             Err(e) => return Err(Failure::Io(e.to_string())),
         }
+    }
+}
+
+/// Whether the app holds its single-instance lock `lock`. Run with administrator rights, it may not let this open
+/// the lock, which still means it's there.
+fn app_running(lock: &str) -> bool {
+    match unsafe { OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, false, &HSTRING::from(lock)) } {
+        Ok(mutex) => {
+            let _ = unsafe { CloseHandle(mutex) };
+            true
+        }
+        Err(e) => e.code() == E_ACCESSDENIED,
     }
 }
 
@@ -150,7 +182,7 @@ mod tests {
         });
         std::thread::sleep(Duration::from_millis(100));
         let started = std::time::Instant::now();
-        let result = send_with_timeout(&name, &envelope(), false, Duration::from_secs(1));
+        let result = send_with_timeout(&name, None, &envelope(), false, Duration::from_secs(1));
         assert!(matches!(result, Err(Failure::NoAnswer)), "{result:?}");
         assert!(started.elapsed() < Duration::from_secs(5));
     }
@@ -171,7 +203,7 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let name2 = name.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(send_with_timeout(&name2, &envelope(), false, Duration::from_secs(1)));
+            let _ = tx.send(send_with_timeout(&name2, None, &envelope(), false, Duration::from_secs(1)));
         });
         let result = rx.recv_timeout(Duration::from_secs(15)).expect("uucc kept waiting for a busy pipe");
         assert!(matches!(result, Err(Failure::NoAnswer)), "{result:?}");
@@ -179,9 +211,19 @@ mod tests {
 
     #[test]
     fn missing_pipe_is_not_running() {
-        let result = send_with_timeout(r"\\.\pipe\uucc-nobody-here", &envelope(), false, Duration::from_secs(1));
+        let result = send_with_timeout(r"\\.\pipe\uucc-nobody-here", None, &envelope(), false, Duration::from_secs(1));
         assert!(matches!(result, Err(Failure::NotRunning)), "{result:?}");
         assert_eq!(Failure::NotRunning.code(), 2);
+    }
+
+    #[test]
+    fn a_running_app_without_its_pipe_says_so() {
+        let lock = format!(r"Local\uucc-test-lock-{}", std::process::id());
+        let _held = unsafe { windows::Win32::System::Threading::CreateMutexW(None, false, &HSTRING::from(lock.as_str())) }.unwrap();
+        let result = send_with_timeout(r"\\.\pipe\uucc-nobody-here-either", Some(&lock), &envelope(), false, Duration::from_secs(1));
+        assert!(matches!(result, Err(Failure::NoPipe)), "{result:?}");
+        assert_eq!(Failure::NoPipe.code(), 3);
+        assert!(Failure::NoPipe.message().contains("uucc.log"), "{}", Failure::NoPipe.message());
     }
 
     #[test]
