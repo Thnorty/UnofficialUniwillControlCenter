@@ -1,15 +1,17 @@
 import { ScrollView, Palette } from "std-widgets.slint";
-import { Theme, Glyphs } from "theme.slint";
+import { Theme, Glyphs, Platform } from "theme.slint";
+// The icons on Linux, where Segoe Fluent Icons isn't there (Fluent System Icons, MIT: fonts/FluentSystemIcons-LICENSE.txt).
+import "fonts/FluentSystemIcons-Regular.ttf";
 import { Glyph, InfoBar } from "controls.slint";
 import { KeyCap } from "preview.slint";
 import { ColorPicker } from "picker.slint";
 import { DeviceView, TileGroup, LightingPage, AlertsPage, SettingsPage } from "pages.slint";
-import { Metric, CurvePoint, Detail, TuningView, PerformancePage, BatteryPage, MonitorPage } from "power.slint";
+import { Metric, CurvePoint, Detail, TuningView, PerformancePage, BatteryPage, EcUnavailablePage, MonitorPage } from "power.slint";
 import { PluginSettingView, PluginActionView, PluginView, PluginsPage } from "plugins.slint";
 import { SetupView, AppProfileView, SetupsPage } from "setups.slint";
 import { DisplayPage } from "display.slint";
 
-export { Theme, KeyCap, DeviceView, TileGroup, Metric, CurvePoint, Detail }
+export { Theme, Platform, KeyCap, DeviceView, TileGroup, Metric, CurvePoint, Detail }
 
 component NavItem inherits Rectangle {
     in property <string> icon;
@@ -240,6 +242,8 @@ export component AppWindow inherits Window {
     callback set-start-with-windows(bool);
     callback set-show-in-tray(bool);
     callback exit-app();
+    // Opens the README's Linux section.
+    callback open-linux-setup();
     callback retry();
     callback set-mode(int);
     callback set-fan-boost(bool);
@@ -370,7 +374,7 @@ export component AppWindow inherits Window {
                 selected: root.page == 1;
                 clicked => { root.page = 1; }
             }
-            NavItem {
+            if !Platform.linux: NavItem {
                 compact: root.nav-collapsed;
                 hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.display;
@@ -418,7 +422,7 @@ export component AppWindow inherits Window {
                 selected: root.page == 8;
                 clicked => { root.page = 8; }
             }
-            NavItem {
+            if !Platform.linux: NavItem {
                 compact: root.nav-collapsed;
                 hovered(on) => { root.show-tip(on, self.label, self.absolute-position.y); }
                 icon: Glyphs.plugin;
@@ -541,7 +545,12 @@ export component AppWindow inherits Window {
                         set-popup-caps(on) => { root.set-popup-caps(on); }
                         set-popup-num(on) => { root.set-popup-num(on); }
                     }
-                    if root.page == 4: PerformancePage {
+                    if (root.page == 4 || root.page == 5) && Platform.ec-unavailable != "": EcUnavailablePage {
+                        title: root.page == 4 ? "Performance" : "Battery";
+                        message: Platform.ec-unavailable;
+                        open-setup => { root.open-linux-setup(); }
+                    }
+                    if root.page == 4 && Platform.ec-unavailable == "": PerformancePage {
                         available: root.perf-available;
                         note: root.perf-note;
                         mode: root.perf-mode;
@@ -594,7 +603,7 @@ export component AppWindow inherits Window {
                         add-profile(name) => { root.add-profile(name); }
                         delete-profile => { root.delete-profile(); }
                     }
-                    if root.page == 5: BatteryPage {
+                    if root.page == 5 && Platform.ec-unavailable == "": BatteryPage {
                         available: root.battery-available;
                         note: root.battery-note;
                         charge-mode: root.charge-mode;
@@ -610,7 +619,7 @@ export component AppWindow inherits Window {
                         metrics: root.metrics;
                         note: root.monitor-note;
                     }
-                    if root.page == 9: DisplayPage {
+                    if root.page == 9 && !Platform.linux: DisplayPage {
                         demo: root.display-demo;
                         on: root.display-on;
                         mode: root.display-mode;
@@ -644,7 +653,7 @@ export component AppWindow inherits Window {
                         set-profile-setup(i, s) => { root.set-app-profile-setup(i, s); }
                         set-profiles-on(on) => { root.set-app-profiles-on(on); }
                     }
-                    if root.page == 7: PluginsPage {
+                    if root.page == 7 && !Platform.linux: PluginsPage {
                         plugins: root.plugins;
                         note: root.plugins-note;
                         available-width: scroll.visible-width - 2 * scroll.side;

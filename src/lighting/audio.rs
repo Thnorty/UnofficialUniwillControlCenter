@@ -147,6 +147,7 @@ impl SampleHistory {
         SampleHistory { ring: vec![0.0; length], next: 0 }
     }
 
+    #[cfg_attr(target_os = "linux", allow(dead_code))] // Linux has no sound capture yet
     pub fn add(&mut self, sample: f32) {
         self.ring[self.next] = sample;
         self.next = (self.next + 1) % self.ring.len();

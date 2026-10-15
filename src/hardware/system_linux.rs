@@ -39,11 +39,6 @@ pub fn dark_mode() -> bool {
     portal_setting("org.freedesktop.appearance", "color-scheme").and_then(|v| u32::try_from(v).ok()) == Some(1)
 }
 
-/// Whether the desktop's panels use the dark theme; Linux desktops have one setting for both.
-pub fn system_dark_mode() -> bool {
-    dark_mode()
-}
-
 /// The desktop's accent color, from the portal's `accent-color` (red, green, blue from 0 to 1) where the desktop
 /// sets one.
 pub fn accent_color() -> Option<crate::color::Rgb> {
@@ -115,11 +110,6 @@ pub mod startup {
         program(config).is_some()
     }
 
-    pub(super) fn starts_this_exe_in(config: &Path) -> bool {
-        let exe = std::env::current_exe().ok();
-        program(config).is_some_and(|p| exe.is_some_and(|e| Path::new(&p) == e))
-    }
-
     pub(super) fn enable_in(config: &Path) -> Result<()> {
         let exe = std::env::current_exe().context("Couldn't find the app's program")?;
         let exe = exe.display().to_string();
@@ -145,16 +135,6 @@ pub mod startup {
         is_enabled_in(&config())
     }
 
-    /// Whether the login entry starts this program, and not another copy of the app.
-    pub fn starts_this_exe() -> bool {
-        starts_this_exe_in(&config())
-    }
-
-    /// Starts the app now as it starts at login: nothing to do, as this launch is already running.
-    pub fn run_now() -> bool {
-        true
-    }
-
     pub fn enable() -> Result<()> {
         enable_in(&config())
     }
@@ -165,9 +145,6 @@ pub mod startup {
 
     /// Nothing to move over on Linux.
     pub fn migrate() {}
-
-    /// Nothing to remove on Linux.
-    pub fn remove_legacy_entries() {}
 }
 
 #[cfg(test)]
@@ -188,7 +165,7 @@ mod tests {
         let exe = std::env::current_exe().unwrap();
         assert!(text.contains(&format!("Exec={} --tray", exe.display())), "{text}");
         assert!(text.starts_with("[Desktop Entry]\n") && text.contains("Type=Application\n"));
-        assert!(startup::is_enabled_in(&dir) && startup::starts_this_exe_in(&dir));
+        assert!(startup::is_enabled_in(&dir));
         let _ = std::fs::remove_dir_all(dir);
     }
 

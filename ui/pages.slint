@@ -1,5 +1,5 @@
 import { ComboBox } from "std-widgets.slint";
-import { Theme, Glyphs } from "theme.slint";
+import { Theme, Glyphs, Platform } from "theme.slint";
 import { BodyStrong, Caption, Card, FluentButton, FluentSlider, Glyph, LinkButton, SectionHeader, Segmented, SettingRow, Swatch, Title, ToggleSwitch } from "controls.slint";
 import { EffectTile, KeyboardPreview, KeyCap, LightBarPreview } from "preview.slint";
 
@@ -566,7 +566,8 @@ export component AlertsPage inherits VerticalLayout {
         }
     }
 
-    VerticalLayout {
+    // Linux has no lock key events or pop-ups yet.
+    if !Platform.linux: VerticalLayout {
         padding-top: 20px;
         spacing: 4px;
         SectionHeader {
@@ -594,7 +595,7 @@ export component AlertsPage inherits VerticalLayout {
         }
     }
 
-    if root.has-light-bar: VerticalLayout {
+    if root.has-light-bar && !Platform.linux: VerticalLayout {
         padding-top: 20px;
         spacing: 4px;
         SectionHeader {
@@ -653,25 +654,30 @@ export component SettingsPage inherits VerticalLayout {
         }
     }
 
-    SectionHeader {
-        text: "Lights";
-        height: 28px;
-        vertical-alignment: top;
-    }
-    SettingRow {
-        icon: Glyphs.idle;
-        title: "Turn off when idle";
-        description: "Fades the keyboard and the light bar out after this long without keyboard or mouse input, and back in with the next one.";
-        ComboBox {
-            width: 180px;
-            model: root.idle-options;
-            current-index <=> root.idle-index;
-            selected => { root.set-idle(self.current-index); }
+    // Linux has no idle input, touchpad toggle or Windows key lock here yet.
+    if !Platform.linux: VerticalLayout {
+        spacing: 4px;
+        padding-bottom: 20px;
+        SectionHeader {
+            text: "Lights";
+            height: 28px;
+            vertical-alignment: top;
+        }
+        SettingRow {
+            icon: Glyphs.idle;
+            title: "Turn off when idle";
+            description: "Fades the keyboard and the light bar out after this long without keyboard or mouse input, and back in with the next one.";
+            ComboBox {
+                width: 180px;
+                model: root.idle-options;
+                current-index <=> root.idle-index;
+                selected => { root.set-idle(self.current-index); }
+            }
         }
     }
 
-    VerticalLayout {
-        padding-top: 20px;
+    if !Platform.linux: VerticalLayout {
+        padding-bottom: 20px;
         spacing: 4px;
         SectionHeader {
             text: "Devices";
@@ -704,7 +710,6 @@ export component SettingsPage inherits VerticalLayout {
     }
 
     VerticalLayout {
-        padding-top: 20px;
         spacing: 4px;
         SectionHeader {
             text: "App";
@@ -713,8 +718,8 @@ export component SettingsPage inherits VerticalLayout {
         }
         SettingRow {
             icon: Glyphs.power;
-            title: "Start with Windows";
-            description: "Starts in the background when you sign in, with administrator rights through Task Scheduler (no prompt).";
+            title: Platform.linux ? "Start at login" : "Start with Windows";
+            description: Platform.linux ? "Starts in the background when you sign in." : "Starts in the background when you sign in, with administrator rights through Task Scheduler (no prompt).";
             ToggleSwitch {
                 checked: root.start-with-windows;
                 toggled(on) => { root.set-start-with-windows(on); }

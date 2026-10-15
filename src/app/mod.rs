@@ -42,7 +42,7 @@ use crate::lighting::scenes::{self, Live, LightBarRenderer, Overlay, OverlayStyl
 use crate::settings::{LightingSettings, Settings};
 use crate::hardware::system::{self, startup, touchpad};
 use crate::shell::tray::{self, MenuItem, Tray, TrayEvent};
-use crate::ui::{AppWindow, DeviceView, Theme, TileGroup};
+use crate::ui::{AppWindow, DeviceView, Platform, Theme, TileGroup};
 
 // Control Center's "Idle Timer" (KeyboardCloseTimer): switch the lights off after this long without input.
 const IDLE_TIMEOUTS: &[(&str, u32)] = &[
@@ -372,6 +372,9 @@ fn set_colors(model: &VecModel<slint::Color>, colors: &[Rgb]) {
 
 /// The tiles' names (one per effect, so a tile's index is its effect's) and their groups, which leave out the
 /// effects this platform can't draw.
+/// The README's Linux section: Secure Boot, the helper and the packages.
+const LINUX_SETUP: &str = "https://github.com/Thnorty/UnofficialUniwillControlCenter#linux";
+
 fn tile_names_and_groups(effects: &[Effect]) -> (Vec<SharedString>, Vec<TileGroup>) {
     let names = effects.iter().map(|e| SharedString::from(e.name)).collect();
     let mut groups: Vec<TileGroup> = Vec::new();
@@ -424,6 +427,7 @@ impl App {
         ui.set_popup_caps(settings.popup_caps_lock);
         ui.set_popup_num(settings.popup_num_lock);
         ui.set_version(env!("CARGO_PKG_VERSION").into());
+        ui.global::<Platform>().set_linux(cfg!(target_os = "linux"));
         if !demo {
             startup::migrate();
         }
@@ -971,6 +975,10 @@ impl App {
     /// reports its state. Without admin rights the firmware keeps handling them.
     fn start_hotkeys(&mut self) {
         if self.demo || self.keyboard.device.is_none() || self.hotkeys.is_some() || self.hotkeys_starting {
+            return;
+        }
+        if cfg!(target_os = "linux") {
+            self.set_fn_mode("Fn keys: handled by the firmware (this app doesn't take them over on Linux yet)");
             return;
         }
         if system::control_center_running() {
@@ -1941,6 +1949,7 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_import_settings(|| with_app(|app| app.import_settings()));
     ui.on_set_show_in_tray(|on| with_app(move |app| app.set_show_in_tray(on)));
     ui.on_exit_app(|| with_app(|app| app.exit()));
+    ui.on_open_linux_setup(|| crate::shell::open_path(std::path::Path::new(LINUX_SETUP)));
     ui.on_retry(|| with_app(|app| app.open_devices()));
     ui.on_format_hex(|color| Rgb::from_slint(color).hex().into());
     ui.on_parse_hex(|text| match Rgb::parse_hex(&text) {

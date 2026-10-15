@@ -4,10 +4,6 @@ use crate::color::Rgb;
 use crate::hardware::system;
 
 pub const KEYBOARD_GLYPH: char = '\u{E765}';
-pub const TOUCHPAD_GLYPH: char = '\u{EFA5}';
-pub const LOCK_GLYPH: char = '\u{E72E}';
-pub const UNLOCK_GLYPH: char = '\u{E785}';
-pub const LIGHT_GLYPH: char = '\u{EA80}';
 pub const TIMER_GLYPH: char = '\u{E916}';
 pub const OFFICE_GLYPH: char = '\u{E821}';
 pub const GAMING_GLYPH: char = '\u{E7FC}';

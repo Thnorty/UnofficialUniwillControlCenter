@@ -121,6 +121,10 @@ fn setting_view(setting: &Setting, value: &Value) -> PluginSettingView {
 impl App {
     /// Puts the bundled plugins in place, starts the enabled ones and listens for their events.
     pub(super) fn start_plugins(&mut self) {
+        // Linux has no plugin host yet.
+        if cfg!(target_os = "linux") {
+            return;
+        }
         let root = store::plugins_dir(self.demo);
         if let Some(root) = &root
             && let Err(e) = std::fs::create_dir_all(root).map_err(anyhow::Error::from).and_then(|()| store::install_builtins(root))

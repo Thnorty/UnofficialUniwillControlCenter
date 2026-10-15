@@ -832,6 +832,28 @@ export component PerformancePage inherits VerticalLayout {
 }
 
 /// Battery care and the battery's state.
+/// The Performance or Battery page when the embedded controller can't be used at all: why, and how to fix it.
+export component EcUnavailablePage inherits VerticalLayout {
+    in property <string> title;
+    in property <string> message;
+    callback open-setup();
+
+    spacing: 8px;
+    alignment: start;
+    VerticalLayout {
+        padding-bottom: 12px;
+        Title {
+            text: root.title;
+        }
+    }
+    InfoBar {
+        message: root.message;
+        caution: true;
+        action: "Linux setup";
+        action-clicked => { root.open-setup(); }
+    }
+}
+
 export component BatteryPage inherits VerticalLayout {
     in property <bool> available;
     in property <string> note;

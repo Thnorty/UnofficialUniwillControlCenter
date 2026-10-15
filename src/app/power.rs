@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
-use slint::{Model, SharedString, VecModel};
+use slint::{ComponentHandle, Model, SharedString, VecModel};
 
 use super::{App, post, with_app};
 use crate::hardware::battery::{self, ChargeMode};
@@ -303,6 +303,7 @@ impl App {
         self.power.connecting = false;
         match result {
             Ok(ec) => {
+                self.set_ec_unavailable("");
                 *self.power.shared_ec.lock().unwrap_or_else(|e| e.into_inner()) = Some(ec.clone());
                 self.power.ec = Some(ec);
                 self.power.ec_error = None;
@@ -310,10 +311,21 @@ impl App {
                 self.check_power_owner();
             }
             Err(reason) => {
+                self.set_ec_unavailable(&reason);
                 self.set_fn_mode(&format!("Fn keys: handled by the firmware ({reason})"));
                 self.power.ec_error = Some(reason);
                 self.refresh_power();
             }
+        }
+    }
+
+    /// On Linux, the Performance and Battery pages show why the EC can't be used instead of their controls. Windows
+    /// keeps its controls and says why in their note.
+    fn set_ec_unavailable(&self, reason: &str) {
+        if cfg!(target_os = "linux")
+            && let Some(ui) = self.ui()
+        {
+            ui.global::<crate::ui::Platform>().set_ec_unavailable(reason.into());
         }
     }
 

@@ -219,6 +219,10 @@ impl App {
 
     /// Called every two seconds: switches to a profile's setup when its program starts, and back when it closes.
     pub(super) fn check_app_profiles(&mut self) {
+        // Linux doesn't watch running apps yet.
+        if cfg!(target_os = "linux") {
+            return;
+        }
         let found = self.running_profile();
         let current = self.setups.profile.clone();
         match (current, found) {
@@ -268,10 +272,12 @@ impl App {
             .collect();
         self.setups.model.set_vec(rows);
         self.setups.names.set_vec(setups.iter().map(|s| SharedString::from(s.name.as_str())).collect::<Vec<_>>());
+        // Linux doesn't watch running apps, so its page lists none (a backup from Windows may bring some).
         let profiles: Vec<AppProfileView> = self
             .settings
             .app_profiles
             .iter()
+            .filter(|_| cfg!(not(target_os = "linux")))
             .map(|p| AppProfileView {
                 program: p.program.clone().into(),
                 setup: setups.iter().position(|s| s.name == p.setup).map_or(-1, |i| i as i32),

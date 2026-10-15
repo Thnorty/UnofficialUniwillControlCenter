@@ -172,6 +172,8 @@ impl Registers {
         }
     }
 
+    /// Several registers in one request.
+    #[allow(dead_code)] // the helper offers it; nothing reads tables in one go yet
     pub fn read_many(&self, addresses: &[u16]) -> Result<Vec<u8>> {
         match request(Request::ReadMany { addresses: addresses.to_vec() })? {
             Reply::Bytes { values } => Ok(values),

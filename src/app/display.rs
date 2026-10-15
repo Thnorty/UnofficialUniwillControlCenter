@@ -41,7 +41,8 @@ impl App {
 
     /// Puts the current adjustments on the screen, or takes them off. Demo mode leaves the screen alone.
     pub(super) fn apply_display(&mut self) {
-        if self.demo {
+        // Linux has no display color modes.
+        if self.demo || cfg!(target_os = "linux") {
             return;
         }
         let matrix = if self.settings.display.on { display::matrix(&self.display_values()) } else { display::IDENTITY };

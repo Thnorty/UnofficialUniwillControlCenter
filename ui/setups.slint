@@ -1,5 +1,5 @@
 import { ComboBox, LineEdit } from "std-widgets.slint";
-import { Theme, Glyphs } from "theme.slint";
+import { Theme, Glyphs, Platform } from "theme.slint";
 import { Caption, FluentButton, LinkButton, SectionHeader, SettingRow, Title, ToggleSwitch } from "controls.slint";
 
 export struct SetupView {
@@ -94,7 +94,8 @@ export component SetupsPage inherits VerticalLayout {
         }
     }
 
-    VerticalLayout {
+    // Linux doesn't watch running apps yet (its profile list stays empty there).
+    if !Platform.linux: VerticalLayout {
         padding-top: 20px;
         spacing: 4px;
         SectionHeader {
@@ -129,7 +130,7 @@ export component SetupsPage inherits VerticalLayout {
             clicked => { root.remove-profile(i); }
         }
     }
-    HorizontalLayout {
+    if !Platform.linux: HorizontalLayout {
         padding-top: 8px;
         alignment: start;
         FluentButton {
@@ -138,7 +139,7 @@ export component SetupsPage inherits VerticalLayout {
             clicked => { root.add-profile(); }
         }
     }
-    Caption {
+    if !Platform.linux: Caption {
         text: "When an app in the list starts, its setup comes on; when it closes, what was on before comes back. If several are running, the one higher in the list wins.";
     }
     end := Rectangle {

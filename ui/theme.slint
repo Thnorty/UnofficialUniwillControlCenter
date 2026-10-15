@@ -1,9 +1,16 @@
+// What the platform has. On Linux the app leaves out what it lacks there.
+export global Platform {
+    in property <bool> linux;
+    // Why the embedded controller can't be used (Secure Boot, a missing helper…); empty when it can, and on Windows.
+    in property <string> ec-unavailable;
+}
+
 // Windows 11's colors (the WinUI 3 "Fluent" design tokens), for dark and light mode.
 export global Theme {
     in-out property <bool> dark: true;
     // The accent fill Windows uses for controls: a light shade of the accent in dark mode, a dark one in light mode.
     in-out property <color> accent: dark ? #4cc2ff : #005fb8;
-    in-out property <string> icon-font: "Segoe Fluent Icons";
+    in-out property <string> icon-font: Platform.linux ? "FluentSystemIcons-Regular" : "Segoe Fluent Icons";
 
     out property <color> window: dark ? #202020 : #f3f3f3;
     out property <color> nav-pane: dark ? #1c1c1c : #eeeeee;
@@ -30,47 +37,49 @@ export global Theme {
     out property <color> stage-top: dark ? #151518 : #26262b;
     out property <color> stage-bottom: dark ? #0b0b0d : #121215;
 
-    out property <string> font: "Segoe UI Variable Text";
-    out property <string> display-font: "Segoe UI Variable Display";
+    // Empty on Linux: the desktop's own font.
+    out property <string> font: Platform.linux ? "" : "Segoe UI Variable Text";
+    out property <string> display-font: Platform.linux ? "" : "Segoe UI Variable Display";
 }
 
+// Segoe Fluent Icons code points on Windows; on Linux, the same icons from Fluent System Icons, which the app carries.
 export global Glyphs {
-    out property <string> keyboard: "\u{E765}";
-    out property <string> light: "\u{EA80}";
-    out property <string> timer: "\u{E916}";
-    out property <string> settings: "\u{E713}";
-    out property <string> add: "\u{E710}";
-    out property <string> close: "\u{E711}";
-    out property <string> check: "\u{E73E}";
-    out property <string> error: "\u{EA39}";
-    out property <string> info: "\u{E946}";
-    out property <string> touchpad: "\u{EFA5}";
-    out property <string> lock: "\u{E72E}";
-    out property <string> power: "\u{E7E8}";
-    out property <string> link: "\u{E71B}";
-    out property <string> brightness: "\u{E706}";
-    out property <string> speed: "\u{EC4A}";
-    out property <string> idle: "\u{E708}";
-    out property <string> reset: "\u{E72C}";
-    out property <string> color: "\u{E790}";
-    out property <string> keys: "\u{E92E}";
-    out property <string> performance: "\u{EC4A}";
-    out property <string> battery: "\u{E83F}";
-    out property <string> plug: "\u{E83E}";
-    out property <string> monitor: "\u{E9D9}";
-    out property <string> fan: "\u{E9CA}";
-    out property <string> office: "\u{E821}";
-    out property <string> gaming: "\u{E7FC}";
-    out property <string> turbo: "\u{E945}";
-    out property <string> chip: "\u{E950}";
-    out property <string> memory: "\u{EEA0}";
-    out property <string> warning: "\u{E7BA}";
-    out property <string> save: "\u{E74E}";
-    out property <string> plugin: "\u{EA86}";
-    out property <string> setups: "\u{E8F1}";
-    out property <string> app: "\u{ECAA}";
-    out property <string> play: "\u{E768}";
-    out property <string> display: "\u{E7F4}";
-    out property <string> menu: "\u{E700}";
-    out property <string> contrast: "\u{E793}";
+    out property <string> keyboard: Platform.linux ? "\u{F4B8}" : "\u{E765}";
+    out property <string> light: Platform.linux ? "\u{F4D6}" : "\u{EA80}";
+    out property <string> timer: Platform.linux ? "\u{ED88}" : "\u{E916}";
+    out property <string> settings: Platform.linux ? "\u{F6A9}" : "\u{E713}";
+    out property <string> add: Platform.linux ? "\u{F109}" : "\u{E710}";
+    out property <string> close: Platform.linux ? "\u{F369}" : "\u{E711}";
+    out property <string> check: Platform.linux ? "\u{F294}" : "\u{E73E}";
+    out property <string> error: Platform.linux ? "\u{F3F1}" : "\u{EA39}";
+    out property <string> info: Platform.linux ? "\u{F4A3}" : "\u{E946}";
+    out property <string> touchpad: Platform.linux ? "\u{E443}" : "\u{EFA5}";
+    out property <string> lock: Platform.linux ? "\u{E78F}" : "\u{E72E}";
+    out property <string> power: Platform.linux ? "\u{F60E}" : "\u{E7E8}";
+    out property <string> link: Platform.linux ? "\u{F4E4}" : "\u{E71B}";
+    out property <string> brightness: Platform.linux ? "\u{E1F7}" : "\u{E706}";
+    out property <string> speed: Platform.linux ? "\u{ED9B}" : "\u{EC4A}";
+    out property <string> idle: Platform.linux ? "\u{F87D}" : "\u{E708}";
+    out property <string> reset: Platform.linux ? "\u{F19F}" : "\u{E72C}";
+    out property <string> color: Platform.linux ? "\u{F2F5}" : "\u{E790}";
+    out property <string> keys: Platform.linux ? "\u{E751}" : "\u{E92E}";
+    out property <string> performance: Platform.linux ? "\u{ED9B}" : "\u{EC4A}";
+    out property <string> battery: Platform.linux ? "\u{E143}" : "\u{E83F}";
+    out property <string> plug: Platform.linux ? "\u{E999}" : "\u{E83E}";
+    out property <string> monitor: Platform.linux ? "\u{E9DC}" : "\u{E9D9}";
+    out property <string> fan: Platform.linux ? "\u{F89E}" : "\u{E9CA}";
+    out property <string> office: Platform.linux ? "\u{F1FC}" : "\u{E821}";
+    out property <string> gaming: Platform.linux ? "\u{E68A}" : "\u{E7FC}";
+    out property <string> turbo: Platform.linux ? "\u{E618}" : "\u{E945}";
+    out property <string> chip: Platform.linux ? "\u{E4AC}" : "\u{E950}";
+    out property <string> memory: Platform.linux ? "\u{E9F3}" : "\u{EEA0}";
+    out property <string> warning: Platform.linux ? "\u{F869}" : "\u{E7BA}";
+    out property <string> save: Platform.linux ? "\u{F67F}" : "\u{E74E}";
+    out property <string> plugin: Platform.linux ? "\u{E9E9}" : "\u{EA86}";
+    out property <string> setups: Platform.linux ? "\u{E762}" : "\u{E8F1}";
+    out property <string> app: Platform.linux ? "\u{E05C}" : "\u{ECAA}";
+    out property <string> play: Platform.linux ? "\u{F605}" : "\u{E768}";
+    out property <string> display: Platform.linux ? "\u{F359}" : "\u{E7F4}";
+    out property <string> menu: Platform.linux ? "\u{F560}" : "\u{E700}";
+    out property <string> contrast: Platform.linux ? "\u{E452}" : "\u{E793}";
 }
