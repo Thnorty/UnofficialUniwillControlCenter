@@ -78,8 +78,22 @@ fn accept_risk() -> bool {
         return true;
     }
     let (maker, model) = hardware::system::laptop_model();
-    let tested = maker.eq_ignore_ascii_case(TESTED.0) && model.eq_ignore_ascii_case(TESTED.1);
-    let text = if tested {
+    let tested = is_tested(&maker, &model);
+    if !shell::warning_ok_cancel("Unofficial Uniwill Control Center", &risk_text(&maker, &model), !tested) {
+        return false;
+    }
+    settings.accepted_risk = true;
+    settings.save();
+    true
+}
+
+fn is_tested(maker: &str, model: &str) -> bool {
+    maker.eq_ignore_ascii_case(TESTED.0) && model.eq_ignore_ascii_case(TESTED.1)
+}
+
+/// The question `accept_risk` asks, for the laptop it runs on.
+fn risk_text(maker: &str, model: &str) -> String {
+    let text = if is_tested(maker, model) {
         "This app is unofficial: it isn't made or supported by Uniwill or by your laptop's maker.\n\n\
          It changes the fans, the performance modes, the power limits and battery care by writing to the laptop's \
          embedded controller. It was made and tested on this laptop, the Monster Tulpar T5 V21.4.\n\n\
@@ -95,12 +109,11 @@ fn accept_risk() -> bool {
              Use it at your own risk. Start it anyway?"
         )
     };
-    if !shell::warning_ok_cancel("Unofficial Uniwill Control Center", &text, !tested) {
-        return false;
+    if cfg!(target_os = "linux") {
+        text.replacen("embedded controller. ", "embedded controller. On Linux it reaches the embedded controller through a small helper that runs as root. ", 1)
+    } else {
+        text
     }
-    settings.accepted_risk = true;
-    settings.save();
-    true
 }
 
 fn run(demo: bool, start_hidden: bool) -> Result<(), slint::PlatformError> {
@@ -118,4 +131,18 @@ fn run(demo: bool, start_hidden: bool) -> Result<(), slint::PlatformError> {
     app::App::start(&window, demo, start_hidden);
     // Closing the window only hides it; the app lives in the tray until Exit.
     slint::run_event_loop_until_quit()
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    #[test]
+    fn risk_text_mentions_the_helper() {
+        for (maker, model) in [("MONSTER", "TULPAR T5 V21.4"), ("Other", "Laptop")] {
+            let text = super::risk_text(maker, model);
+            assert!(
+                text.contains("embedded controller. On Linux it reaches the embedded controller through a small helper that runs as root. "),
+                "{text}"
+            );
+        }
+    }
 }
