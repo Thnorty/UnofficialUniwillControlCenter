@@ -342,6 +342,7 @@ impl App {
         if system::control_center_running() {
             if self.power.owned || !self.power.ready {
                 self.power.owned = false;
+                fans::forget_written(); // Control Center may write the RAM tables
                 self.read_power_state();
             }
             return;

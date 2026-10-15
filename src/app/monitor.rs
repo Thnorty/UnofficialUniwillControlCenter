@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, ModelRc, VecModel};
@@ -315,8 +315,44 @@ fn ask(asked: &AskedShared) -> Instant {
     now
 }
 
+/// One request at a time to a queue that may be busy for a while: a request that isn't answered in time is waited
+/// for in the next round instead of sending another behind it. Writing a fan curve takes many seconds on Windows,
+/// and readings queued meanwhile would delay everything after it.
+struct OnePending<T> {
+    pending: Option<mpsc::Receiver<T>>,
+}
+
+impl<T> Default for OnePending<T> {
+    fn default() -> Self {
+        OnePending { pending: None }
+    }
+}
+
+impl<T> OnePending<T> {
+    /// The answer, if it comes within `wait`; `send` makes a request when none is pending.
+    fn poll(&mut self, send: impl FnOnce(mpsc::Sender<T>), wait: Duration) -> Option<T> {
+        let receiver = self.pending.get_or_insert_with(|| {
+            let (tx, rx) = mpsc::channel();
+            send(tx);
+            rx
+        });
+        match receiver.recv_timeout(wait) {
+            Ok(answer) => {
+                self.pending = None;
+                Some(answer)
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => None,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                self.pending = None;
+                None
+            }
+        }
+    }
+}
+
 fn monitor_thread(wanted: Arc<AtomicBool>, asked: AskedShared, stop: Arc<AtomicBool>, ec: Arc<Mutex<Option<Ec>>>, demo: bool, deliver: impl Fn(Sample)) {
     let mut status = SystemStatus::default();
+    let mut fan_poll = OnePending::default();
     let mut battery_reader = status::BatteryReader::default();
     let mut battery = BatteryDetails::default();
     let mut battery_read: Option<Instant> = None;
@@ -356,7 +392,10 @@ fn monitor_thread(wanted: Arc<AtomicBool>, asked: AskedShared, stop: Arc<AtomicB
             last_read = Some(Instant::now());
             status.update(Inputs::STATUS);
             let ec = ec.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            let fans = ec.and_then(|ec| ec.run_for(Duration::from_secs(2), fans::readings).ok());
+            let fans = ec.and_then(|ec| {
+                let request = |tx: mpsc::Sender<_>| ec.spawn(move |registers| tx.send(fans::readings(registers).ok()).unwrap_or(()));
+                fan_poll.poll(request, Duration::from_secs(2)).flatten()
+            });
             if battery_read.is_none_or(|t| t.elapsed() >= Duration::from_secs(5)) {
                 battery = battery_reader.read();
                 battery_read = Some(Instant::now());
@@ -418,6 +457,24 @@ mod tests {
             on_ac: false,
             battery: BatteryDetails::default(),
         }
+    }
+
+    #[test]
+    fn a_slow_reading_is_waited_for_not_asked_again() {
+        let mut poll = OnePending::default();
+        let mut sent = Vec::new();
+        let wait = Duration::from_millis(10);
+        // The EC is busy (a curve being written): the reading isn't back in time...
+        assert_eq!(poll.poll(|tx| sent.push(tx), wait), None);
+        // ...and the next round waits for that one instead of queueing another behind it.
+        assert_eq!(poll.poll(|tx| sent.push(tx), wait), None);
+        assert_eq!(sent.len(), 1);
+        sent[0].send(7).unwrap();
+        assert_eq!(poll.poll(|tx| sent.push(tx), wait), Some(7));
+        assert_eq!(sent.len(), 1);
+        // Answered: the next round asks anew.
+        assert_eq!(poll.poll(|tx| sent.push(tx), wait), None);
+        assert_eq!(sent.len(), 2);
     }
 
     #[test]

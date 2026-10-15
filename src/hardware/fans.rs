@@ -125,17 +125,43 @@ fn read_steps(ec: &Registers, up: u16, down: u16, duty: u16) -> Result<Vec<Step>
     Ok(steps)
 }
 
-fn write_steps(ec: &Registers, steps: &[Step], up: u16, down: u16, duty: u16) -> Result<()> {
-    // FanTable_Manager1p5.SetEcFanTable
+/// The registers and values that hold `steps` in the EC's RAM table (FanTable_Manager1p5.SetEcFanTable).
+fn step_writes(steps: &[Step], up: u16, down: u16, duty: u16) -> Vec<(u16, u8)> {
+    let mut writes = Vec::with_capacity(3 * STEPS);
     for i in 0..STEPS {
         let a = i as u16;
-        ec.write(up + a, if i < 15 { steps[i + 1].up } else { 255 })?;
+        writes.push((up + a, if i < 15 { steps[i + 1].up } else { 255 }));
         if i < 15 {
-            ec.write(down + a + 1, steps[i].down)?;
+            writes.push((down + a + 1, steps[i].down));
         }
-        ec.write(duty + a, steps[i].duty.min(100) * 2)?;
+        writes.push((duty + a, steps[i].duty.min(100) * 2));
     }
-    Ok(())
+    writes
+}
+
+fn table_writes(table: &Table) -> Vec<(u16, u8)> {
+    let mut writes = step_writes(&table.cpu, CPU_UP, CPU_DOWN, CPU_DUTY);
+    writes.extend(step_writes(&table.gpu, GPU_UP, GPU_DOWN, GPU_DUTY));
+    writes
+}
+
+/// The writes that turn the RAM tables from `written` (None: unknown) into `table`. On Windows each EC call takes
+/// over 100 ms, so a whole table is many seconds; a dragged point is one register.
+fn changed_writes(written: Option<&Table>, table: &Table) -> Vec<(u16, u8)> {
+    let next = table_writes(table);
+    match written.map(table_writes) {
+        Some(before) if before.len() == next.len() => next.into_iter().zip(before).filter(|(n, b)| n != b).map(|(n, _)| n).collect(),
+        _ => next,
+    }
+}
+
+/// What this app last wrote to the RAM tables, while nothing else can have changed them since.
+static WRITTEN: Mutex<Option<Table>> = Mutex::new(None);
+
+/// The RAM tables may have changed (the EC copied a mode's table in, or Control Center took over): the next custom
+/// curve writes all of itself.
+pub fn forget_written() {
+    *WRITTEN.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 /// Reads the built-in table of each mode from the EC (FanTable_Manager1p5.RefreshDefaultFanTableAll). Takes a few
@@ -146,6 +172,7 @@ fn write_steps(ec: &Registers, steps: &[Step], up: u16, down: u16, duty: u16) ->
 /// the copy would start early, under the next write), and it's done once 0xF5F and 0xF5D have changed.
 pub fn read_defaults(ec: &Registers) -> Result<Vec<(Mode, Table)>> {
     set_custom(ec, false)?;
+    forget_written();
     let tables = hotkeys::without_app_present(ec, || -> Result<Vec<(Mode, Table)>> {
         let mut tables = Vec::new();
         for mode in Mode::ALL {
@@ -191,10 +218,16 @@ pub fn apply_custom(ec: &Registers, table: &Table) -> Result<()> {
     if !table.is_valid() {
         bail!("That fan curve isn't valid");
     }
-    set_custom(ec, false)?;
+    let writes = changed_writes(WRITTEN.lock().unwrap_or_else(|e| e.into_inner()).as_ref(), table);
+    if !writes.is_empty() {
+        set_custom(ec, false)?;
+        forget_written();
+    }
     ec.update(OEM_BYTE5, 0x80, 0)?; // one table per fan, not shared
-    write_steps(ec, &table.cpu, CPU_UP, CPU_DOWN, CPU_DUTY)?;
-    write_steps(ec, &table.gpu, GPU_UP, GPU_DOWN, GPU_DUTY)?;
+    for (address, value) in writes {
+        ec.write(address, value)?;
+    }
+    *WRITTEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(table.clone());
     set_custom(ec, true)
 }
 
@@ -279,5 +312,23 @@ mod tests {
         assert_eq!(steps[2].duty, 90);
         assert!(steps[3..].iter().all(|s| s.duty >= 90));
         assert_eq!(used_steps(&steps), 10);
+    }
+
+    #[test]
+    fn only_changed_registers_are_written() {
+        let table = Table { cpu: gaming(), gpu: gaming() };
+        // Nothing known about the RAM tables: all of both, 47 registers each.
+        let all = changed_writes(None, &table);
+        assert_eq!(all.len(), 94);
+        assert!(all.contains(&(0xF24, 90))); // CPU step 4: 45% × 2
+        // Each EC call takes over 100 ms on Windows: the same table again writes nothing...
+        assert!(changed_writes(Some(&table), &table).is_empty());
+        // ...and one dragged point writes its one register.
+        let mut dragged = table.clone();
+        dragged.cpu[4].duty = 60;
+        assert_eq!(changed_writes(Some(&table), &dragged), vec![(0xF24, 120)]);
+        let mut moved = table.clone();
+        moved.gpu[2].up = 58; // the temperature stepping up to GPU step 2 sits at 0xF31
+        assert_eq!(changed_writes(Some(&table), &moved), vec![(0xF31, 58)]);
     }
 }
