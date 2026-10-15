@@ -12,7 +12,7 @@ use serde_json::Value;
 use super::{App, Lighting, post};
 use crate::cli::protocol::{
     ChargeResult, Device, DisplayResult, EffectInfo, EffectsResult, Envelope, FanBoostResult, GpuModeResult, LightingChanges, LightingResult,
-    FanResult, ModeResult, ProfileResult, Reply, Request, SetupResult, StatusResult, resolve_kind,
+    FanResult, ModeResult, ProfileResult, Reply, Request, SetupResult, StatusResult, GPU_MODES, resolve_gpu_mode, resolve_kind,
 };
 use crate::color::Rgb;
 use crate::lighting::device::Kind;
@@ -32,7 +32,6 @@ const READING_TIMEOUT: Duration = Duration::from_secs(5);
 
 const MODE_WORDS: [&str; 3] = ["office", "gaming", "turbo"];
 const CHARGE_WORDS: [&str; 3] = ["full", "balanced", "long-life"];
-const GPU_WORDS: [&str; 3] = ["hybrid", "intel", "nvidia"];
 
 /// What a command did besides its reply: work queued for the EC, whose errors arrive later.
 pub(super) struct Done {
@@ -295,13 +294,13 @@ impl App {
                 };
                 let mut chosen = current;
                 if let Some(value) = value {
-                    chosen = GpuMode::ALL[resolve_kind("GPU mode", &value, &GPU_WORDS).map_err(bad)?];
+                    chosen = GpuMode::ALL[resolve_gpu_mode(&value).map_err(bad)?];
                     if chosen != current {
                         self.bios_writable().map_err(refused)?;
                         self.set_gpu_mode(GpuMode::ALL.iter().position(|m| *m == chosen).unwrap_or(0));
                     }
                 }
-                let word = GPU_WORDS[GpuMode::ALL.iter().position(|m| *m == chosen).unwrap_or(0)];
+                let word = GPU_MODES[GpuMode::ALL.iter().position(|m| *m == chosen).unwrap_or(0)];
                 let restart_needed = self.bios.gpu_mode_started.is_some_and(|started| started != chosen);
                 ok(GpuModeResult { mode: word.into(), restart_needed })
             }
@@ -351,7 +350,7 @@ impl App {
                 mode: names[self.display_mode()].into(),
                 modes: names.iter().map(|n| n.to_string()).collect(),
             },
-            gpu_mode: self.gpu_mode().map(|m| GPU_WORDS[GpuMode::ALL.iter().position(|g| *g == m).unwrap_or(0)].into()),
+            gpu_mode: self.gpu_mode().map(|m| GPU_MODES[GpuMode::ALL.iter().position(|g| *g == m).unwrap_or(0)].into()),
         }
     }
 

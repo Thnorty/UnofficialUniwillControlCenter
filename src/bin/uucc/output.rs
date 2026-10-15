@@ -111,8 +111,8 @@ fn status(s: StatusResult) -> String {
     );
     let gpu_temperature = if s.gpu_off {
         "off (asleep)".to_string()
-    } else if s.gpu_temperature.is_none() && s.gpu_mode.as_deref() == Some("intel") {
-        "off (Intel GPU mode)".to_string()
+    } else if s.gpu_temperature.is_none() && s.gpu_mode.as_deref() == Some("integrated") {
+        "off (integrated GPU mode)".to_string()
     } else {
         reading(s.gpu_temperature, |t| format!("{t:.0} °C"))
     };
@@ -170,10 +170,10 @@ mod tests {
             "charging": false, "on_ac": true, "charge": "full",
             "keyboard": {"device": "keyboard", "on": true, "effect": "static", "effect_name": "Static", "brightness": 50,
                          "speed": null, "colors": [], "linked": null},
-            "light_bar": null, "display": {"on": false, "mode": "Vibrant", "modes": []}, "gpu_mode": "intel"
+            "light_bar": null, "display": {"on": false, "mode": "Vibrant", "modes": []}, "gpu_mode": "integrated"
         });
         let shown = text(&Request::Status, &status);
-        assert!(shown.contains("GPU:       off (Intel GPU mode)"), "{shown}");
+        assert!(shown.contains("GPU:       off (integrated GPU mode)"), "{shown}");
     }
 
     #[test]

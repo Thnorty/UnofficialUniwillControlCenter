@@ -1,6 +1,6 @@
 //! The command line, turned into a request.
 
-use crate::protocol::{Device, LightingChanges, Request, resolve_kind};
+use crate::protocol::{Device, GPU_MODES, LightingChanges, Request, resolve_gpu_mode, resolve_kind};
 
 /// What to do: send `request`, or print help (`help`, the command it's about or empty) or the version.
 #[derive(Debug, Default)]
@@ -19,7 +19,6 @@ pub struct Usage(pub String);
 pub const SPEEDS: [&str; 5] = ["slowest", "slow", "medium", "fast", "fastest"];
 pub const MODES: [&str; 3] = ["office", "gaming", "turbo"];
 pub const CHARGES: [&str; 3] = ["full", "balanced", "long-life"];
-pub const GPU_MODES: [&str; 3] = ["hybrid", "intel", "nvidia"];
 
 const COMMANDS: [&str; 11] = ["status", "mode", "fan-boost", "profile", "keyboard", "lightbar", "effects", "charge", "setup", "display", "gpu-mode"];
 /// Options that take a value, and the commands that have them.
@@ -45,7 +44,7 @@ Unofficial Uniwill Control Center, from a terminal. The app must be running (or 
   uucc charge [full|balanced|long-life]   The battery charge mode
   uucc setup [NAME]                   The saved setups, or apply one
   uucc display [on|off] [--mode NAME] The display colors
-  uucc gpu-mode [hybrid|intel|nvidia] The GPU mode (takes effect when the laptop restarts)
+  uucc gpu-mode [hybrid|integrated|nvidia]   The GPU mode (takes effect when the laptop restarts)
 
 Without a value, a command shows the current setting. Names can be shortened: uucc mode t
 Lighting options: --effect NAME, --brightness 0-100, --speed slowest|slow|medium|fast|fastest (or 1-5),
@@ -81,7 +80,7 @@ pub fn help(command: &str) -> &'static str {
         "setup" => "uucc setup [NAME]\n  Lists the setups saved on the Setups page, or applies one.",
         #[cfg(not(target_os = "linux"))]
         "display" => "uucc display [on|off] [--mode Vibrant|Cinema|\"Low blue light\"|Custom]\n  Shows or changes the display colors. --mode turns them on.",
-        "gpu-mode" => "uucc gpu-mode [hybrid|intel|nvidia]\n  Shows or sets the GPU mode (MUX switch). It takes effect when the laptop restarts.",
+        "gpu-mode" => "uucc gpu-mode [hybrid|integrated|nvidia]\n  Shows or sets the GPU mode (MUX switch). It takes effect when the laptop restarts.",
         _ => usage(),
     }
 }
@@ -180,7 +179,7 @@ pub fn parse(args: &[String]) -> Result<Command, Usage> {
         "profile" => Request::Profile(value.map(String::from)),
         "setup" => Request::Setup(value.map(String::from)),
         "charge" => Request::Charge(value.map(|v| word("charge mode", &CHARGES, v)).transpose()?),
-        "gpu-mode" => Request::GpuMode(value.map(|v| word("GPU mode", &GPU_MODES, v)).transpose()?),
+        "gpu-mode" => Request::GpuMode(value.map(|v| resolve_gpu_mode(v).map(|i| GPU_MODES[i].to_string()).map_err(Usage)).transpose()?),
         "display" => Request::Display { on: value.map(switch).transpose()?, mode: option("mode").map(String::from) },
         _ => {
             let device = if name == "keyboard" { Device::Keyboard } else { Device::LightBar };
@@ -313,7 +312,8 @@ mod tests {
     #[test]
     fn values_with_words() {
         assert_eq!(request(&["charge", "long"]), Request::Charge(Some("long-life".into())));
-        assert_eq!(request(&["gpu-mode", "i"]), Request::GpuMode(Some("intel".into())));
+        assert_eq!(request(&["gpu-mode", "i"]), Request::GpuMode(Some("integrated".into())));
+        assert_eq!(request(&["gpu-mode", "intel"]), Request::GpuMode(Some("integrated".into())));
         if cfg!(not(target_os = "linux")) {
             assert_eq!(request(&["display", "--mode", "low blue"]), Request::Display { on: None, mode: Some("low blue".into()) });
             assert_eq!(request(&["display", "on"]), Request::Display { on: Some(true), mode: None });

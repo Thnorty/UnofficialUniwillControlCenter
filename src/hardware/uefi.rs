@@ -58,9 +58,9 @@ impl Startup {
 /// laptops; Control Center switches between Hybrid and Discrete only).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GpuMode {
-    /// The Intel graphics drive the screen and the NVIDIA GPU works for the apps that need it (Optimus).
+    /// The integrated graphics drive the screen and the NVIDIA GPU works for the apps that need it (Optimus).
     Hybrid,
-    /// The Intel graphics alone; the NVIDIA GPU is switched off.
+    /// The integrated graphics (Intel or AMD) alone; the NVIDIA GPU is switched off.
     Integrated,
     /// The NVIDIA GPU drives the screen.
     Discrete,

@@ -305,10 +305,10 @@ impl App {
         };
         let about = match mode {
             GpuMode::Hybrid => {
-                "The Intel graphics drive the screen, and the NVIDIA GPU works for the apps that need it and switches off when nothing does. The best of both, as the laptop comes."
+                "The integrated graphics drive the screen, and the NVIDIA GPU works for the apps that need it and switches off when nothing does. The best of both, as the laptop comes."
             }
             GpuMode::Integrated => {
-                "The NVIDIA GPU is switched off completely, for the longest battery life. Games run on the Intel graphics, and screens on the ports the NVIDIA GPU drives stay dark."
+                "The NVIDIA GPU is switched off completely, for the longest battery life. Games run on the integrated graphics, and screens on the ports the NVIDIA GPU drives stay dark."
             }
             GpuMode::Discrete => {
                 "The NVIDIA GPU drives the screen, for the most performance in games. It's on all the time, so the battery runs down faster."
@@ -324,7 +324,7 @@ impl App {
             Some(mode) if started.is_some_and(|s| s != mode) => {
                 let name = match mode {
                     GpuMode::Hybrid => "Hybrid mode",
-                    GpuMode::Integrated => "Intel graphics only",
+                    GpuMode::Integrated => "Integrated graphics only",
                     GpuMode::Discrete => "NVIDIA graphics only",
                 };
                 format!("Restart the laptop to switch to {name}.")

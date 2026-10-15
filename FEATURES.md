@@ -103,9 +103,10 @@ Control Center's overclocking settings for Intel laptops:
 - **Profiles per mode:** as Control Center's five profiles per mode, each with its own power limits, TCC offset,
   GPU power and fan curve. Every mode starts with "Standard"; a new one starts as a copy of the active one, and changes on the
   page go into the active one. Switching sends it at once, with a pop-up.
-- **GPU mode (MUX switch):** Hybrid (MSHybrid), Intel graphics only or NVIDIA graphics only, the BIOS setup's own
-  option, from the next start. Saved in the UEFI variable's `OemDisplayMode` (4, 1 and 2; Control Center switches
-  between 4 and 2 only), and only over a value the app knows; 255 means no MUX and hides the setting.
+- **GPU mode (MUX switch):** Hybrid (MSHybrid), integrated graphics only (Intel or AMD) or NVIDIA graphics only,
+  the BIOS setup's own option, from the next start. Saved in the UEFI variable's `OemDisplayMode` (4, 1 and 2;
+  Control Center switches between 4 and 2 only), and only over a value the app knows; 255 means no MUX and hides the
+  setting.
 - **Core voltage offset:** written to the UEFI variable (`ICpuCoreVoltageOffsetValue` and
   `ICpuCoreVoltageOffsetNegativeValue`), so it takes effect after a restart. This BIOS allows 0 to +100 mV (range
   type 0); there's no undervolting.

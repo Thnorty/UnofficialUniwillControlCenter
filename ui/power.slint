@@ -383,7 +383,7 @@ export component PerformancePage inherits VerticalLayout {
     in property <string> curve-path;
     in property <string> default-path;
     in property <TuningView> tuning;
-    // The GPU mode (MUX switch): 0 Hybrid, 1 Intel only, 2 NVIDIA only.
+    // The GPU mode (MUX switch): 0 Hybrid, 1 integrated graphics only, 2 NVIDIA only.
     in property <bool> gpu-mode-shown;
     in property <bool> gpu-mode-available;
     in-out property <int> gpu-mode;
@@ -693,7 +693,7 @@ export component PerformancePage inherits VerticalLayout {
             description: root.gpu-mode-note;
             ComboBox {
                 width: 220px;
-                model: ["Hybrid (MSHybrid)", "Intel graphics only", "NVIDIA graphics only"];
+                model: ["Hybrid (MSHybrid)", "Integrated graphics only", "NVIDIA graphics only"];
                 enabled: root.gpu-mode-available;
                 current-index <=> root.gpu-mode;
                 selected => { root.set-gpu-mode(self.current-index); }

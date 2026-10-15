@@ -1,6 +1,6 @@
 //! The NVIDIA GPU's power state, from what Windows knows about the device, which doesn't wake it. With Optimus the
-//! GPU is switched off (D3) while nothing uses it, and the Intel graphics drive the screen. Any call into the NVIDIA
-//! driver (NVML) switches it on, at about 25 W on this laptop, so readings from it are only taken while it's on.
+//! GPU is switched off (D3) while nothing uses it, and the integrated graphics drive the screen. Any call into the
+//! NVIDIA driver (NVML) switches it on, at about 25 W on this laptop, so readings from it are only taken while it's on.
 
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
     CM_GETIDLIST_FILTER_CLASS, CM_GETIDLIST_FILTER_PRESENT, CM_Get_DevNode_PropertyW, CM_Get_Device_ID_ListW, CM_Get_Device_ID_List_SizeW,

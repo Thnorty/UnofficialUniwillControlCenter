@@ -163,7 +163,7 @@ pub struct DisplayResult {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct GpuModeResult {
-    /// `hybrid`, `intel` or `nvidia`.
+    /// `hybrid`, `integrated` or `nvidia`.
     pub mode: String,
     pub restart_needed: bool,
 }
@@ -224,6 +224,15 @@ pub fn resolve_kind(kind: &str, input: &str, names: &[&str]) -> Result<usize, St
     }
 }
 
+/// The GPU mode words, in `GpuMode::ALL`'s order. "integrated" covers Intel and AMD graphics alike.
+pub const GPU_MODES: [&str; 3] = ["hybrid", "integrated", "nvidia"];
+
+/// Which of `GPU_MODES` the user means; "intel", the word before 3.5.0, still means "integrated".
+pub fn resolve_gpu_mode(input: &str) -> Result<usize, String> {
+    let input = if input.trim().eq_ignore_ascii_case("intel") { "integrated" } else { input };
+    resolve_kind("GPU mode", input, &GPU_MODES)
+}
+
 /// Writes `value` as one JSON line.
 pub fn write_message(w: &mut impl Write, value: &impl Serialize) -> io::Result<()> {
     let mut line = serde_json::to_vec(value).map_err(io::Error::other)?;
@@ -269,6 +278,16 @@ mod tests {
     }
 
     #[test]
+    fn gpu_modes_say_integrated_and_still_take_intel() {
+        assert_eq!(GPU_MODES, ["hybrid", "integrated", "nvidia"]);
+        assert_eq!(resolve_gpu_mode("i"), Ok(1));
+        assert_eq!(resolve_gpu_mode("Intel"), Ok(1));
+        assert_eq!(resolve_gpu_mode("integrated"), Ok(1));
+        assert_eq!(resolve_gpu_mode("n"), Ok(2));
+        assert!(resolve_gpu_mode("amd").unwrap_err().contains("hybrid, integrated, nvidia"));
+    }
+
+    #[test]
     fn reply_json_is_pinned() {
         assert_eq!(serde_json::to_string(&Reply::Error { code: 3, message: "x".into() }).unwrap(), r#"{"error":{"code":3,"message":"x"}}"#);
         assert_eq!(serde_json::to_string(&Reply::Ok(json!({"on": true}))).unwrap(), r#"{"ok":{"on":true}}"#);
@@ -297,7 +316,7 @@ mod tests {
             Request::Charge(Some("long-life".into())),
             Request::Setup(None),
             Request::Display { on: Some(true), mode: Some("Cinema".into()) },
-            Request::GpuMode(Some("intel".into())),
+            Request::GpuMode(Some("integrated".into())),
         ];
         for request in requests {
             let text = serde_json::to_string(&request).unwrap();
