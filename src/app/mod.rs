@@ -370,16 +370,18 @@ fn set_colors(model: &VecModel<slint::Color>, colors: &[Rgb]) {
     }
 }
 
+/// The tiles' names (one per effect, so a tile's index is its effect's) and their groups, which leave out the
+/// effects this platform can't draw.
 fn tile_names_and_groups(effects: &[Effect]) -> (Vec<SharedString>, Vec<TileGroup>) {
     let names = effects.iter().map(|e| SharedString::from(e.name)).collect();
     let mut groups: Vec<TileGroup> = Vec::new();
-    let mut previous: Option<Group> = None;
-    for (i, effect) in effects.iter().enumerate() {
-        if previous != Some(effect.group) {
+    let mut previous: Option<(Group, usize)> = None; // the last shown effect's group and index
+    for (i, effect) in effects.iter().enumerate().filter(|(_, e)| e.on_this_platform()) {
+        if previous != Some((effect.group, i.wrapping_sub(1))) {
             groups.push(TileGroup { title: effect.group.title().into(), first: i as i32, count: 0 });
-            previous = Some(effect.group);
         }
         groups.last_mut().unwrap().count += 1;
+        previous = Some((effect.group, i));
     }
     (names, groups)
 }
@@ -2041,5 +2043,25 @@ fn show_window(ui: &AppWindow) {
                 style_title_bar(h);
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tile_groups_skip_effects_this_platform_lacks() {
+        let (names, groups) = tile_names_and_groups(effects::KEYBOARD);
+        assert_eq!(names.len(), effects::KEYBOARD.len()); // tiles keep their effect's index
+        let shown: Vec<&str> = groups.iter().flat_map(|g| (g.first..g.first + g.count).map(|i| effects::KEYBOARD[i as usize].key)).collect();
+        let titles: Vec<String> = groups.iter().map(|g| g.title.to_string()).collect();
+        if cfg!(target_os = "linux") {
+            assert!(!shown.iter().any(|k| ["typing", "music", "spectrum"].contains(k)), "{shown:?}");
+            assert!(!titles.contains(&"Sound".to_string()), "{titles:?}"); // no empty heading
+        } else {
+            assert_eq!(shown.len(), effects::KEYBOARD.len());
+        }
+        assert!(groups.iter().all(|g| g.count > 0));
     }
 }

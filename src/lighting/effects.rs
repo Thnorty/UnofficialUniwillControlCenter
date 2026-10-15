@@ -140,6 +140,12 @@ impl Effect {
         self.drawn != Drawn::Firmware
     }
 
+    /// Whether this platform can draw it: Linux has no key hook for Typing and no sound capture for Music and
+    /// Spectrum yet.
+    pub fn on_this_platform(&self) -> bool {
+        !(cfg!(target_os = "linux") && matches!(self.drawn, Drawn::Typing | Drawn::Music | Drawn::Spectrum))
+    }
+
     pub fn is_rainbow(&self) -> bool {
         self.id == RAINBOW_ID && self.drawn == Drawn::Firmware
     }
@@ -215,3 +221,18 @@ pub const LIGHT_BAR_RAINBOW: [Rgb; 7] = [
     Rgb::new(0, 0, 255),
     Rgb::new(139, 0, 255),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sound_and_typing_effects_only_where_they_work() {
+        let hidden: Vec<&str> = KEYBOARD.iter().chain(LIGHT_BAR).filter(|e| !e.on_this_platform()).map(|e| e.key).collect();
+        if cfg!(target_os = "linux") {
+            assert_eq!(hidden, ["typing", "music", "spectrum", "typing", "music", "spectrum"]);
+        } else {
+            assert!(hidden.is_empty());
+        }
+    }
+}

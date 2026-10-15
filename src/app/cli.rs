@@ -16,7 +16,7 @@ use crate::cli::protocol::{
 };
 use crate::color::Rgb;
 use crate::lighting::device::Kind;
-use crate::lighting::effects::EffectColors;
+use crate::lighting::effects::{Effect, EffectColors};
 use crate::hardware::battery::ChargeMode;
 use crate::hardware::ec::Ec;
 use crate::hardware::fans::FanReading;
@@ -364,10 +364,11 @@ impl App {
             return Err(refused(format!("The {name} can't be reached: it wasn't found, or sending to it failed. The app's window says more.")));
         }
         if let Some(wanted) = &changes.effect {
-            let keys: Vec<&str> = lighting.effects.iter().map(|e| e.key).collect();
-            let names: Vec<&str> = lighting.effects.iter().map(|e| e.name).collect();
+            let shown: Vec<(usize, &Effect)> = lighting.effects.iter().enumerate().filter(|(_, e)| e.on_this_platform()).collect();
+            let keys: Vec<&str> = shown.iter().map(|(_, e)| e.key).collect();
+            let names: Vec<&str> = shown.iter().map(|(_, e)| e.name).collect();
             let index = resolve_kind("effect", wanted, &keys).or_else(|e| resolve_kind("effect", wanted, &names).map_err(|_| e)).map_err(bad)?;
-            self.select_effect(kind, index);
+            self.select_effect(kind, shown[index].0);
         }
         if let Some(colors) = &changes.colors {
             let colors: Vec<Rgb> = colors.iter().map(|c| Rgb::parse_hex(c).ok_or_else(|| bad(format!("color \"{c}\": give #rrggbb")))).collect::<Result<_, _>>()?;
@@ -483,6 +484,7 @@ fn effect_infos(lighting: &Lighting) -> Vec<EffectInfo> {
     lighting
         .effects
         .iter()
+        .filter(|e| e.on_this_platform())
         .map(|e| {
             // Zone colors: one for all four zones, or one each.
             let color_counts: Vec<usize> = match e.colors {
