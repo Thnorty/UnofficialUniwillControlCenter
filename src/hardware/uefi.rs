@@ -209,15 +209,25 @@ fn update(change: impl FnOnce(&mut Variable) -> Result<()>) -> Result<Variable> 
     Ok(written)
 }
 
-/// The variable's attributes and bytes, not reached on Linux yet.
+/// The variable's attributes and bytes, through the app's helper (efivarfs is root's).
 #[cfg(target_os = "linux")]
 fn read_raw() -> Result<(u32, Vec<u8>)> {
-    bail!("Not available on Linux yet")
+    use super::helper_protocol::{Reply, Request};
+    match super::ec::request(Request::ReadVariable)? {
+        Reply::Variable { attributes, bytes } => Ok((attributes, bytes)),
+        Reply::Error { message } | Reply::Refused { message } => bail!(message),
+        other => bail!("The app's helper answered {other:?}"),
+    }
 }
 
 #[cfg(target_os = "linux")]
-fn write_raw(_attributes: u32, _bytes: &[u8]) -> Result<()> {
-    bail!("Not available on Linux yet")
+fn write_raw(attributes: u32, bytes: &[u8]) -> Result<()> {
+    use super::helper_protocol::{Reply, Request};
+    match super::ec::request(Request::WriteVariable { attributes, bytes: bytes.to_vec() })? {
+        Reply::Done => Ok(()),
+        Reply::Error { message } | Reply::Refused { message } => bail!(message),
+        other => bail!("The app's helper answered {other:?}"),
+    }
 }
 
 /// The variable's attributes and bytes.
@@ -288,5 +298,32 @@ mod tests {
         assert_eq!(hybrid.gpu_mode(), Some(GpuMode::Hybrid));
         hybrid.bytes[DISPLAY_MODE] = 0xFF;
         assert_eq!(hybrid.gpu_mode(), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn read_goes_through_the_helper() {
+        let _serial = crate::hardware::fake_helper::serial();
+        let original = sample();
+        let bytes = original.bytes.clone();
+        let _helper = crate::hardware::fake_helper::FakeHelper::start("uefi-read", |s| s.variable = Some((7, bytes)));
+        let read = read().unwrap();
+        assert_eq!((read.attributes, read.bytes), (7, original.bytes));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn set_gpu_mode_writes_only_its_field() {
+        let _serial = crate::hardware::fake_helper::serial();
+        let before = sample().bytes;
+        let bytes = before.clone();
+        let helper = crate::hardware::fake_helper::FakeHelper::start("uefi-gpu", |s| s.variable = Some((7, bytes)));
+        let written = set_gpu_mode(GpuMode::Hybrid).unwrap();
+        assert_eq!(written.gpu_mode(), Some(GpuMode::Hybrid));
+        let (attributes, after) = helper.state.lock().unwrap().variable.clone().unwrap();
+        assert_eq!(attributes, 7);
+        let changed: Vec<usize> = (0..SIZE).filter(|&i| before[i] != after[i]).collect();
+        assert_eq!(changed, [DISPLAY_MODE]);
+        assert_eq!(read().unwrap().gpu_mode(), Some(GpuMode::Hybrid));
     }
 }

@@ -16,6 +16,8 @@ pub mod gpu;
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub mod helper_protocol;
+#[cfg(all(test, target_os = "linux"))]
+pub mod fake_helper;
 pub mod hotkeys;
 pub mod performance;
 pub mod status;
