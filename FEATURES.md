@@ -12,7 +12,8 @@ It talks to the lighting controllers directly over HID, and to the embedded cont
 It does not need Control Center, its GCUBridge/GCUService service or its MQTT broker. It needs administrator rights;
 the "Start with Windows" option starts it elevated in the tray through Task Scheduler. The exe doesn't ask for them
 itself: a launch without them shows the running app's window (its tray window lets that one message through), or
-starts the app through the startup task when that task starts the same exe, or else asks with a UAC prompt.
+starts the app through the startup task when that task starts the same exe, or else asks with a UAC prompt. It also
+runs on Linux, with the differences listed in [On Linux](#on-linux).
 
 ## From Control Center
 
@@ -295,6 +296,34 @@ Not implemented:
 - **Device switches:** Wi-Fi, Bluetooth and webcam, and touchpad active-area settings.
 - **Light bars and LED strips:** only on models that have them.
 - **Firmware updates** for the keyboard controller.
+
+## On Linux
+
+Since 3.5.0 the app also runs on Linux (see the README's Linux section for installing it and for Secure Boot). It runs
+as the signed-in user; a small root helper, `uucc-helper`, reaches the embedded controller by mapping the firmware's
+EC window (the one its `ECRR`/`ECRW` methods use) and writes the BIOS settings variable through efivarfs. The
+lighting controllers are used directly over `hidraw`. Where Linux differs:
+
+- **Fn keys and pop-ups:** not on Linux yet. The firmware's hotkey events reach user space only through a kernel
+  driver, so the Fn keyboard-light keys stay with the firmware, and there are no pop-ups, no Windows key lock or
+  touchpad toggle, and no Caps Lock and Num Lock lights on the light bar.
+- **Fan safety protection:** without the hotkey event, the app checks the EC's safety flag every second while a
+  custom curve is on, and steps back to the laptop's curve as on Windows. The helper also turns the custom curve off
+  if the app ends without doing it.
+- **Power limits:** Windows reads their range from the BIOS's power limit table through Control Center's driver; the
+  Linux build can't read that table yet, so PL1, PL2 and PL4 go up to the highest mode's own defaults, and the TCC
+  offset and GPU power (configurable TGP, Dynamic Boost) aren't offered.
+- **Display colors:** never on Linux. Wayland has no whole-screen color matrix an app can set (the Magnification API's
+  equivalent), and the compositor's own night light covers the rest.
+- **Effects:** Typing (no global key hook), Music and Spectrum (no sound capture yet) are left out; the rest, Smooth
+  Wave and the status effects included, work as on Windows.
+- **Also left out for now:** turning the lights off when idle, plugins and app profiles.
+- **Readings:** CPU load and memory from `/proc`, the CPU temperature from the hottest ACPI thermal zone (or
+  `coretemp`), the battery and charger from the kernel's `power_supply` class, the NVIDIA GPU's power state from sysfs
+  (so the GPU isn't woken to ask) and its temperature from NVML when the NVIDIA driver is installed.
+- **Desktop:** the tray icon is a StatusNotifierItem (KDE Plasma; GNOME with the AppIndicator extension), dialogs use
+  kdialog or zenity and the desktop's file picker, the theme and accent color follow the desktop's settings portal,
+  and start at login is an XDG autostart entry.
 
 ## Building
 

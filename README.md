@@ -8,17 +8,18 @@
 made and tested on the Monster Tulpar T5 V21.4
 
 Keyboard and light bar lighting, performance modes, fan curves, battery care, display colors and plugins,<br>
-in one small app that looks like Windows 11.
+in one small app that looks like Windows 11, and on Linux too.
 
 ![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?logo=windows11&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-Fedora_·_Ubuntu-FCC624?logo=linux&logoColor=black)
 ![Rust](https://img.shields.io/badge/Rust-2024_edition-B7410E?logo=rust&logoColor=white)
 ![Slint](https://img.shields.io/badge/UI-Slint_1.18-2379F4)
 ![Single exe](https://img.shields.io/badge/install-a_single_.exe-6c757d)
-![Version](https://img.shields.io/badge/version-3.1-8a2be2)
+![Version](https://img.shields.io/badge/version-3.5-8a2be2)
 
 <img src="docs/images/keyboard-preview.gif" width="760" alt="The keyboard preview animating the Wave effect">
 
-[Highlights](#highlights) · [Screenshots](#screenshots) · [Getting started](#getting-started) ·
+[Highlights](#highlights) · [Screenshots](#screenshots) · [Getting started](#getting-started) · [Linux](#linux) ·
 [Compatibility](#compatibility) · [Plugins](#plugins) · [Building](#building) · [Code](#code) · [Full feature list](FEATURES.md)
 
 </div>
@@ -134,6 +135,58 @@ to one file. The app was called **Tulpar Control** before 3.1: its first start m
 `%APPDATA%\TulparControl` folder (settings and plugins) over and replaces its startup task, and the installer updates
 an installed Tulpar Control in place.
 
+## Linux
+
+New in 3.5.0, made on the same laptop under Fedora 44 KDE Plasma (Wayland).
+
+**Distributions:** 64-bit x86 with glibc 2.39 or newer: Fedora 40 and later, Ubuntu 24.04 and later, Debian 13, and
+distributions based on them. KDE Plasma shows the tray icon as it is; on GNOME it needs the
+[AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/) (without it the app runs
+without an icon: start it again from the app menu to open its window).
+
+**Installing:** download the package for your distribution from [Releases](../../releases/latest) and install it:
+
+```sh
+sudo dnf install ./unofficial-uniwill-control-center-<version>-1.x86_64.rpm   # Fedora
+sudo apt install ./unofficial-uniwill-control-center_<version>-1_amd64.deb     # Ubuntu, Debian
+```
+
+Then sign out and back in, so the lighting rule gives you the keyboard and light bar, and open **Unofficial Uniwill
+Control Center** from the app menu. The package installs:
+
+- the app (`unofficial-uniwill-control-center`) and `uucc`, which run as you;
+- `uucc-helper`, a small root service that systemd starts when the app first asks. It's the only part that reaches the
+  embedded controller and the BIOS settings variable. It answers only users signed in at the laptop (polkit), writes
+  only the EC registers the app uses, puts back the fan control if the app ends unexpectedly, and runs sandboxed;
+- a udev rule that lets the person signed in use the lighting controllers.
+
+Removing the package stops the helper and removes all of it; your settings (`~/.config/UnofficialUniwillControlCenter`)
+and the autostart entry stay.
+
+> [!IMPORTANT]
+> **Secure Boot has to be off for the modes, fans, power limits and battery care.** With Secure Boot on, Fedora and
+> Ubuntu put the kernel in lockdown, which blocks the direct access to the embedded controller that the helper uses.
+> Check with `mokutil --sb-state`; turning it off is in the laptop's BIOS setup (usually F2 at start, under Security
+> or Boot). With it on, the Performance and Battery pages say so and everything else works: the lighting, the BIOS
+> settings (GPU mode, voltage offset, boot lighting) and `uucc`. A kernel module that works with Secure Boot on is
+> planned.
+
+The app also says why when the embedded controller can't be used for other reasons: the helper isn't installed or
+running (`sudo systemctl enable --now uucc-helper.socket`), Linux's own `uniwill` driver is in charge of it, or the
+laptop doesn't have the firmware interface this app knows.
+
+**What works on Linux:** Office, Gaming and Turbo, Fan Boost, profiles per mode, power limits (PL1, PL2 and PL4, up
+to the highest mode's own defaults), custom fan curves with their safety rules, battery care and USB charging, the
+keyboard and light bar lighting (the firmware's effects, the effects the app draws, Smooth Wave and the status
+effects), setups, the BIOS settings, the Monitor and Battery pages, the timer, `uucc`, the tray, start at login, and
+backup and restore.
+
+**Not on Linux yet:** the Fn keys and pop-ups (the firmware's hotkey events need a kernel driver), the Caps Lock and
+Num Lock lights, the Typing, Music and Spectrum effects, turning the lights off when idle, plugins, app profiles,
+the TCC offset and GPU power (they come from the BIOS's power limit table, which the Linux build can't read yet).
+**Display color modes** won't come to Linux: Wayland has no whole-screen color setting an app can change. What
+isn't there is left out of the window rather than shown broken.
+
 ## Terminal (uucc)
 
 `uucc` changes settings and reads the status from a terminal or a script. It asks the running app, which does the
@@ -162,6 +215,11 @@ however it's captured. To capture the text output with names like "Gece Modu –
 `[Console]::OutputEncoding = [Text.Encoding]::UTF8` first. `--start` starts the app in the tray first if it isn't running
 (through its startup task, or else with a UAC prompt); without it `uucc` fails. `uucc help COMMAND` shows a command's
 options.
+
+On Linux the package puts `uucc` in `/usr/bin`. It reaches the app over a socket in your runtime folder
+(`$XDG_RUNTIME_DIR/uucc.sock`, readable by you only), and `--start` starts the app in the tray. There are no display
+color modes on Linux, so `uucc display` replies "Display color modes aren't available on Linux" with exit code 1, and
+`uucc help` leaves it out.
 
 | Exit code | Meaning |
 |---|---|
