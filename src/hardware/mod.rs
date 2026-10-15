@@ -14,6 +14,9 @@ pub mod gpu;
 #[path = "gpu_linux.rs"]
 pub mod gpu;
 #[cfg(target_os = "linux")]
+#[path = "nvml_linux.rs"]
+mod nvml;
+#[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub mod helper_protocol;
 #[cfg(all(test, target_os = "linux"))]

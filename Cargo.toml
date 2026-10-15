@@ -30,6 +30,7 @@ zip = { version = "9.0", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+libloading = "0.9"
 zbus = "5"
 
 [target.'cfg(windows)'.dependencies]
