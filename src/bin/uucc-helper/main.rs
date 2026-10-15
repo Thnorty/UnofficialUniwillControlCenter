@@ -8,6 +8,8 @@ mod protocol;
 #[cfg(target_os = "linux")]
 mod ec;
 #[cfg(target_os = "linux")]
+mod efivar;
+#[cfg(target_os = "linux")]
 mod rules;
 
 fn main() {}
