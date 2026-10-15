@@ -10,5 +10,5 @@ PrivateNetwork=yes
 NoNewPrivileges=yes
 DevicePolicy=closed
 DeviceAllow=/dev/mem rw
-ReadWritePaths=/sys/firmware/efi/efivars
+ReadWritePaths=-/sys/firmware/efi/efivars
 CapabilityBoundingSet=CAP_SYS_RAWIO CAP_LINUX_IMMUTABLE

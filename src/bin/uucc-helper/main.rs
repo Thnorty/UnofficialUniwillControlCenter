@@ -39,11 +39,61 @@ mod linux {
     use crate::server::{self, Session};
     use crate::{efivar, polkit};
 
-    /// What every client shares: the EC (one request at a time) and how many clients are connected since when.
+    /// Connections waiting for polkit's answer at once; more are closed at once, so nobody can tie the helper up.
+    const MAX_PENDING: usize = 16;
+    /// How long a refused client has to send its request before it's told no.
+    const REFUSE_WAIT: Duration = Duration::from_secs(2);
+
+    /// What every client shares: the EC (one request at a time), how many authorized clients are connected since
+    /// when, and how many connections wait for authorization.
     struct Shared {
         ec: Mutex<Option<Box<dyn EcAccess>>>,
         status: Result<u64, Unavailable>,
         clients: Mutex<(usize, Instant)>,
+        pending: Mutex<usize>,
+    }
+
+    impl Shared {
+        fn new(ec: Option<Box<dyn EcAccess>>, status: Result<u64, Unavailable>) -> Shared {
+            Shared { ec: Mutex::new(ec), status, clients: Mutex::new((0, Instant::now())), pending: Mutex::new(0) }
+        }
+    }
+
+    /// A connection waiting for authorization, counted against `MAX_PENDING` until dropped.
+    struct Pending(Arc<Shared>);
+
+    impl Pending {
+        fn admit(shared: &Arc<Shared>) -> Option<Pending> {
+            let mut pending = shared.pending.lock().unwrap_or_else(|e| e.into_inner());
+            if *pending >= MAX_PENDING {
+                return None;
+            }
+            *pending += 1;
+            Some(Pending(shared.clone()))
+        }
+    }
+
+    impl Drop for Pending {
+        fn drop(&mut self) {
+            *self.0.pending.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
+        }
+    }
+
+    /// An authorized client, counted for the idle exit until dropped (also when its thread panics).
+    struct Counted(Arc<Shared>);
+
+    impl Counted {
+        fn new(shared: &Arc<Shared>) -> Counted {
+            shared.clients.lock().unwrap_or_else(|e| e.into_inner()).0 += 1;
+            Counted(shared.clone())
+        }
+    }
+
+    impl Drop for Counted {
+        fn drop(&mut self) {
+            let mut clients = self.0.clients.lock().unwrap_or_else(|e| e.into_inner());
+            *clients = (clients.0 - 1, Instant::now());
+        }
     }
 
     pub fn run() {
@@ -68,32 +118,69 @@ mod linux {
                 std::process::exit(1);
             }
         };
-        let shared = Arc::new(Shared { ec: Mutex::new(window), status, clients: Mutex::new((0, Instant::now())) });
+        let shared = Arc::new(Shared::new(window, status));
 
         let watcher = shared.clone();
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_secs(5));
-            let clients = watcher.clients.lock().unwrap();
+            let clients = watcher.clients.lock().unwrap_or_else(|e| e.into_inner());
             if server::idle_should_exit(clients.0, clients.1.elapsed()) {
                 std::process::exit(0);
             }
         });
 
+        serve_all(listener, shared, authorized);
+    }
+
+    /// Whether polkit lets the connected process use the helper. Asked as soon as it connects, before anything is
+    /// read from it, so its pid and start time are those of the process that connected.
+    fn authorized(stream: &UnixStream) -> bool {
+        peer(stream).is_ok_and(|(pid, uid)| polkit::authorized(pid, uid))
+    }
+
+    /// Accepts clients, each on a thread of its own: `authorize` first, then its requests.
+    fn serve_all(listener: UnixListener, shared: Arc<Shared>, authorize: fn(&UnixStream) -> bool) {
         for stream in listener.incoming() {
-            let Ok(stream) = stream else { continue };
-            {
-                let mut clients = shared.clients.lock().unwrap();
-                clients.0 += 1;
-            }
-            let shared = shared.clone();
-            std::thread::spawn(move || {
-                if let Err(error) = serve(&stream, &shared) {
-                    eprintln!("A client's connection ended: {error}");
+            let stream = match stream {
+                Ok(stream) => stream,
+                Err(_) => {
+                    // Out of file descriptors, say: wait instead of spinning.
+                    std::thread::sleep(Duration::from_millis(100));
+                    continue;
                 }
-                let mut clients = shared.clients.lock().unwrap();
-                *clients = (clients.0 - 1, Instant::now());
-            });
+            };
+            // Too many waiting for authorization: this one is closed.
+            let Some(pending) = Pending::admit(&shared) else { continue };
+            let shared = shared.clone();
+            let spawned = std::thread::Builder::new().spawn(move || client(stream, &shared, authorize, pending));
+            if spawned.is_err() {
+                std::thread::sleep(Duration::from_millis(100));
+            }
         }
+    }
+
+    fn client(stream: UnixStream, shared: &Arc<Shared>, authorize: fn(&UnixStream) -> bool, pending: Pending) {
+        let allowed = authorize(&stream);
+        drop(pending);
+        if !allowed {
+            refuse(&stream);
+            return;
+        }
+        let _counted = Counted::new(shared);
+        if let Err(error) = serve(&stream, shared) {
+            eprintln!("A client's connection ended: {error}");
+        }
+    }
+
+    /// Tells a client it isn't allowed, once it has sent its request (or after `REFUSE_WAIT`), so it reads the answer
+    /// instead of finding the connection closed.
+    fn refuse(stream: &UnixStream) {
+        let Ok(reader) = stream.try_clone() else { return };
+        if stream.set_read_timeout(Some(REFUSE_WAIT)).is_ok() {
+            let _ = protocol::read_line::<Envelope>(&mut BufReader::new(reader));
+        }
+        let message = "The helper only answers users signed in at this laptop.".into();
+        let _ = protocol::write_line(&mut &*stream, &Reply::Refused { message });
     }
 
     /// The socket systemd passes in (fd 3, when LISTEN_PID is this process), or, for development, one bound at
@@ -134,7 +221,6 @@ mod linux {
         let mut reader = BufReader::new(stream.try_clone()?);
         let mut writer = stream.try_clone()?;
         let mut session = Session::default();
-        let mut checked = false;
         let result = loop {
             let envelope: Envelope = match protocol::read_line(&mut reader) {
                 Ok(Some(envelope)) => envelope,
@@ -148,17 +234,8 @@ mod linux {
                 protocol::write_line(&mut writer, &Reply::WrongVersion { helper: protocol::VERSION })?;
                 break Ok(());
             }
-            if !checked {
-                let allowed = peer(stream).is_ok_and(|(pid, uid)| polkit::authorized(pid, uid));
-                if !allowed {
-                    let message = "The helper only answers users signed in at this laptop.".into();
-                    protocol::write_line(&mut writer, &Reply::Refused { message })?;
-                    break Ok(());
-                }
-                checked = true;
-            }
             let reply = {
-                let mut ec = shared.ec.lock().unwrap();
+                let mut ec = shared.ec.lock().unwrap_or_else(|e| e.into_inner());
                 let ec = ec.as_mut().map(|ec| -> &mut dyn EcAccess { ec.as_mut() });
                 server::handle(envelope.request, &mut session, ec, &shared.status, Path::new(efivar::VARIABLE))
             };
@@ -166,9 +243,88 @@ mod linux {
                 break Err(error);
             }
         };
-        if let Some(ec) = shared.ec.lock().unwrap().as_deref_mut() {
+        if let Some(ec) = shared.ec.lock().unwrap_or_else(|e| e.into_inner()).as_deref_mut() {
             server::release(&mut session, ec);
         }
         result
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::io::BufRead;
+
+        fn shared() -> Arc<Shared> {
+            Arc::new(Shared::new(None, Err(Unavailable::SecureBoot)))
+        }
+
+        /// Serves `shared` on a temporary socket, with `authorize` in place of polkit.
+        fn start(name: &str, shared: &Arc<Shared>, authorize: fn(&UnixStream) -> bool) -> std::path::PathBuf {
+            let path = std::env::temp_dir().join(format!("uucc-helper-main-test-{}-{name}.sock", std::process::id()));
+            let _ = std::fs::remove_file(&path);
+            let listener = UnixListener::bind(&path).unwrap();
+            let shared = shared.clone();
+            std::thread::spawn(move || serve_all(listener, shared, authorize));
+            path
+        }
+
+        fn ask_status(stream: &mut UnixStream) -> Reply {
+            let envelope = Envelope { version: protocol::VERSION, request: protocol::Request::Status };
+            protocol::write_line(stream, &envelope).unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
+            serde_json::from_str(&line).unwrap()
+        }
+
+        fn clients(shared: &Shared) -> usize {
+            shared.clients.lock().unwrap().0
+        }
+
+        #[test]
+        fn unauthorized_clients_are_refused_and_not_counted() {
+            let shared = shared();
+            let path = start("refused", &shared, |_| false);
+            // Clients that connect and send nothing: they hold no count, so the helper can still idle out.
+            let silent: Vec<UnixStream> = (0..5).map(|_| UnixStream::connect(&path).unwrap()).collect();
+            let mut asking = UnixStream::connect(&path).unwrap();
+            let reply = ask_status(&mut asking);
+            assert!(matches!(reply, Reply::Refused { .. }), "{reply:?}");
+            assert_eq!(clients(&shared), 0);
+            drop(silent);
+        }
+
+        #[test]
+        fn authorized_client_is_served_and_counted() {
+            let shared = shared();
+            let path = start("served", &shared, |_| true);
+            let mut client = UnixStream::connect(&path).unwrap();
+            assert_eq!(ask_status(&mut client), Reply::Unavailable { reason: Unavailable::SecureBoot });
+            assert_eq!(clients(&shared), 1);
+            drop(client);
+            let started = Instant::now();
+            while clients(&shared) != 0 && started.elapsed() < Duration::from_secs(2) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            assert_eq!(clients(&shared), 0);
+        }
+
+        #[test]
+        fn connections_waiting_for_authorization_are_capped() {
+            let shared = shared();
+            let waiting: Vec<Pending> = (0..MAX_PENDING).map(|_| Pending::admit(&shared).expect("room")).collect();
+            assert!(Pending::admit(&shared).is_none());
+            drop(waiting);
+            assert!(Pending::admit(&shared).is_some());
+        }
+
+        #[test]
+        fn optional_paths_dont_stop_the_helper() {
+            // systemd won't start a service whose ReadWritePaths entry is missing (no efivarfs on a legacy boot)
+            // unless the entry starts with "-".
+            let unit = include_str!("../../../packaging/linux/uucc-helper.service");
+            let paths: Vec<&str> = unit.lines().filter_map(|l| l.strip_prefix("ReadWritePaths=")).flat_map(str::split_whitespace).collect();
+            assert!(!paths.is_empty());
+            assert!(paths.iter().all(|p| p.starts_with('-')), "{paths:?}");
+        }
     }
 }
