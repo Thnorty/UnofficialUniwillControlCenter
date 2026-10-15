@@ -13,7 +13,6 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-const NAME: &str = "unofficial-uniwill-control-center";
 const EXIT_WAIT: Duration = Duration::from_secs(15);
 
 /// What a later launch asks the running instance to do.
@@ -40,13 +39,11 @@ pub fn control_messages() -> Receiver<Control> {
     channel().1.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_else(|| mpsc::channel().1)
 }
 
-/// `$XDG_RUNTIME_DIR`, which is per user and cleared at sign-out; the temporary folder without one.
-fn runtime_folder() -> PathBuf {
-    std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(|| std::env::temp_dir().join(format!("{NAME}-{}", unsafe { libc::getuid() })))
-}
+use crate::cli::protocol::{APP_NAME, runtime_folder};
 
+/// The lock and the instance socket in `folder`; `uucc` looks for the same lock (`protocol::app_lock_path`).
 fn paths(folder: &Path) -> (PathBuf, PathBuf) {
-    (folder.join(format!("{NAME}.lock")), folder.join(format!("{NAME}.sock")))
+    (folder.join(format!("{APP_NAME}.lock")), folder.join(format!("{APP_NAME}.sock")))
 }
 
 /// Takes the lock without waiting; None if another process has it.

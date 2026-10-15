@@ -12,8 +12,29 @@ pub const VERSION: u32 = 1;
 pub const MAX_MESSAGE: usize = 64 * 1024;
 
 /// The app's pipe; the demo (`--demo`) has its own, which `uucc` uses when `UUCC_DEMO=1`.
+#[cfg(windows)]
 pub fn pipe_name(demo: bool) -> &'static str {
     if demo { r"\\.\pipe\UnofficialUniwillControlCenter.Demo" } else { r"\\.\pipe\UnofficialUniwillControlCenter" }
+}
+
+/// The app's name for its files in the runtime folder: its single-instance lock and the socket beside it.
+#[cfg(target_os = "linux")]
+pub const APP_NAME: &str = "unofficial-uniwill-control-center";
+
+/// `$XDG_RUNTIME_DIR`, which is the user's own and cleared at sign-out; a folder of the user's in the temporary folder
+/// without one.
+#[cfg(target_os = "linux")]
+pub fn runtime_folder() -> std::path::PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join(format!("{APP_NAME}-{}", unsafe { libc::getuid() })))
+}
+
+/// The app's socket on Linux; the demo has its own.
+#[cfg(target_os = "linux")]
+pub fn socket_path(demo: bool) -> std::path::PathBuf {
+    runtime_folder().join(if demo { "uucc-demo.sock" } else { "uucc.sock" })
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -241,6 +262,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn pipe_names_are_local_pipes() {
         assert_eq!(pipe_name(false), r"\\.\pipe\UnofficialUniwillControlCenter");
         assert_eq!(pipe_name(true), r"\\.\pipe\UnofficialUniwillControlCenter.Demo");

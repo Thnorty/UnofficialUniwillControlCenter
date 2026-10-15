@@ -476,7 +476,10 @@ impl App {
         APP.with(|cell| *cell.borrow_mut() = Some(app));
         connect_callbacks(ui);
         // Without the pipe (another program has its name) the app runs on, without uucc.
+        #[cfg(windows)]
         let pipe = crate::cli::server::start(crate::cli::protocol::pipe_name(demo), cli::handle);
+        #[cfg(target_os = "linux")]
+        let pipe = crate::cli::server::start(&crate::cli::protocol::socket_path(demo), cli::handle);
         if !demo {
             cli::log_pipe(&pipe);
         }

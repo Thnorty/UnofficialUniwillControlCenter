@@ -12,6 +12,10 @@ mod connect;
 #[cfg(target_os = "linux")]
 #[path = "connect_linux.rs"]
 mod connect;
+// The app's end of the socket, for round trips in the tests.
+#[cfg(all(test, target_os = "linux"))]
+#[path = "../../cli/server_linux.rs"]
+mod server;
 mod output;
 
 use protocol::{Envelope, Reply, VERSION};
