@@ -12,6 +12,12 @@ use wmi::{IWbemClassWrapper, Variant, WMIConnection};
 
 type Job = Box<dyn FnOnce(&Registers) + Send>;
 
+/// Whether connecting is worth trying again after it failed: on Windows the reasons (no BIOS interface, no
+/// administrator rights) last until the app or the laptop restarts.
+pub fn may_come_back(_reason: &str) -> bool {
+    false
+}
+
 /// A handle to the EC thread; clones share it. The thread ends when the last handle is dropped.
 #[derive(Clone)]
 pub struct Ec {

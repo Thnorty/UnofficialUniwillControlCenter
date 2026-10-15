@@ -23,7 +23,7 @@ impl App {
     pub(super) fn import_settings(&mut self) {
         let owner = self.window_owner();
         let Some(path) = shell::pick_file(owner, "Restore settings", FILTER) else { return };
-        let restored = match std::fs::read_to_string(&path).map_err(anyhow::Error::from).and_then(|text| Settings::from_backup(&text)) {
+        let restored = match std::fs::read(&path).map_err(anyhow::Error::from).and_then(|bytes| Settings::from_backup(&bytes)) {
             Ok(settings) => settings,
             Err(e) => {
                 self.set_status(&format!("Couldn't restore the settings: {e:#}"), true, false);

@@ -42,6 +42,9 @@ component ChoiceCard inherits Rectangle {
     border-color: root.selected ? Theme.accent : Theme.card-stroke;
     opacity: root.enabled ? 1 : 0.5;
     min-height: 108px;
+    // Cards in a row share its width evenly, however long their text.
+    horizontal-stretch: 1;
+    preferred-width: 0px;
     animate border-color, background { duration: 120ms; }
     VerticalLayout {
         padding: 16px;
@@ -58,6 +61,8 @@ component ChoiceCard inherits Rectangle {
                 text: root.title;
                 vertical-alignment: center;
                 horizontal-stretch: 1;
+                // So the title's length doesn't set the card's width (it fits at any window size the app allows).
+                overflow: elide;
             }
             // The radio mark.
             Rectangle {
@@ -423,6 +428,9 @@ export component PerformancePage inherits VerticalLayout {
     callback save-voltage();
 
     property <[string]> mode-names: ["Office", "Gaming", "Turbo"];
+    // The restart notes closed with their ✕; one comes back when its text changes.
+    property <string> voltage-restart-closed;
+    property <string> gpu-mode-restart-closed;
 
     spacing: 8px;
     VerticalLayout {
@@ -643,9 +651,11 @@ export component PerformancePage inherits VerticalLayout {
                 }
             }
         }
-        if root.tuning.voltage-restart != "": InfoBar {
+        if root.tuning.voltage-restart != "" && root.tuning.voltage-restart != root.voltage-restart-closed: InfoBar {
             caution: true;
             message: root.tuning.voltage-restart;
+            closable: true;
+            closed => { root.voltage-restart-closed = root.tuning.voltage-restart; }
         }
     }
 
@@ -699,9 +709,11 @@ export component PerformancePage inherits VerticalLayout {
                 selected => { root.set-gpu-mode(self.current-index); }
             }
         }
-        if root.gpu-mode-restart != "": InfoBar {
+        if root.gpu-mode-restart != "" && root.gpu-mode-restart != root.gpu-mode-restart-closed: InfoBar {
             caution: true;
             message: root.gpu-mode-restart;
+            closable: true;
+            closed => { root.gpu-mode-restart-closed = root.gpu-mode-restart; }
         }
     }
 

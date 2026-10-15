@@ -292,11 +292,15 @@ impl Settings {
     }
 
     /// Settings from a backup file; refuses JSON that isn't this app's settings.
-    pub fn from_backup(text: &str) -> anyhow::Result<Settings> {
-        let value: serde_json::Value = serde_json::from_str(text.trim_start_matches('\u{FEFF}')).map_err(|e| anyhow::anyhow!("The file isn't valid JSON ({e})"))?;
+    /// The settings in a backup file's bytes. Any other file (not text, not JSON, or JSON without this app's
+    /// settings) is named as such, whatever made it fail.
+    pub fn from_backup(bytes: &[u8]) -> anyhow::Result<Settings> {
+        const NOT_A_BACKUP: &str = "This isn't a settings backup from this app. Pick a file made with Back up\u{2026}.";
+        let text = std::str::from_utf8(bytes).map_err(|_| anyhow::anyhow!(NOT_A_BACKUP))?;
+        let value: serde_json::Value = serde_json::from_str(text.trim_start_matches('\u{FEFF}')).map_err(|_| anyhow::anyhow!(NOT_A_BACKUP))?;
         let known = ["Keyboard", "LightBar", "Power", "Plugins", "IdleTimeoutSeconds"];
         if !value.as_object().is_some_and(|o| known.iter().any(|k| o.contains_key(*k))) {
-            anyhow::bail!("The file isn't a settings backup of this app");
+            anyhow::bail!(NOT_A_BACKUP);
         }
         let mut settings: Settings = serde_json::from_value(value).map_err(|e| anyhow::anyhow!("The settings in the file can't be read ({e})"))?;
         settings.keyboard.get_or_insert_with(LightingSettings::default);
@@ -323,11 +327,21 @@ mod tests {
         let mut settings = Settings::default();
         settings.idle_timeout_seconds = 300;
         settings.popup_num_lock = false;
-        let restored = Settings::from_backup(&settings.to_backup().unwrap()).unwrap();
+        let restored = Settings::from_backup(settings.to_backup().unwrap().as_bytes()).unwrap();
         assert_eq!(restored.idle_timeout_seconds, 300);
         assert!(!restored.popup_num_lock);
         assert!(restored.keyboard.is_some());
-        assert!(Settings::from_backup(r#"{ "name": "something else" }"#).is_err());
-        assert!(Settings::from_backup("not json").is_err());
+        assert!(Settings::from_backup(br#"{ "name": "something else" }"#).is_err());
+        assert!(Settings::from_backup(b"not json").is_err());
+    }
+
+    #[test]
+    fn other_files_are_named_as_such() {
+        // A copy of the BIOS settings variable: attributes, then binary data.
+        let variable = [0x07, 0x00, 0x00, 0x00, 0x1A, 0x05, 0x01, 0x14, 0xFF, 0xFE];
+        for file in [&variable[..], b"not json", br#"{ "name": "something else" }"#] {
+            let error = Settings::from_backup(file).unwrap_err().to_string();
+            assert_eq!(error, "This isn't a settings backup from this app. Pick a file made with Back up\u{2026}.");
+        }
     }
 }

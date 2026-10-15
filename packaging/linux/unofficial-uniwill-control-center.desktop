@@ -6,3 +6,4 @@ Exec=unofficial-uniwill-control-center
 Icon=unofficial-uniwill-control-center
 Categories=Settings;HardwareSettings;
 Keywords=keyboard;lighting;fan;performance;battery;
+StartupWMClass=unofficial-uniwill-control-center

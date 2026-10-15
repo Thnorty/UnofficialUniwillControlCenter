@@ -116,6 +116,10 @@ fn risk_text(maker: &str, model: &str) -> String {
     }
 }
 
+/// The window's Wayland app id (X11 class): the desktop entry's name, so the desktop shows the app's icon for it.
+#[cfg(target_os = "linux")]
+const LINUX_APP_ID: &str = "unofficial-uniwill-control-center";
+
 fn run(demo: bool, start_hidden: bool) -> Result<(), slint::PlatformError> {
     // Skia draws through Direct3D. The OpenGL renderer (femtovg) shows a blank white window on some drivers, so it
     // isn't used; the software renderer is the fallback (it has no shadows).
@@ -124,6 +128,8 @@ fn run(demo: bool, start_hidden: bool) -> Result<(), slint::PlatformError> {
     if select(&renderer).is_err() {
         select("software")?;
     }
+    #[cfg(target_os = "linux")]
+    slint::set_xdg_app_id(LINUX_APP_ID)?;
     let window = ui::AppWindow::new()?;
     if let Some(page) = std::env::args().skip_while(|a| a != "--page").nth(1).and_then(|p| p.parse().ok()) {
         window.set_page(page);
@@ -144,5 +150,12 @@ mod tests {
                 "{text}"
             );
         }
+    }
+
+    #[test]
+    fn app_id_names_the_desktop_entry() {
+        // Plasma finds the window's icon (Alt+Tab, the task bar) through the desktop entry the app id names.
+        let entry = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("packaging/linux/{}.desktop", super::LINUX_APP_ID));
+        assert!(entry.exists(), "{}", entry.display());
     }
 }

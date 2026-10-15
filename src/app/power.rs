@@ -333,6 +333,10 @@ impl App {
     /// the EC's fan safety protection while a custom curve is on. Called every few seconds.
     pub(super) fn check_power_owner(&mut self) {
         if self.power.ec.is_none() {
+            // A helper that wasn't running may be now.
+            if self.power.ec_error.as_deref().is_some_and(crate::hardware::ec::may_come_back) {
+                self.connect_ec();
+            }
             return;
         }
         if system::control_center_running() {

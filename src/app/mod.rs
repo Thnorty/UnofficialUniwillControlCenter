@@ -336,6 +336,8 @@ pub struct App {
     models: Models,
     timers: Vec<slint::Timer>,
     fade_timer: slint::Timer,
+    /// Clears a confirmation in the status bar a few seconds after it's shown.
+    status_timer: slint::Timer,
     watch: Arc<Watch>,
     started: Instant,
     settings_dirty: bool,
@@ -351,6 +353,15 @@ pub struct App {
     cli: cli::CliCapture,
     /// The keyboard's brightness before `uucc keyboard off`, for `uucc keyboard on`.
     keyboard_before_off: Option<u8>,
+}
+
+/// How long a confirmation stays in the status bar.
+const STATUS_FADE: Duration = Duration::from_secs(5);
+
+/// Whether a status message goes away by itself: confirmations do; errors and what waits for Retry stay until closed
+/// or replaced.
+fn status_fades(text: &str, error: bool, retry: bool) -> bool {
+    !text.is_empty() && !error && !retry
 }
 
 fn colors_model(colors: &[Rgb]) -> Rc<VecModel<slint::Color>> {
@@ -460,6 +471,7 @@ impl App {
             models,
             timers: Vec::new(),
             fade_timer: slint::Timer::default(),
+            status_timer: slint::Timer::default(),
             watch,
             started: Instant::now(),
             settings_dirty: false,
@@ -1293,6 +1305,18 @@ impl App {
         ui.set_status_text(text.into());
         ui.set_status_error(error);
         ui.set_show_retry(retry);
+        self.status_timer.stop();
+        if status_fades(text, error, retry) {
+            let shown = text.to_string();
+            self.status_timer.start(slint::TimerMode::SingleShot, STATUS_FADE, move || {
+                let shown = shown.clone();
+                with_app(move |app| {
+                    if app.ui().is_some_and(|ui| ui.get_status_text() == shown.as_str()) {
+                        app.set_status("", false, false);
+                    }
+                })
+            });
+        }
     }
 
     fn refresh_device(&mut self, kind: Kind) {
@@ -1954,6 +1978,7 @@ fn connect_callbacks(ui: &AppWindow) {
     ui.on_exit_app(|| with_app(|app| app.exit()));
     ui.on_open_linux_setup(|| crate::shell::open_path(std::path::Path::new(LINUX_SETUP)));
     ui.on_retry(|| with_app(|app| app.open_devices()));
+    ui.on_dismiss_status(|| with_app(|app| app.set_status("", false, false)));
     ui.on_format_hex(|color| Rgb::from_slint(color).hex().into());
     ui.on_parse_hex(|text| match Rgb::parse_hex(&text) {
         Some(c) => c.to_slint(),
@@ -2061,6 +2086,14 @@ fn show_window(ui: &AppWindow) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_confirmations_fade() {
+        assert!(status_fades("Saved to the BIOS: Wave while the laptop starts.", false, false));
+        assert!(!status_fades("Couldn't save to the BIOS: access denied", true, false)); // errors stay
+        assert!(!status_fades("The keyboard isn't connected.", false, true)); // waits for Retry
+        assert!(!status_fades("", false, false));
+    }
 
     #[test]
     fn tile_groups_skip_effects_this_platform_lacks() {

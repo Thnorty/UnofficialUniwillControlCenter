@@ -79,6 +79,12 @@ impl Link {
     }
 }
 
+/// Whether the EC may become reachable without a restart, so connecting is worth trying again: the helper wasn't
+/// running, or was another version (being updated). Secure Boot, a missing EC or a driver in charge need a restart.
+pub fn may_come_back(reason: &str) -> bool {
+    reason.contains(NOT_RUNNING) || reason.contains(OTHER_VERSION)
+}
+
 /// Sends `request` to the helper and returns its answer; a broken connection is opened again once. A helper that
 /// can't be reached or speaks another version gives an `EcUnavailable` error.
 pub(crate) fn request(request: Request) -> Result<Reply> {
@@ -244,6 +250,7 @@ mod tests {
         let _serial = serial();
         let _helper = FakeHelper::start("secure-boot", |s| s.status = Some(Unavailable::SecureBoot));
         let error = Ec::connect().err().expect("connect should fail");
+        assert!(!may_come_back(&format!("{error:#}"))); // Secure Boot needs a restart
         assert_eq!(unavailable_message(error), Unavailable::SecureBoot.message());
     }
 
@@ -254,6 +261,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         unsafe { std::env::set_var("UUCC_HELPER_SOCKET", &path) };
         let error = Ec::connect().err().expect("connect should fail");
+        assert!(may_come_back(&format!("{error:#}"))); // the app tries again until the helper runs
         let message = unavailable_message(error);
         assert!(message.contains("sudo systemctl enable --now uucc-helper.socket"), "{message}");
     }

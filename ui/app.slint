@@ -245,6 +245,7 @@ export component AppWindow inherits Window {
     // Opens the README's Linux section.
     callback open-linux-setup();
     callback retry();
+    callback dismiss-status();
     callback set-mode(int);
     callback set-fan-boost(bool);
     callback set-curve-enabled(bool);
@@ -468,6 +469,8 @@ export component AppWindow inherits Window {
                         critical: root.status-error;
                         action: root.show-retry ? "Retry" : "";
                         action-clicked => { root.retry(); }
+                        closable: true;
+                        closed => { root.dismiss-status(); }
                     }
                     if root.page == 0: LightingPage {
                         is-light-bar: false;
