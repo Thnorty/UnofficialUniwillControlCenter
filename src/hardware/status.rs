@@ -49,20 +49,8 @@ impl SystemStatus {
         }
     }
 
-    /// Readings stop for a while: the next CPU load is over that whole time, so there's none until the read after.
-    pub fn pause(&mut self) {
-        self.last_times = None;
-        self.cpu_load = None;
-    }
-
     fn read_battery(&mut self) {
-        let mut power = SYSTEM_POWER_STATUS::default();
-        let ok = unsafe { GetSystemPowerStatus(&mut power) }.is_ok();
-        // BatteryFlag 128: no system battery; 255: unknown. BatteryLifePercent 255: unknown.
-        let has_battery = ok && power.BatteryFlag != 128 && power.BatteryFlag != 255 && power.BatteryLifePercent != 255;
-        self.battery_percent = has_battery.then(|| power.BatteryLifePercent.min(100));
-        self.on_ac = ok && power.ACLineStatus == 1;
-        self.charging = has_battery && power.ACLineStatus == 1 && power.BatteryLifePercent < 100;
+        (self.battery_percent, self.charging, self.on_ac) = power_now();
     }
 
     fn read_cpu_load(&mut self) {
@@ -138,6 +126,16 @@ impl SystemStatus {
             self.gpu_temperature = nvml.temperature();
         }
     }
+}
+
+/// The battery's charge (None without one), whether it's charging, and whether the power adapter is in.
+pub fn power_now() -> (Option<u8>, bool, bool) {
+    let mut power = SYSTEM_POWER_STATUS::default();
+    let ok = unsafe { GetSystemPowerStatus(&mut power) }.is_ok();
+    // BatteryFlag 128: no system battery; 255: unknown. BatteryLifePercent 255: unknown.
+    let has_battery = ok && power.BatteryFlag != 128 && power.BatteryFlag != 255 && power.BatteryLifePercent != 255;
+    let on_ac = ok && power.ACLineStatus == 1;
+    (has_battery.then(|| power.BatteryLifePercent.min(100)), has_battery && on_ac && power.BatteryLifePercent < 100, on_ac)
 }
 
 /// Whether the laptop runs on its power adapter.
@@ -249,22 +247,5 @@ impl Nvml {
                 None
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn load_after_a_pause_waits_for_a_second_read() {
-        let mut status = SystemStatus::default();
-        status.update(Inputs::CPU_LOAD);
-        std::thread::sleep(std::time::Duration::from_millis(100));
-        status.update(Inputs::CPU_LOAD);
-        assert!(status.cpu_load.is_some());
-        status.pause();
-        status.update(Inputs::CPU_LOAD);
-        assert_eq!(status.cpu_load, None);
     }
 }

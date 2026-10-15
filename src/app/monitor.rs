@@ -3,7 +3,7 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, ModelRc, VecModel};
@@ -38,22 +38,25 @@ pub(super) struct Sample {
     battery: BatteryDetails,
 }
 
+/// What `uucc status` asks of the thread: readings until `until`, whatever page shows, the first one at once (`new`).
+#[derive(Default)]
+struct Asked {
+    until: Option<Instant>,
+    new: bool,
+}
+
+type AskedShared = Arc<(Mutex<Asked>, Condvar)>;
+
 pub(super) struct Monitor {
     wanted: Arc<AtomicBool>,
-    /// For `uucc status`: the thread also reads until then, whatever page shows.
-    wanted_until: Arc<Mutex<Option<Instant>>>,
+    asked: AskedShared,
     stop: Arc<AtomicBool>,
     history: VecDeque<Sample>,
 }
 
 impl Monitor {
     pub fn new() -> Monitor {
-        Monitor {
-            wanted: Arc::new(AtomicBool::new(false)),
-            wanted_until: Arc::new(Mutex::new(None)),
-            stop: Arc::new(AtomicBool::new(false)),
-            history: VecDeque::new(),
-        }
+        Monitor { wanted: Arc::new(AtomicBool::new(false)), asked: AskedShared::default(), stop: Arc::new(AtomicBool::new(false)), history: VecDeque::new() }
     }
 
     pub fn stop(&self) {
@@ -63,16 +66,15 @@ impl Monitor {
 
 impl App {
     pub(super) fn start_monitor(&self) {
-        let (wanted, until, stop) = (self.monitor.wanted.clone(), self.monitor.wanted_until.clone(), self.monitor.stop.clone());
+        let (wanted, asked, stop) = (self.monitor.wanted.clone(), self.monitor.asked.clone(), self.monitor.stop.clone());
         let (ec, demo) = (self.power.shared_ec.clone(), self.demo);
-        let _ = std::thread::Builder::new().name("Monitor".into()).spawn(move || monitor_thread(wanted, until, stop, ec, demo));
+        let deliver = |sample: Sample| post(move |app| app.monitor_sample(sample));
+        let _ = std::thread::Builder::new().name("Monitor".into()).spawn(move || monitor_thread(wanted, asked, stop, ec, demo, deliver));
     }
 
-    /// Has the monitor read for the next 5 s, whatever page shows; returns when it was asked.
+    /// Has the monitor read now and for the next 5 s, whatever page shows; returns when it was asked.
     pub(super) fn want_readings(&self) -> Instant {
-        let now = Instant::now();
-        *self.monitor.wanted_until.lock().unwrap_or_else(|e| e.into_inner()) = Some(now + Duration::from_secs(5));
-        now
+        ask(&self.monitor.asked)
     }
 
     /// Whether a reading taken after `t` is in: one with the CPU load, or a second one (the load needs two reads, and
@@ -289,17 +291,37 @@ fn history_path(values: impl ExactSizeIterator<Item = Option<f32>>, low: f32, hi
     path
 }
 
-fn monitor_thread(wanted: Arc<AtomicBool>, until: Arc<Mutex<Option<Instant>>>, stop: Arc<AtomicBool>, ec: Arc<Mutex<Option<Ec>>>, demo: bool) {
+fn ask(asked: &AskedShared) -> Instant {
+    let now = Instant::now();
+    let (lock, wake) = &**asked;
+    let mut asked = lock.lock().unwrap_or_else(|e| e.into_inner());
+    asked.until = Some(now + Duration::from_secs(5));
+    asked.new = true;
+    wake.notify_one();
+    now
+}
+
+fn monitor_thread(wanted: Arc<AtomicBool>, asked: AskedShared, stop: Arc<AtomicBool>, ec: Arc<Mutex<Option<Ec>>>, demo: bool, deliver: impl Fn(Sample)) {
     let mut status = SystemStatus::default();
     let mut wmi: Option<WMIConnection> = None;
     let mut battery = BatteryDetails::default();
     let mut battery_read: Option<Instant> = None;
     let started = Instant::now();
-    while !stop.load(Ordering::Acquire) {
-        std::thread::sleep(Duration::from_millis(1000));
-        let asked = until.lock().unwrap_or_else(|e| e.into_inner()).is_some_and(|until| Instant::now() < until);
+    loop {
+        // A second between readings, unless `uucc status` asks for one now.
+        let asked = {
+            let (lock, wake) = &*asked;
+            let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+            let (mut asked, _) = wake.wait_timeout_while(guard, Duration::from_secs(1), |a| !a.new).unwrap_or_else(|e| e.into_inner());
+            asked.new = false;
+            asked.until.is_some_and(|until| Instant::now() < until)
+        };
+        if stop.load(Ordering::Acquire) {
+            break;
+        }
         if !wanted.load(Ordering::Acquire) && !asked {
-            status.pause();
+            // The CPU load is the use since the read before: kept current, a reading asked for has it at once.
+            status.update(Inputs::CPU_LOAD);
             continue;
         }
         let sample = if demo {
@@ -331,7 +353,7 @@ fn monitor_thread(wanted: Arc<AtomicBool>, until: Arc<Mutex<Option<Instant>>>, s
                 battery,
             }
         };
-        post(move |app| app.monitor_sample(sample));
+        deliver(sample);
     }
 }
 
@@ -374,6 +396,27 @@ mod tests {
             on_ac: false,
             battery: BatteryDetails::default(),
         }
+    }
+
+    #[test]
+    fn asked_readings_come_at_once() {
+        let monitor = Monitor::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (wanted, asked, stop) = (monitor.wanted.clone(), monitor.asked.clone(), monitor.stop.clone());
+        let thread = std::thread::spawn(move || {
+            // The demo's readings: the real ones (WMI, NVML) crash the test process when other tests run alongside.
+            monitor_thread(wanted, asked, stop, Arc::new(Mutex::new(None)), true, move |sample| {
+                let _ = tx.send(sample);
+            })
+        });
+        std::thread::sleep(Duration::from_millis(1500)); // no page shows the readings meanwhile
+        let t = ask(&monitor.asked);
+        let sample = rx.recv_timeout(Duration::from_millis(300));
+        // Ended before the test does: a thread still in WMI when the process exits can crash it.
+        monitor.stop();
+        thread.join().unwrap();
+        let sample = sample.expect("no reading within 0.3 s of asking");
+        assert!(sample.taken > t);
     }
 
     #[test]
