@@ -818,6 +818,21 @@ export component PerformancePage inherits VerticalLayout {
                         horizontal-stretch: 1;
                     }
                 }
+                // Each fan follows its own curve, and with the graphics card off the GPU's temperature stays low.
+                if root.curve-enabled && root.gpu-mode-shown && root.gpu-mode == 1: HorizontalLayout {
+                    spacing: 10px;
+                    Glyph {
+                        text: Glyphs.warning;
+                        color: Theme.caution;
+                        width: 16px;
+                        font-size: 14px;
+                        vertical-alignment: top;
+                    }
+                    Caption {
+                        text: "The graphics card is off (integrated graphics only), so it stays cool and the GPU fan stays at the left end of its curve, maybe stopped. Both fans often cool the CPU too: to keep the GPU fan helping, raise the left end of the GPU fan curve.";
+                        horizontal-stretch: 1;
+                    }
+                }
                 FanCurve {
                     points: root.curve;
                     path: root.curve-path;

@@ -27,7 +27,8 @@ const TABLE_STATUS2: u16 = 0xF5E;
 const TABLE_REQUEST: u16 = 0xF5F; // which mode's built-in table to copy into RAM
 const RAM_FAN_CONTROL: u16 = 0x7C6; // bit 2: the fans follow the RAM tables (MyFanTableCtrl.SetFanControlByRamFan1p5)
 const RAM_FAN_BIT: u8 = 0x04;
-const OEM_BYTE5: u16 = 0x7C5; // bit 7: CPU and GPU fans each follow their own table
+const OEM_BYTE5: u16 = 0x7C5; // bit 7: CPU and GPU fans each follow their own table (Control Center's "Fan Control Respective")
+const RESPECTIVE_BIT: u8 = 0x80;
 const SAFETY: u16 = 0x7A5; // bit 3: the EC's fan safety protection is on
 const RAM_FAN_SUPPORT: u16 = 0x78E; // bit 6
 
@@ -223,7 +224,6 @@ pub fn apply_custom(ec: &Registers, table: &Table) -> Result<()> {
         set_custom(ec, false)?;
         forget_written();
     }
-    ec.update(OEM_BYTE5, 0x80, 0)?; // one table per fan, not shared
     for (address, value) in writes {
         ec.write(address, value)?;
     }
@@ -231,17 +231,27 @@ pub fn apply_custom(ec: &Registers, table: &Table) -> Result<()> {
     set_custom(ec, true)
 }
 
-/// Turns the RAM tables on or off; off, the EC uses its own table for the mode. On Linux the helper is also told to
-/// turn them off if the app goes away with them on.
+/// Turns the RAM tables on or off; off, the EC uses its own table for the mode. On, each fan follows its own table:
+/// with Control Center's default of "respective" off, the EC doesn't keep the two curves apart (a maxed GPU curve ran
+/// the CPU fan at 100% and left the GPU fan off). Off puts that default back. On Linux the helper is also told to turn
+/// both off if the app goes away with them on.
 pub fn set_custom(ec: &Registers, on: bool) -> Result<()> {
     #[cfg(target_os = "linux")]
     if on {
         ec.on_disconnect(RAM_FAN_CONTROL, RAM_FAN_BIT, 0)?;
+        ec.on_disconnect(OEM_BYTE5, RESPECTIVE_BIT, 0)?;
     }
-    ec.update(RAM_FAN_CONTROL, RAM_FAN_BIT, if on { RAM_FAN_BIT } else { 0 })?;
+    if on {
+        ec.update(OEM_BYTE5, RESPECTIVE_BIT, RESPECTIVE_BIT)?;
+        ec.update(RAM_FAN_CONTROL, RAM_FAN_BIT, RAM_FAN_BIT)?;
+    } else {
+        ec.update(RAM_FAN_CONTROL, RAM_FAN_BIT, 0)?;
+        ec.update(OEM_BYTE5, RESPECTIVE_BIT, 0)?;
+    }
     #[cfg(target_os = "linux")]
     if !on {
         ec.clear_on_disconnect(RAM_FAN_CONTROL)?;
+        ec.clear_on_disconnect(OEM_BYTE5)?;
     }
     Ok(())
 }
@@ -330,5 +340,29 @@ mod tests {
         let mut moved = table.clone();
         moved.gpu[2].up = 58; // the temperature stepping up to GPU step 2 sits at 0xF31
         assert_eq!(changed_writes(Some(&table), &moved), vec![(0xF31, 58)]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn each_fan_follows_its_own_curve() {
+        use crate::hardware::fake_helper::{FakeHelper, serial};
+        let _serial = serial();
+        let helper = FakeHelper::start("respective", |_| {});
+        let ec = Ec::connect().unwrap();
+        forget_written();
+        let table = Table { cpu: gaming(), gpu: gaming() };
+        ec.run_for(Duration::from_secs(5), move |r| apply_custom(r, &table)).unwrap();
+        {
+            let state = helper.state.lock().unwrap();
+            // With bit 7 of 0x7C5 off (Control Center's "Fan Control Respective" off) the EC doesn't keep the curves
+            // apart: on a Tulpar a maxed GPU curve ran the CPU fan at 100% and the GPU fan at 0%.
+            assert_eq!(state.registers[0x7C5] & 0x80, 0x80);
+            assert_eq!(state.registers[0x7C6] & 0x04, 0x04);
+            assert_eq!(state.releases.get(&0x7C5), Some(&(0x80, 0)));
+        }
+        ec.run_for(Duration::from_secs(5), |r| set_custom(r, false)).unwrap();
+        let state = helper.state.lock().unwrap();
+        assert_eq!(state.registers[0x7C5] & 0x80, 0); // back to Control Center's default with the EC's own curve
+        assert!(!state.releases.contains_key(&0x7C5));
     }
 }
