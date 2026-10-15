@@ -1,0 +1,14 @@
+[Unit]
+Description=Unofficial Uniwill Control Center hardware helper
+Requires=uucc-helper.socket
+
+[Service]
+ExecStart=/usr/libexec/uucc-helper
+ProtectSystem=strict
+ProtectHome=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes
+DevicePolicy=closed
+DeviceAllow=/dev/mem rw
+ReadWritePaths=/sys/firmware/efi/efivars
+CapabilityBoundingSet=CAP_SYS_RAWIO CAP_LINUX_IMMUTABLE

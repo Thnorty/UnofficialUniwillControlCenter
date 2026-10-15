@@ -1,0 +1,9 @@
+[Unit]
+Description=Unofficial Uniwill Control Center hardware helper socket
+
+[Socket]
+ListenStream=/run/uucc-helper.sock
+SocketMode=0666
+
+[Install]
+WantedBy=sockets.target
