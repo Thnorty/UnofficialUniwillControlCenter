@@ -1,0 +1,11 @@
+#!/bin/sh
+# After install or upgrade (Debian: "configure"; RPM: 1 or 2): start the helper's socket, so a restarted helper runs
+# the new program, and apply the lighting rule to the controllers already plugged in.
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    systemctl stop uucc-helper.service || true
+    systemctl enable --now uucc-helper.socket || true
+fi
+udevadm control --reload || true
+udevadm trigger --subsystem-match=hidraw || true
+exit 0

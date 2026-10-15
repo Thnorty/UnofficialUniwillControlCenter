@@ -100,3 +100,50 @@ codegen-units = 1
 opt-level = 3
 strip = true
 panic = "unwind"
+
+# The Linux packages (scripts/build-linux.sh): the app, uucc, the root helper with its systemd units and polkit
+# action, and the udev rule for the lighting controllers.
+[package.metadata.deb]
+maintainer = "Thnorty <ototatik@gmail.com>"
+extended-description = "Keyboard and light bar lighting, performance modes, fans, battery care and a hardware monitor for laptops built by Uniwill, with a small root helper (uucc-helper) for the embedded controller."
+section = "utils"
+priority = "optional"
+depends = "$auto, libfontconfig1, libxkbcommon0, polkitd | policykit-1, systemd, kdialog | zenity"
+maintainer-scripts = "packaging/linux/"
+assets = [
+    ["target/release/UnofficialUniwillControlCenter", "usr/bin/unofficial-uniwill-control-center", "755"],
+    ["target/release/uucc", "usr/bin/uucc", "755"],
+    ["target/release/uucc-helper", "usr/libexec/uucc-helper", "755"],
+    ["packaging/linux/uucc-helper.socket", "usr/lib/systemd/system/uucc-helper.socket", "644"],
+    ["packaging/linux/uucc-helper.service", "usr/lib/systemd/system/uucc-helper.service", "644"],
+    ["packaging/linux/io.github.thnorty.uucc.policy", "usr/share/polkit-1/actions/io.github.thnorty.uucc.policy", "644"],
+    ["packaging/linux/70-uucc-lighting.rules", "usr/lib/udev/rules.d/70-uucc-lighting.rules", "644"],
+    ["packaging/linux/unofficial-uniwill-control-center.desktop", "usr/share/applications/unofficial-uniwill-control-center.desktop", "644"],
+    ["res/app.png", "usr/share/icons/hicolor/256x256/apps/unofficial-uniwill-control-center.png", "644"],
+]
+
+[package.metadata.generate-rpm]
+# RPM needs a license field; the repository has none chosen yet, which means all rights reserved.
+license = "All rights reserved"
+summary = "Lighting, performance modes, fans and battery care for laptops built by Uniwill"
+post_install_script = "packaging/linux/postinst"
+pre_uninstall_script = "packaging/linux/prerm"
+post_uninstall_script = "packaging/linux/postrm"
+assets = [
+    { source = "target/release/UnofficialUniwillControlCenter", dest = "/usr/bin/unofficial-uniwill-control-center", mode = "755" },
+    { source = "target/release/uucc", dest = "/usr/bin/uucc", mode = "755" },
+    { source = "target/release/uucc-helper", dest = "/usr/libexec/uucc-helper", mode = "755" },
+    { source = "packaging/linux/uucc-helper.socket", dest = "/usr/lib/systemd/system/uucc-helper.socket", mode = "644" },
+    { source = "packaging/linux/uucc-helper.service", dest = "/usr/lib/systemd/system/uucc-helper.service", mode = "644" },
+    { source = "packaging/linux/io.github.thnorty.uucc.policy", dest = "/usr/share/polkit-1/actions/io.github.thnorty.uucc.policy", mode = "644" },
+    { source = "packaging/linux/70-uucc-lighting.rules", dest = "/usr/lib/udev/rules.d/70-uucc-lighting.rules", mode = "644" },
+    { source = "packaging/linux/unofficial-uniwill-control-center.desktop", dest = "/usr/share/applications/unofficial-uniwill-control-center.desktop", mode = "644" },
+    { source = "res/app.png", dest = "/usr/share/icons/hicolor/256x256/apps/unofficial-uniwill-control-center.png", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+fontconfig = "*"
+libxkbcommon = "*"
+polkit = "*"
+systemd = "*"
+"(kdialog or zenity)" = ""

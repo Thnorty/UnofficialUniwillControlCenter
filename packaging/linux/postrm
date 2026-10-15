@@ -1,0 +1,6 @@
+#!/bin/sh
+# After removal or upgrade: systemd forgets the removed units. The user's settings and autostart entry stay.
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+fi
+exit 0

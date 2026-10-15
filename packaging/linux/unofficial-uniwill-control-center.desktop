@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Unofficial Uniwill Control Center
+Comment=Lighting, performance modes, fans and battery care for laptops built by Uniwill
+Exec=unofficial-uniwill-control-center
+Icon=unofficial-uniwill-control-center
+Categories=Settings;HardwareSettings;
+Keywords=keyboard;lighting;fan;performance;battery;

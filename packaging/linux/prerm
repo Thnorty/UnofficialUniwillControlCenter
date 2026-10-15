@@ -1,0 +1,10 @@
+#!/bin/sh
+# Before removal (Debian: "remove"; RPM: 0), not before an upgrade: stop the helper and its socket.
+case "$1" in
+    remove|0)
+        if [ -d /run/systemd/system ]; then
+            systemctl disable --now uucc-helper.socket uucc-helper.service || true
+        fi
+        ;;
+esac
+exit 0
