@@ -1,5 +1,5 @@
 //! The Monitor page, the fan readings on the Performance page and the Battery page's status: a thread reads them
-//! once a second while one of those pages shows.
+//! once a second while one of those pages shows (or `uucc status` asks), and otherwise sleeps.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,6 +22,8 @@ const BATTERY_PAGE: i32 = 5;
 const MONITOR_PAGE: i32 = 6;
 /// A reading older than this isn't shown by `uucc status` as the current one.
 const CURRENT: Duration = Duration::from_secs(3);
+/// How long the CPU load is measured over when reading starts again after a pause.
+const LOAD_WINDOW: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Copy)]
 pub(super) struct Sample {
@@ -59,8 +61,12 @@ impl Monitor {
         Monitor { wanted: Arc::new(AtomicBool::new(false)), asked: AskedShared::default(), stop: Arc::new(AtomicBool::new(false)), history: VecDeque::new() }
     }
 
+    /// Ends the thread, which may be asleep until something wants readings.
     pub fn stop(&self) {
+        let (lock, wake) = &*self.asked;
+        let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
         self.stop.store(true, Ordering::Release);
+        wake.notify_one();
     }
 }
 
@@ -94,7 +100,7 @@ impl App {
         let Some(ui) = self.ui() else { return };
         let page = ui.get_page();
         let wanted = ui.window().is_visible() && matches!(page, PERFORMANCE_PAGE | BATTERY_PAGE | MONITOR_PAGE);
-        self.monitor.wanted.store(wanted, Ordering::Release);
+        set_wanted(&self.monitor.wanted, &self.monitor.asked, wanted);
         if wanted && page == PERFORMANCE_PAGE {
             self.read_fan_defaults_if_needed();
         }
@@ -291,6 +297,15 @@ fn history_path(values: impl ExactSizeIterator<Item = Option<f32>>, low: f32, hi
     path
 }
 
+/// Turns the readings for a page on or off.
+fn set_wanted(wanted: &AtomicBool, asked: &AskedShared, on: bool) {
+    // Under the thread's lock, so it can't miss the change between looking and going to sleep.
+    let (lock, wake) = &**asked;
+    let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
+    wanted.store(on, Ordering::Release);
+    wake.notify_one();
+}
+
 fn ask(asked: &AskedShared) -> Instant {
     let now = Instant::now();
     let (lock, wake) = &**asked;
@@ -307,12 +322,20 @@ fn monitor_thread(wanted: Arc<AtomicBool>, asked: AskedShared, stop: Arc<AtomicB
     let mut battery = BatteryDetails::default();
     let mut battery_read: Option<Instant> = None;
     let started = Instant::now();
+    let mut last_read: Option<Instant> = None;
     loop {
-        // A second between readings, unless `uucc status` asks for one now.
+        // While something wants readings, a second between them (one asked for comes at once); otherwise asleep
+        // until a page or `uucc status` wants them, so an idle app doesn't wake.
         let asked = {
             let (lock, wake) = &*asked;
             let guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-            let (mut asked, _) = wake.wait_timeout_while(guard, Duration::from_secs(1), |a| !a.new).unwrap_or_else(|e| e.into_inner());
+            let stopping = || stop.load(Ordering::Acquire);
+            let reading = wanted.load(Ordering::Acquire) || guard.until.is_some_and(|until| Instant::now() < until);
+            let mut asked = if reading {
+                wake.wait_timeout_while(guard, Duration::from_secs(1), |a| !a.new && !stopping()).unwrap_or_else(|e| e.into_inner()).0
+            } else {
+                wake.wait_while(guard, |a| !a.new && !stopping() && !wanted.load(Ordering::Acquire)).unwrap_or_else(|e| e.into_inner())
+            };
             asked.new = false;
             asked.until.is_some_and(|until| Instant::now() < until)
         };
@@ -320,13 +343,18 @@ fn monitor_thread(wanted: Arc<AtomicBool>, asked: AskedShared, stop: Arc<AtomicB
             break;
         }
         if !wanted.load(Ordering::Acquire) && !asked {
-            // The CPU load is the use since the read before: kept current, a reading asked for has it at once.
-            status.update(Inputs::CPU_LOAD);
             continue;
         }
         let sample = if demo {
             demo_sample(started.elapsed().as_secs_f32())
         } else {
+            // The CPU load is the use since the read before: after a pause that's a long average, so it's measured
+            // anew.
+            if last_read.is_none_or(|t| t.elapsed() > Duration::from_secs(2)) {
+                status.update(Inputs::CPU_LOAD);
+                std::thread::sleep(LOAD_WINDOW);
+            }
+            last_read = Some(Instant::now());
             status.update(Inputs::STATUS);
             let ec = ec.lock().unwrap_or_else(|e| e.into_inner()).clone();
             let fans = ec.and_then(|ec| ec.run_for(Duration::from_secs(2), fans::readings).ok());
@@ -417,6 +445,46 @@ mod tests {
         thread.join().unwrap();
         let sample = sample.expect("no reading within 0.3 s of asking");
         assert!(sample.taken > t);
+    }
+
+    /// The monitor thread with the demo's readings: the real ones (WMI, NVML) crash the test process when other tests
+    /// run alongside.
+    fn demo_thread(monitor: &Monitor) -> (std::thread::JoinHandle<()>, std::sync::mpsc::Receiver<Sample>) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (wanted, asked, stop) = (monitor.wanted.clone(), monitor.asked.clone(), monitor.stop.clone());
+        let thread = std::thread::spawn(move || {
+            monitor_thread(wanted, asked, stop, Arc::new(Mutex::new(None)), true, move |sample| {
+                let _ = tx.send(sample);
+            })
+        });
+        (thread, rx)
+    }
+
+    #[test]
+    fn an_opened_page_gets_a_reading_at_once() {
+        let monitor = Monitor::new();
+        let (thread, rx) = demo_thread(&monitor);
+        std::thread::sleep(Duration::from_millis(1500)); // no page shows the readings meanwhile
+        let t = Instant::now();
+        set_wanted(&monitor.wanted, &monitor.asked, true);
+        let sample = rx.recv_timeout(Duration::from_millis(300));
+        monitor.stop();
+        thread.join().unwrap();
+        assert!(sample.expect("no reading within 0.3 s of opening the page").taken > t);
+    }
+
+    #[test]
+    fn stopping_ends_an_idle_thread_at_once() {
+        let monitor = Monitor::new();
+        let (thread, _rx) = demo_thread(&monitor);
+        std::thread::sleep(Duration::from_millis(1500));
+        let (done, ended) = std::sync::mpsc::channel();
+        monitor.stop();
+        std::thread::spawn(move || {
+            thread.join().unwrap();
+            let _ = done.send(());
+        });
+        assert!(ended.recv_timeout(Duration::from_millis(300)).is_ok(), "the thread didn't end within 0.3 s");
     }
 
     #[test]
