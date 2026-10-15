@@ -198,9 +198,19 @@ pub fn apply_custom(ec: &Registers, table: &Table) -> Result<()> {
     set_custom(ec, true)
 }
 
-/// Turns the RAM tables on or off; off, the EC uses its own table for the mode.
+/// Turns the RAM tables on or off; off, the EC uses its own table for the mode. On Linux the helper is also told to
+/// turn them off if the app goes away with them on.
 pub fn set_custom(ec: &Registers, on: bool) -> Result<()> {
-    ec.update(RAM_FAN_CONTROL, RAM_FAN_BIT, if on { RAM_FAN_BIT } else { 0 })
+    #[cfg(target_os = "linux")]
+    if on {
+        ec.on_disconnect(RAM_FAN_CONTROL, RAM_FAN_BIT, 0)?;
+    }
+    ec.update(RAM_FAN_CONTROL, RAM_FAN_BIT, if on { RAM_FAN_BIT } else { 0 })?;
+    #[cfg(target_os = "linux")]
+    if !on {
+        ec.clear_on_disconnect(RAM_FAN_CONTROL)?;
+    }
+    Ok(())
 }
 
 /// The EC while a custom curve is on, so a crash can turn it off: with nothing watching the EC's safety protection,
