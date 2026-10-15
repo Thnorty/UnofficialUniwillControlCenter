@@ -109,6 +109,14 @@ begin
     Result := 1;
 end;
 
+// Whether the installed version is older than Version.
+function InstalledBefore(Version: String): Boolean;
+var
+  Installed, Other: Int64;
+begin
+  Result := StrToVersion(InstalledVersion, Installed) and StrToVersion(Version, Other) and (ComparePackedVersion(Installed, Other) < 0);
+end;
+
 // An update keeps the folder and the choices made when it was installed (the startup switch is the app's own by then),
 // so it goes straight to the Ready page, which says what is updated.
 function ShouldSkipPage(PageID: Integer): Boolean;
@@ -116,13 +124,18 @@ begin
   Result := IsUpdate and (PageID = wpSelectTasks);
 end;
 
-// An update's summary leaves out the tasks, which it doesn't change.
+// An update's summary leaves out the tasks, which it doesn't change, except the PATH task: new in 3.4.0, an update
+// from before then adds it without its page, so it says so.
 function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo,
   MemoTasksInfo: String): String;
 begin
   Result := MemoDirInfo;
   if not IsUpdate and (MemoTasksInfo <> '') then
-    Result := Result + NewLine + NewLine + MemoTasksInfo;
+    Result := Result + NewLine + NewLine + MemoTasksInfo
+  else if IsUpdate and InstalledBefore('3.4.0') and WizardIsTaskSelected('path') then
+    Result := Result + NewLine + NewLine + 'New in 3.4.0:' + NewLine + Space +
+      'Add the uucc command to PATH (for terminals and scripts)' + NewLine + Space +
+      'To leave it out, cancel and run Setup with /MERGETASKS="!path".';
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
