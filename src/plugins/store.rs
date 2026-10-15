@@ -101,7 +101,7 @@ pub fn plugins_dir(demo: bool) -> Option<PathBuf> {
     if demo {
         return Some(std::env::temp_dir().join("UnofficialUniwillControlCenter-demo").join("plugins"));
     }
-    std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join(crate::settings::FOLDER).join("plugins"))
+    crate::settings::folder(crate::settings::FOLDER).map(|f| f.join("plugins"))
 }
 
 /// Writes the plugins that come with the app where they're missing or a different version.

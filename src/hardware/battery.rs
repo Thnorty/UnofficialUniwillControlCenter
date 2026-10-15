@@ -74,16 +74,30 @@ pub fn set_usb_power(ec: &Registers, on: bool) -> Result<()> {
 }
 
 /// The mode Control Center last set, if it was installed (HKLM\SOFTWARE\OEM\GamingCenter2\BatteryProtection2).
+#[cfg(windows)]
 pub fn control_center_choice() -> Option<ChargeMode> {
     control_center_value(windows::core::w!("SOFTWARE\\OEM\\GamingCenter2\\BatteryProtection2"), windows::core::w!("HealthProtectionStatus"))
         .map(|value| ChargeMode::from_index(value as usize))
 }
 
 /// USB charging while off as Control Center last set it (HKLM\SOFTWARE\OEM\GamingCenter2\MySetting).
+#[cfg(windows)]
 pub fn control_center_usb_power() -> Option<bool> {
     control_center_value(windows::core::w!("SOFTWARE\\OEM\\GamingCenter2\\MySetting"), windows::core::w!("USBCharger")).map(|value| value == 1)
 }
 
+/// Control Center doesn't exist on Linux.
+#[cfg(target_os = "linux")]
+pub fn control_center_choice() -> Option<ChargeMode> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+pub fn control_center_usb_power() -> Option<bool> {
+    None
+}
+
+#[cfg(windows)]
 fn control_center_value(key: windows::core::PCWSTR, name: windows::core::PCWSTR) -> Option<u32> {
     use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_DWORD, RegGetValueW};
     let mut data = 0u32;

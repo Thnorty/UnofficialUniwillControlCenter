@@ -166,7 +166,7 @@ impl App {
             self.set_status("Save a setup first: an app profile switches to one of them.", true, false);
             return;
         };
-        let owner = self.window_hwnd();
+        let owner = self.window_owner();
         let Some(path) = shell::pick_file(owner, "Choose an app", &[("Programs (*.exe)", "*.exe")]) else { return };
         let Some(program) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else { return };
         if !self.settings.app_profiles.iter().any(|p| p.program.eq_ignore_ascii_case(&program)) {

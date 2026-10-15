@@ -16,9 +16,6 @@ pub mod ui {
     slint::include_modules!();
 }
 
-use windows::Win32::UI::WindowsAndMessaging::{IDOK, MB_DEFBUTTON2, MB_ICONERROR, MB_ICONWARNING, MB_OK, MB_OKCANCEL, MessageBoxW};
-use windows::core::{HSTRING, w};
-
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
     let has = |flag: &str| arguments.iter().any(|a| a.eq_ignore_ascii_case(flag));
@@ -59,18 +56,13 @@ fn main() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         hardware::release_current();
-        let message = format!("{info}");
-        unsafe {
-            MessageBoxW(None, &HSTRING::from(message), w!("Unofficial Uniwill Control Center crashed"), MB_OK | MB_ICONERROR);
-        }
+        shell::error_box("Unofficial Uniwill Control Center crashed", &format!("{info}"));
         default_hook(info);
     }));
 
     if let Err(e) = run(demo, start_hidden) {
         hardware::release_current();
-        unsafe {
-            MessageBoxW(None, &HSTRING::from(format!("Unofficial Uniwill Control Center couldn't start: {e}")), w!("Unofficial Uniwill Control Center"), MB_OK | MB_ICONERROR);
-        }
+        shell::error_box("Unofficial Uniwill Control Center", &format!("Unofficial Uniwill Control Center couldn't start: {e}"));
     }
     hardware::release_current();
 }
@@ -103,9 +95,7 @@ fn accept_risk() -> bool {
              Use it at your own risk. Start it anyway?"
         )
     };
-    let style = MB_OKCANCEL | MB_ICONWARNING | if tested { Default::default() } else { MB_DEFBUTTON2 };
-    let answer = unsafe { MessageBoxW(None, &HSTRING::from(text), w!("Unofficial Uniwill Control Center"), style) };
-    if answer != IDOK {
+    if !shell::warning_ok_cancel("Unofficial Uniwill Control Center", &text, !tested) {
         return false;
     }
     settings.accepted_risk = true;

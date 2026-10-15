@@ -1,72 +1,26 @@
 //! The tray icon, the pop-ups, the single-instance lock, and opening files and folders.
 
+#[cfg(windows)]
+mod dialogs;
+#[cfg(target_os = "linux")]
+#[path = "dialogs_linux.rs"]
+mod dialogs;
 pub mod display;
+#[cfg(windows)]
 pub mod instance;
+#[cfg(target_os = "linux")]
+#[path = "instance_linux.rs"]
+pub mod instance;
+#[cfg(windows)]
 pub mod osd;
+#[cfg(target_os = "linux")]
+#[path = "osd_linux.rs"]
+pub mod osd;
+#[cfg(windows)]
+pub mod tray;
+mod tray_common;
+#[cfg(target_os = "linux")]
+#[path = "tray_linux.rs"]
 pub mod tray;
 
-use std::path::{Path, PathBuf};
-
-use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::Controls::Dialogs::{
-    GetOpenFileNameW, GetSaveFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_OVERWRITEPROMPT, OFN_PATHMUSTEXIST, OPENFILENAMEW,
-};
-use windows::Win32::UI::Shell::ShellExecuteW;
-use windows::Win32::UI::WindowsAndMessaging::{IDOK, MB_ICONQUESTION, MB_OKCANCEL, MessageBoxW, SW_SHOWNORMAL};
-use windows::core::{HSTRING, PCWSTR, PWSTR, w};
-
-/// Opens a folder in File Explorer (or a file with its program).
-pub fn open_path(path: &Path) {
-    unsafe {
-        ShellExecuteW(None, w!("open"), &HSTRING::from(path.as_os_str()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
-    }
-}
-
-/// Asks for a file. `filter` is pairs of a description and patterns, such as ("Plugins", "*.zip;plugin.json").
-pub fn pick_file(owner: Option<HWND>, title: &str, filter: &[(&str, &str)]) -> Option<PathBuf> {
-    file_dialog(owner, title, filter, "", false)
-}
-
-/// Asks where to save a file, suggesting `name`; asks before replacing one.
-pub fn pick_save_file(owner: Option<HWND>, title: &str, filter: &[(&str, &str)], name: &str) -> Option<PathBuf> {
-    file_dialog(owner, title, filter, name, true)
-}
-
-fn file_dialog(owner: Option<HWND>, title: &str, filter: &[(&str, &str)], name: &str, save: bool) -> Option<PathBuf> {
-    let mut filter_text: Vec<u16> = Vec::new();
-    for (name, patterns) in filter {
-        filter_text.extend(name.encode_utf16());
-        filter_text.push(0);
-        filter_text.extend(patterns.encode_utf16());
-        filter_text.push(0);
-    }
-    filter_text.push(0);
-    let title = HSTRING::from(title);
-    let mut file = vec![0u16; 1024];
-    for (slot, c) in file.iter_mut().zip(name.encode_utf16().take(1000)) {
-        *slot = c;
-    }
-    let extension = HSTRING::from("json");
-    let mut dialog = OPENFILENAMEW {
-        lStructSize: size_of::<OPENFILENAMEW>() as u32,
-        hwndOwner: owner.unwrap_or_default(),
-        lpstrFilter: PCWSTR(filter_text.as_ptr()),
-        lpstrFile: PWSTR(file.as_mut_ptr()),
-        nMaxFile: file.len() as u32,
-        lpstrTitle: PCWSTR(title.as_ptr()),
-        lpstrDefExt: if save { PCWSTR(extension.as_ptr()) } else { PCWSTR::null() },
-        Flags: if save { OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR } else { OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR },
-        ..Default::default()
-    };
-    let chosen = unsafe { if save { GetSaveFileNameW(&mut dialog) } else { GetOpenFileNameW(&mut dialog) } };
-    if !chosen.as_bool() {
-        return None;
-    }
-    let length = file.iter().position(|&c| c == 0).unwrap_or(file.len());
-    Some(PathBuf::from(String::from_utf16_lossy(&file[..length])))
-}
-
-/// Asks an OK/Cancel question; true for OK.
-pub fn confirm(owner: Option<HWND>, title: &str, text: &str) -> bool {
-    unsafe { MessageBoxW(owner, &HSTRING::from(text), &HSTRING::from(title), MB_OKCANCEL | MB_ICONQUESTION) == IDOK }
-}
+pub use dialogs::{Owner, confirm, error_box, open_path, pick_file, pick_save_file, warning_ok_cancel};

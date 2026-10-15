@@ -128,7 +128,7 @@ impl CliCapture {
 
 /// Why uucc can't reach the app, for whoever looks (uucc names the file); a stale note goes once the pipe is there.
 pub(super) fn log_pipe(result: &anyhow::Result<()>) {
-    let Some(path) = std::env::var_os("APPDATA").map(|a| std::path::PathBuf::from(a).join(crate::settings::FOLDER).join("uucc.log")) else {
+    let Some(path) = crate::settings::folder(crate::settings::FOLDER).map(|f| f.join("uucc.log")) else {
         return;
     };
     match result {

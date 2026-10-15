@@ -3,12 +3,10 @@
 //! the NVIDIA GPU's power: its configurable TGP and Dynamic Boost (GpuFeatures). GPU overclocking, which Control
 //! Center can also change, is left alone.
 
-use anyhow::{Context, Result, bail};
+#[cfg(windows)]
+use anyhow::Context;
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
-use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE};
-use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
-use windows::Win32::System::IO::DeviceIoControl;
-use windows::core::w;
 
 use super::ec::Registers;
 
@@ -212,9 +210,32 @@ pub struct GpuPower {
     pub dynamic_boost: u8,
 }
 
+/// The BIOS's Smart APC table: how far the power limits, the TCC offset and the GPU's power may go.
+pub fn ranges() -> Result<Ranges> {
+    let table = read_table()?;
+    // 0xFF: not set (CheckInvalidSmartApcTable).
+    let [pl1, pl2, pl4, tcc, gpu_extra, dynamic_boost, _, gpu_tgp] = table.map(|v| if v == 0xFF { 0 } else { v });
+    if pl1 < MIN_LIMIT || pl2 < MIN_LIMIT || pl4 < MIN_LIMIT {
+        bail!("The BIOS's power limit table is empty");
+    }
+    Ok(Ranges { pl1, pl2, pl4, tcc, gpu_tgp, gpu_extra, dynamic_boost })
+}
+
+/// Linux has no way to read the table yet, so the limits go up to the highest mode's own.
+#[cfg(target_os = "linux")]
+fn read_table() -> Result<[u8; 8]> {
+    bail!("Linux can't read the BIOS's power limit table yet")
+}
+
 /// Reads the Smart APC table through the ACPI driver Control Center installs (UWACPIDriver, `\\.\ACPIDriver`), as
 /// SmartApcTableCtrl.GetTableByDriver does: one byte per key.
-pub fn ranges() -> Result<Ranges> {
+#[cfg(windows)]
+fn read_table() -> Result<[u8; 8]> {
+    use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE};
+    use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
+    use windows::Win32::System::IO::DeviceIoControl;
+    use windows::core::w;
+
     const IOCTL_READ_TABLE: u32 = 0x9C40_A500;
     const READ_TABLE: u8 = 0xBB;
     let handle = unsafe {
@@ -238,12 +259,7 @@ pub fn ranges() -> Result<Ranges> {
         let _ = CloseHandle(handle);
     }
     result.context("Couldn't read the BIOS's power limit table")?;
-    // 0xFF: not set (CheckInvalidSmartApcTable).
-    let [pl1, pl2, pl4, tcc, gpu_extra, dynamic_boost, _, gpu_tgp] = table.map(|v| if v == 0xFF { 0 } else { v });
-    if pl1 < MIN_LIMIT || pl2 < MIN_LIMIT || pl4 < MIN_LIMIT {
-        bail!("The BIOS's power limit table is empty");
-    }
-    Ok(Ranges { pl1, pl2, pl4, tcc, gpu_tgp, gpu_extra, dynamic_boost })
+    Ok(table)
 }
 
 /// Switches to `mode` the way Control Center's SetUserProfile does: the fan mode byte, the power limits and the TCC

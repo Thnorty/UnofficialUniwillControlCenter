@@ -324,7 +324,7 @@ impl App {
 
     pub(super) fn import_plugin(&mut self) {
         let Some(root) = self.plugins.root.clone() else { return };
-        let owner = self.window_hwnd();
+        let owner = self.window_owner();
         let Some(path) = crate::shell::pick_file(owner, "Import a plugin", &[("Plugins (*.zip, plugin.json)", "*.zip;plugin.json")]) else { return };
         let before: HashMap<String, Vec<Permission>> = self.plugins.installed.iter().map(|p| (p.manifest.id.clone(), p.manifest.permissions.clone())).collect();
         match store::import(&root, &path) {

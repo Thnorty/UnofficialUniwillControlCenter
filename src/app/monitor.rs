@@ -7,7 +7,6 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use slint::{ComponentHandle, ModelRc, VecModel};
-use wmi::WMIConnection;
 
 use super::{App, post};
 use crate::hardware::ec::Ec;
@@ -318,7 +317,7 @@ fn ask(asked: &AskedShared) -> Instant {
 
 fn monitor_thread(wanted: Arc<AtomicBool>, asked: AskedShared, stop: Arc<AtomicBool>, ec: Arc<Mutex<Option<Ec>>>, demo: bool, deliver: impl Fn(Sample)) {
     let mut status = SystemStatus::default();
-    let mut wmi: Option<WMIConnection> = None;
+    let mut battery_reader = status::BatteryReader::default();
     let mut battery = BatteryDetails::default();
     let mut battery_read: Option<Instant> = None;
     let started = Instant::now();
@@ -359,12 +358,7 @@ fn monitor_thread(wanted: Arc<AtomicBool>, asked: AskedShared, stop: Arc<AtomicB
             let ec = ec.lock().unwrap_or_else(|e| e.into_inner()).clone();
             let fans = ec.and_then(|ec| ec.run_for(Duration::from_secs(2), fans::readings).ok());
             if battery_read.is_none_or(|t| t.elapsed() >= Duration::from_secs(5)) {
-                if wmi.is_none() {
-                    wmi = WMIConnection::with_namespace_path("ROOT\\WMI").ok();
-                }
-                if let Some(wmi) = &wmi {
-                    battery = status::battery_details(wmi);
-                }
+                battery = battery_reader.read();
                 battery_read = Some(Instant::now());
             }
             Sample {

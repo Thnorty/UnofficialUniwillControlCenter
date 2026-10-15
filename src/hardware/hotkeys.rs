@@ -9,7 +9,10 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+#[cfg(windows)]
+use anyhow::Context;
+use anyhow::{Result, anyhow};
+#[cfg(windows)]
 use wmi::WMIConnection;
 
 use super::ec::Ec;
@@ -154,7 +157,14 @@ pub fn without_app_present<R>(ec: &super::ec::Registers, job: impl FnOnce() -> R
     Ok(result)
 }
 
+/// Linux has no driver for the firmware's hotkey events yet.
+#[cfg(target_os = "linux")]
+fn event_thread(_pressed: impl Fn(u32), listening: Sender<Result<()>>, _active: Arc<AtomicBool>) {
+    listening.send(Err(anyhow!("The Fn keys aren't available on Linux yet"))).ok();
+}
+
 /// Only the code is read, so the event's other properties can't make it fail to convert.
+#[cfg(windows)]
 #[derive(serde::Deserialize)]
 #[serde(rename = "AcpiTest_EventULong")]
 struct HotkeyEvent {
@@ -162,6 +172,7 @@ struct HotkeyEvent {
     code: u32,
 }
 
+#[cfg(windows)]
 fn event_thread(pressed: impl Fn(u32), listening: Sender<Result<()>>, active: Arc<AtomicBool>) {
     let wmi = match WMIConnection::with_namespace_path("ROOT\\WMI").context("Can't open the BIOS WMI interface") {
         Ok(wmi) => wmi,

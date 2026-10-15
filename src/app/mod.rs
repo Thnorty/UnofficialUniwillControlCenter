@@ -21,8 +21,11 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+#[cfg(windows)]
 use windows::Win32::Foundation::HWND;
+#[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SW_RESTORE, SetForegroundWindow, ShowWindow};
 
 use crate::color::Rgb;
@@ -1241,12 +1244,26 @@ impl App {
 
     // ---- The window ---------------------------------------------------------------------------------------------
 
-    fn window_hwnd(&self) -> Option<HWND> {
+    /// The window, for the dialogs it opens.
+    #[cfg(windows)]
+    fn window_owner(&self) -> Option<crate::shell::Owner> {
         self.ui().and_then(|ui| hwnd(&ui))
     }
 
+    #[cfg(target_os = "linux")]
+    fn window_owner(&self) -> Option<crate::shell::Owner> {
+        self.ui().map(|_| crate::shell::Owner)
+    }
+
+    #[cfg(windows)]
     fn window_is_active(&self) -> bool {
-        self.window_hwnd().is_some_and(|h| unsafe { GetForegroundWindow() } == h)
+        self.window_owner().is_some_and(|h| unsafe { GetForegroundWindow() } == h)
+    }
+
+    /// Only the Fn keys' pop-ups and the touchpad ask, and neither is on Linux yet.
+    #[cfg(target_os = "linux")]
+    fn window_is_active(&self) -> bool {
+        false
     }
 
     fn set_status(&self, text: &str, error: bool, retry: bool) {
@@ -1434,6 +1451,7 @@ impl App {
                 TrayEvent::ThemeChanged => with_app(|app| {
                     if let Some(ui) = app.ui() {
                         apply_theme(&ui);
+                        #[cfg(windows)]
                         if let Some(h) = hwnd(&ui) {
                             style_title_bar(h);
                         }
@@ -1757,6 +1775,13 @@ impl App {
     }
 }
 
+/// The idle timer comes later on Linux: there's always fresh input.
+#[cfg(target_os = "linux")]
+fn milliseconds_since_input() -> u64 {
+    0
+}
+
+#[cfg(windows)]
 fn milliseconds_since_input() -> u64 {
     let mut info = LASTINPUTINFO { cbSize: size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
     if !unsafe { GetLastInputInfo(&mut info) }.as_bool() {
@@ -1918,6 +1943,7 @@ fn connect_callbacks(ui: &AppWindow) {
 }
 
 /// The window's native handle.
+#[cfg(windows)]
 pub fn hwnd(ui: &AppWindow) -> Option<HWND> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     let handle = ui.window().window_handle();
@@ -1937,6 +1963,7 @@ fn apply_theme(ui: &AppWindow) {
 }
 
 /// Gives the title bar the window's own background, as Windows 11 apps do.
+#[cfg(windows)]
 fn style_title_bar(hwnd: HWND) {
     use windows::Win32::Graphics::Dwm::{DWMWA_CAPTION_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DwmSetWindowAttribute};
     let dark = system::dark_mode();
@@ -1952,6 +1979,7 @@ fn style_title_bar(hwnd: HWND) {
 
 /// A first size that fits the screen with the mouse pointer: at most 1100 × 800, and no more than about 90% of
 /// the screen.
+#[cfg(windows)]
 fn fit_to_screen(ui: &AppWindow) {
     use windows::Win32::Foundation::POINT;
     use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint};
@@ -1976,6 +2004,13 @@ fn fit_to_screen(ui: &AppWindow) {
     }
 }
 
+/// On Linux the desktop places and decorates the window.
+#[cfg(target_os = "linux")]
+fn show_window(ui: &AppWindow) {
+    let _ = ui.show();
+}
+
+#[cfg(windows)]
 fn show_window(ui: &AppWindow) {
     let first_show = !ui.window().is_visible();
     if first_show && hwnd(ui).is_none() {

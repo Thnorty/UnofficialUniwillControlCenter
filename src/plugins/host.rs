@@ -152,6 +152,7 @@ impl Running {
 
 fn run(receiver: Receiver<Command>, layers: Arc<Layers>, notice: NoticeFn) {
     // For the readings: WMI, Core Audio and the WinRT media and notification APIs.
+    #[cfg(windows)]
     let _ = unsafe { windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_MULTITHREADED) };
     let mut plugins: HashMap<String, Running> = HashMap::new();
     loop {

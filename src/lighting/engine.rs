@@ -8,6 +8,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize};
 
 use crate::lighting::audio::{AudioMeter, LoopbackCapture, SampleHistory};
@@ -188,6 +189,7 @@ impl Engine {
 }
 
 fn run(shared: Arc<Shared>) {
+    #[cfg(windows)]
     let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
     let mut frame = Frame {
         time: 0.0,
@@ -240,7 +242,10 @@ fn run(shared: Arc<Shared>) {
     }
     audio.close();
     drop(frame);
-    unsafe { CoUninitialize() };
+    #[cfg(windows)]
+    unsafe {
+        CoUninitialize()
+    };
 }
 
 /// The audio devices behind Frame::loudness and Frame::spectrum.

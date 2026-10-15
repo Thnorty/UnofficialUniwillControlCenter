@@ -4744,6 +4744,7 @@ version = "3.4.0"
 dependencies = [
  "anyhow",
  "embed-resource",
+ "libc",
  "raw-window-handle",
  "rhai",
  "serde",

@@ -2,9 +2,11 @@
 //! screen, through the Magnification API's full-screen color effect. Windows drops the effect when this process
 //! exits, so the screen never stays tinted after the app closes or crashes.
 
+#[cfg(windows)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, bail};
+#[cfg(windows)]
 use windows::Win32::UI::Magnification::{MAGCOLOREFFECT, MagInitialize, MagSetFullscreenColorEffect};
 
 use crate::settings::DisplayValues;
@@ -94,9 +96,17 @@ pub fn matrix(values: &DisplayValues) -> Matrix {
     multiply(&multiply(&saturation(percent(values.saturation)), &contrast(percent(values.contrast))), &channels)
 }
 
+/// Wayland has no whole-screen color matrix an app can set.
+#[cfg(target_os = "linux")]
+pub fn apply(_matrix: &Matrix) -> Result<()> {
+    bail!("Display color modes aren't available on Linux")
+}
+
+#[cfg(windows)]
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Puts a color matrix over the whole screen; `IDENTITY` takes it away. Called on the UI thread.
+#[cfg(windows)]
 pub fn apply(matrix: &Matrix) -> Result<()> {
     if !INITIALIZED.load(Ordering::Acquire) {
         if !unsafe { MagInitialize() }.as_bool() {

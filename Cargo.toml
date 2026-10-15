@@ -21,10 +21,15 @@ rhai = { version = "1.26", features = ["serde", "no_module"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 slint = { version = "1.18.1", features = ["raw-window-handle-06", "renderer-skia"] }
-wmi = { version = "0.18", default-features = false }
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
 
-[dependencies.windows]
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+wmi = { version = "0.18", default-features = false }
+
+[target.'cfg(windows)'.dependencies.windows]
 version = "0.62"
 features = [
     "ApplicationModel",

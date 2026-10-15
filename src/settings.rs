@@ -222,8 +222,19 @@ impl Default for LightingSettings {
     }
 }
 
-fn folder(name: &str) -> Option<PathBuf> {
+/// A folder of the app's in %APPDATA% on Windows, and in $XDG_CONFIG_HOME (~/.config) on Linux.
+#[cfg(windows)]
+pub fn folder(name: &str) -> Option<PathBuf> {
     std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join(name))
+}
+
+#[cfg(target_os = "linux")]
+pub fn folder(name: &str) -> Option<PathBuf> {
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|c| !c.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
+    Some(config.join(name))
 }
 
 /// The app's folder in %APPDATA%: its settings and its plugins.

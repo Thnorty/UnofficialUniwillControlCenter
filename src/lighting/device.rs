@@ -6,19 +6,9 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
-use windows::Win32::Devices::DeviceAndDriverInstallation::{
-    DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, SP_DEVICE_INTERFACE_DATA, SP_DEVICE_INTERFACE_DETAIL_DATA_W, SetupDiDestroyDeviceInfoList,
-    SetupDiEnumDeviceInterfaces, SetupDiGetClassDevsW, SetupDiGetDeviceInterfaceDetailW,
-};
-use windows::Win32::Devices::HumanInterfaceDevice::{
-    HIDD_ATTRIBUTES, HIDP_CAPS, HidD_FreePreparsedData, HidD_GetAttributes, HidD_GetFeature, HidD_GetHidGuid, HidD_GetPreparsedData,
-    HidD_SetFeature, HidP_GetCaps, PHIDP_PREPARSED_DATA,
-};
-use windows::Win32::Foundation::{CloseHandle, GENERIC_READ, GENERIC_WRITE, HANDLE};
-use windows::Win32::Storage::FileSystem::{CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING, WriteFile};
-use windows::core::PCWSTR;
+use anyhow::{Context, Result, anyhow};
 
+use super::hid::HidDevice;
 use crate::color::Rgb;
 use crate::lighting::effects::{self, Effect, EffectColors};
 
@@ -66,20 +56,6 @@ pub const MAX_LIGHT: u8 = 50;
 // LM_ITE_RGB.Translate_ITE_SpeedValue (slider 0-4 -> firmware value).
 const SPEED_VALUES: [u8; 5] = [10, 7, 5, 3, 1];
 
-struct OwnedHandle(HANDLE);
-
-// The handle is only used under the device's lock.
-unsafe impl Send for OwnedHandle {}
-unsafe impl Sync for OwnedHandle {}
-
-impl Drop for OwnedHandle {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = CloseHandle(self.0);
-        }
-    }
-}
-
 struct State {
     last_known_light: i32,
     is_off: bool,       // switched off with control 1, which 09h can't undo
@@ -88,9 +64,7 @@ struct State {
 
 pub struct Device {
     pub kind: Kind,
-    handle: OwnedHandle,
-    feature_length: usize,
-    output_length: usize,
+    hid: HidDevice,
     pub firmware: (u8, u8),
     // Commands come from the UI thread, the brightness watcher and the effects thread; a query must not interleave
     // with a command sequence.
@@ -104,32 +78,16 @@ impl Device {
             Kind::Keyboard => (KEYBOARD_PRODUCT_IDS, FOUR_ZONE_USAGE_PAGE),
             Kind::LightBar => (LIGHT_BAR_PRODUCT_IDS, LIGHT_BAR_USAGE_PAGE),
         };
-        for path in hid_device_paths() {
-            let Some(handle) = open_path(&path) else { continue };
-            let mut attributes = HIDD_ATTRIBUTES { Size: size_of::<HIDD_ATTRIBUTES>() as u32, ..Default::default() };
-            if !unsafe { HidD_GetAttributes(handle.0, &mut attributes) }
-                || attributes.VendorID != ITE_VENDOR_ID
-                || !product_ids.contains(&attributes.ProductID)
-            {
-                continue;
-            }
-            let Some(caps) = caps(&handle) else { continue };
-            if caps.UsagePage != usage_page || caps.Usage != CONTROL_USAGE {
-                continue;
-            }
-            let mut device = Device {
-                kind,
-                handle,
-                feature_length: caps.FeatureReportByteLength as usize,
-                output_length: caps.OutputReportByteLength as usize,
-                firmware: (0, 0),
-                state: Mutex::new(State { last_known_light: -1, is_off: false, current_light: 0 }),
-            };
-            let reply = device.query(CMD_GET_FIRMWARE_VERSION)?;
-            device.firmware = (reply[2], reply[3]);
-            return Ok(Some(device));
-        }
-        Ok(None)
+        let Some(hid) = HidDevice::find(ITE_VENDOR_ID, product_ids, usage_page, CONTROL_USAGE)? else { return Ok(None) };
+        let mut device = Device {
+            kind,
+            hid,
+            firmware: (0, 0),
+            state: Mutex::new(State { last_known_light: -1, is_off: false, current_light: 0 }),
+        };
+        let reply = device.query(CMD_GET_FIRMWARE_VERSION)?;
+        device.firmware = (reply[2], reply[3]);
+        Ok(Some(device))
     }
 
     // FourZoneKeyboard.SetBrightnessStrategy: keyboard firmware >= 0x11.03 takes brightness through command 09h.
@@ -278,7 +236,7 @@ impl Device {
 
     fn write_leds(&self, leds: &[Rgb]) -> Result<()> {
         for (row, chunk) in leds.chunks(LEDS_PER_ROW).enumerate() {
-            let mut report = vec![0u8; self.output_length.max(2 + LEDS_PER_ROW * 3)];
+            let mut report = vec![0u8; self.hid.output_length().max(2 + LEDS_PER_ROW * 3)];
             for (i, color) in chunk.iter().enumerate() {
                 let (r, g, b) = light_bar_white_balance(*color);
                 report[2 + i * 3] = b;
@@ -286,7 +244,7 @@ impl Device {
                 report[4 + i * 3] = r;
             }
             self.send(&[CMD_SET_ROW, 0, row as u8])?;
-            unsafe { WriteFile(self.handle.0, Some(&report), None, None) }.context("The light bar did not accept the LED colors")?;
+            self.hid.write_output(&report).context("The light bar did not accept the LED colors")?;
         }
         Ok(())
     }
@@ -355,21 +313,17 @@ impl Device {
     }
 
     fn send(&self, command: &[u8]) -> Result<()> {
-        let mut report = vec![0u8; self.feature_length.max(9)];
+        let mut report = vec![0u8; self.hid.feature_length().max(9)];
         report[1..1 + command.len()].copy_from_slice(command); // report[0] is the report ID (0)
-        if !unsafe { HidD_SetFeature(self.handle.0, report.as_ptr() as _, report.len() as u32) } {
-            bail!("The controller did not accept the command: {}", windows::core::Error::from_thread());
-        }
+        self.hid.set_feature(&report).map_err(|e| anyhow!("The controller did not accept the command: {e}"))?;
         std::thread::sleep(Duration::from_millis(1)); // the service waits 1 ms between reports too
         Ok(())
     }
 
     fn query(&self, command: u8) -> Result<Vec<u8>> {
         self.send(&[command])?;
-        let mut reply = vec![0u8; self.feature_length.max(9)];
-        if !unsafe { HidD_GetFeature(self.handle.0, reply.as_mut_ptr() as _, reply.len() as u32) } {
-            bail!("The controller did not answer: {}", windows::core::Error::from_thread());
-        }
+        let mut reply = vec![0u8; self.hid.feature_length().max(9)];
+        self.hid.get_feature(&mut reply).map_err(|e| anyhow!("The controller did not answer: {e}"))?;
         Ok(reply)
     }
 }
@@ -393,70 +347,5 @@ fn light_bar_white_balance(c: Rgb) -> (u8, u8, u8) {
         (0, 255, 255) => (0, 60, 110),
         (139, 0, 255) => (220, 0, 110),
         (r, g, b) => ((220 * r as u32 / 255) as u8, (120 * g as u32 / 255) as u8, (110 * b as u32 / 255) as u8),
-    }
-}
-
-fn hid_device_paths() -> Vec<Vec<u16>> {
-    let mut paths = Vec::new();
-    unsafe {
-        let guid = HidD_GetHidGuid();
-        let Ok(set) = SetupDiGetClassDevsW(Some(&guid), PCWSTR::null(), None, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE) else {
-            return paths;
-        };
-        let mut data = SP_DEVICE_INTERFACE_DATA { cbSize: size_of::<SP_DEVICE_INTERFACE_DATA>() as u32, ..Default::default() };
-        let mut index = 0;
-        while SetupDiEnumDeviceInterfaces(set, None, &guid, index, &mut data).is_ok() {
-            index += 1;
-            let mut size = 0u32;
-            let _ = SetupDiGetDeviceInterfaceDetailW(set, &data, None, 0, Some(&mut size), None);
-            if size == 0 {
-                continue;
-            }
-            // u32 storage keeps the detail structure aligned.
-            let mut buffer = vec![0u32; (size as usize).div_ceil(4)];
-            let detail = buffer.as_mut_ptr() as *mut SP_DEVICE_INTERFACE_DETAIL_DATA_W;
-            (*detail).cbSize = size_of::<SP_DEVICE_INTERFACE_DETAIL_DATA_W>() as u32;
-            if SetupDiGetDeviceInterfaceDetailW(set, &data, Some(detail), size, None, None).is_ok() {
-                let start = std::ptr::addr_of!((*detail).DevicePath) as *const u16;
-                let mut length = 0;
-                while *start.add(length) != 0 {
-                    length += 1;
-                }
-                let mut path = std::slice::from_raw_parts(start, length).to_vec();
-                path.push(0);
-                paths.push(path);
-            }
-        }
-        let _ = SetupDiDestroyDeviceInfoList(set);
-    }
-    paths
-}
-
-fn open_path(path: &[u16]) -> Option<OwnedHandle> {
-    unsafe {
-        CreateFileW(
-            PCWSTR(path.as_ptr()),
-            (GENERIC_READ | GENERIC_WRITE).0,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            None,
-            OPEN_EXISTING,
-            FILE_FLAGS_AND_ATTRIBUTES(0),
-            None,
-        )
-        .ok()
-        .map(OwnedHandle)
-    }
-}
-
-fn caps(handle: &OwnedHandle) -> Option<HIDP_CAPS> {
-    unsafe {
-        let mut data = PHIDP_PREPARSED_DATA::default();
-        if !HidD_GetPreparsedData(handle.0, &mut data) {
-            return None;
-        }
-        let mut caps = HIDP_CAPS::default();
-        let ok = HidP_GetCaps(data, &mut caps).is_ok();
-        let _ = HidD_FreePreparsedData(data);
-        ok.then_some(caps)
     }
 }

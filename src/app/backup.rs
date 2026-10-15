@@ -11,7 +11,7 @@ const FILTER: &[(&str, &str)] = &[("Unofficial Uniwill Control Center settings (
 impl App {
     pub(super) fn export_settings(&mut self) {
         self.store_settings();
-        let owner = self.window_hwnd();
+        let owner = self.window_owner();
         let Some(path) = shell::pick_save_file(owner, "Back up settings", FILTER, "Unofficial Uniwill Control Center settings.json") else { return };
         let result = self.settings.to_backup().and_then(|text| Ok(std::fs::write(&path, text)?));
         match result {
@@ -21,7 +21,7 @@ impl App {
     }
 
     pub(super) fn import_settings(&mut self) {
-        let owner = self.window_hwnd();
+        let owner = self.window_owner();
         let Some(path) = shell::pick_file(owner, "Restore settings", FILTER) else { return };
         let restored = match std::fs::read_to_string(&path).map_err(anyhow::Error::from).and_then(|text| Settings::from_backup(&text)) {
             Ok(settings) => settings,

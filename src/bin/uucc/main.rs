@@ -7,6 +7,10 @@
 mod protocol;
 
 mod args;
+#[cfg(windows)]
+mod connect;
+#[cfg(target_os = "linux")]
+#[path = "connect_linux.rs"]
 mod connect;
 mod output;
 

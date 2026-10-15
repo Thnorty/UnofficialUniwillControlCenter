@@ -9,39 +9,52 @@
 //! `drop_raw_keyboard_input` takes the registration back; without it, Typing went dark whenever this window had
 //! focus.
 
+#[cfg(windows)]
 use std::cell::RefCell;
+#[cfg(windows)]
 use std::collections::{HashMap, HashSet};
+#[cfg(windows)]
 use std::sync::mpsc;
+#[cfg(windows)]
 use std::thread::JoinHandle;
 
+#[cfg(windows)]
 use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
+#[cfg(windows)]
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+#[cfg(windows)]
 use windows::Win32::System::Threading::GetCurrentThreadId;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, DispatchMessageW, GetMessageW, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, MSG, PostThreadMessageW, SetWindowsHookExW,
     TranslateMessage, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
+#[cfg(windows)]
 const EXTENDED: u32 = 0x100;
 // The Tulpar's layout in key widths: the main block is 15 wide (arrows and navigation keys at its right edge), the
 // numpad four more.
 const WIDTH: f32 = 19.0;
 
+#[cfg(windows)]
 struct HookState {
     pressed: Box<dyn Fn(f32)>,
     down: HashSet<u32>,
     positions: HashMap<u32, f32>,
 }
 
+#[cfg(windows)]
 thread_local! {
     static STATE: RefCell<Option<HookState>> = const { RefCell::new(None) };
 }
 
+#[cfg(windows)]
 pub struct KeyboardHook {
     thread_id: u32,
     thread: Option<JoinHandle<()>>,
 }
 
+#[cfg(windows)]
 impl KeyboardHook {
     /// Installs the hook on its own thread, or returns None if Windows refused it. `pressed` is called on that thread.
     pub fn install(pressed: impl Fn(f32) + Send + 'static) -> Option<KeyboardHook> {
@@ -79,6 +92,7 @@ impl KeyboardHook {
     }
 }
 
+#[cfg(windows)]
 impl Drop for KeyboardHook {
     fn drop(&mut self) {
         unsafe {
@@ -90,6 +104,7 @@ impl Drop for KeyboardHook {
     }
 }
 
+#[cfg(windows)]
 unsafe extern "system" fn on_key(code: i32, message: WPARAM, data: LPARAM) -> LRESULT {
     if code >= 0 {
         let key = unsafe { &*(data.0 as *const KBDLLHOOKSTRUCT) };
@@ -115,6 +130,7 @@ unsafe extern "system" fn on_key(code: i32, message: WPARAM, data: LPARAM) -> LR
     unsafe { CallNextHookEx(None, code, message, data) }
 }
 
+#[cfg(windows)]
 /// Removes this process's raw keyboard input registration (winit's, for device events). Call after the event loop is
 /// created.
 pub fn drop_raw_keyboard_input() {
@@ -137,6 +153,7 @@ pub fn zone_of(position: f32) -> usize {
     }
 }
 
+#[cfg(windows)]
 fn positions() -> HashMap<u32, f32> {
     let mut map = HashMap::new();
     let mut row = |first: u32, count: u32, first_x: f32, step: f32| {
@@ -202,3 +219,17 @@ fn positions() -> HashMap<u32, f32> {
     }
     map
 }
+
+/// The Typing effect comes later on Linux: no hook yet.
+#[cfg(target_os = "linux")]
+pub struct KeyboardHook;
+
+#[cfg(target_os = "linux")]
+impl KeyboardHook {
+    pub fn install(_pressed: impl Fn(f32) + Send + 'static) -> Option<KeyboardHook> {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn drop_raw_keyboard_input() {}

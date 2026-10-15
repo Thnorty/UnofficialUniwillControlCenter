@@ -5,14 +5,23 @@
 //! Control Center rewrites all 180 bytes from a copy it read earlier; this app reads the variable, changes only the
 //! bytes it means to, writes it back with the same attributes and reads it again to check.
 
-use anyhow::{Context, Result, bail};
+#[cfg(windows)]
+use anyhow::Context;
+use anyhow::{Result, bail};
+#[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, HANDLE, LUID};
+#[cfg(windows)]
 use windows::Win32::Security::{AdjustTokenPrivileges, LUID_AND_ATTRIBUTES, LookupPrivilegeValueW, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY};
+#[cfg(windows)]
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+#[cfg(windows)]
 use windows::Win32::System::WindowsProgramming::{GetFirmwareEnvironmentVariableExW, SetFirmwareEnvironmentVariableExW};
+#[cfg(windows)]
 use windows::core::w;
 
+#[cfg(windows)]
 const NAME: windows::core::PCWSTR = w!("UniWillVariable");
+#[cfg(windows)]
 const GUID: windows::core::PCWSTR = w!("{9f33f85c-13ca-4fd1-9c4a-96217722c593}");
 /// NVRAM_STRUCT's size with C# default (natural) alignment, as this laptop's variable is.
 const SIZE: usize = 180;
@@ -131,14 +140,7 @@ impl Variable {
 
 /// Reads the variable.
 pub fn read() -> Result<Variable> {
-    enable_privilege()?;
-    let mut bytes = vec![0u8; 1024];
-    let mut attributes = 0u32;
-    let size = unsafe { GetFirmwareEnvironmentVariableExW(NAME, GUID, Some(bytes.as_mut_ptr() as _), bytes.len() as u32, Some(&mut attributes)) };
-    if size == 0 {
-        return Err(windows::core::Error::from_thread()).context("Couldn't read the BIOS settings variable");
-    }
-    bytes.truncate(size as usize);
+    let (attributes, bytes) = read_raw()?;
     if bytes.len() != SIZE {
         bail!("The BIOS settings variable is {} bytes, not the {SIZE} this app knows", bytes.len());
     }
@@ -199,8 +201,7 @@ fn update(change: impl FnOnce(&mut Variable) -> Result<()>) -> Result<Variable> 
     if variable.bytes == before {
         return Ok(variable);
     }
-    unsafe { SetFirmwareEnvironmentVariableExW(NAME, GUID, Some(variable.bytes.as_ptr() as _), variable.bytes.len() as u32, variable.attributes) }
-        .context("Couldn't write the BIOS settings variable")?;
+    write_raw(variable.attributes, &variable.bytes)?;
     let written = read()?;
     if written.bytes != variable.bytes {
         bail!("The BIOS settings variable didn't keep the change");
@@ -208,7 +209,39 @@ fn update(change: impl FnOnce(&mut Variable) -> Result<()>) -> Result<Variable> 
     Ok(written)
 }
 
+/// The variable's attributes and bytes, not reached on Linux yet.
+#[cfg(target_os = "linux")]
+fn read_raw() -> Result<(u32, Vec<u8>)> {
+    bail!("Not available on Linux yet")
+}
+
+#[cfg(target_os = "linux")]
+fn write_raw(_attributes: u32, _bytes: &[u8]) -> Result<()> {
+    bail!("Not available on Linux yet")
+}
+
+/// The variable's attributes and bytes.
+#[cfg(windows)]
+fn read_raw() -> Result<(u32, Vec<u8>)> {
+    enable_privilege()?;
+    let mut bytes = vec![0u8; 1024];
+    let mut attributes = 0u32;
+    let size = unsafe { GetFirmwareEnvironmentVariableExW(NAME, GUID, Some(bytes.as_mut_ptr() as _), bytes.len() as u32, Some(&mut attributes)) };
+    if size == 0 {
+        return Err(windows::core::Error::from_thread()).context("Couldn't read the BIOS settings variable");
+    }
+    bytes.truncate(size as usize);
+    Ok((attributes, bytes))
+}
+
+#[cfg(windows)]
+fn write_raw(attributes: u32, bytes: &[u8]) -> Result<()> {
+    unsafe { SetFirmwareEnvironmentVariableExW(NAME, GUID, Some(bytes.as_ptr() as _), bytes.len() as u32, attributes) }
+        .context("Couldn't write the BIOS settings variable")
+}
+
 /// Reading and writing firmware variables needs SeSystemEnvironmentPrivilege enabled in the process token.
+#[cfg(windows)]
 fn enable_privilege() -> Result<()> {
     unsafe {
         let mut token = HANDLE::default();

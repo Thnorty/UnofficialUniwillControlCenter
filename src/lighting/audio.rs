@@ -2,17 +2,24 @@
 //! what's playing (Spectrum). Used on the effects thread, which has COM initialized.
 
 use anyhow::Result;
+#[cfg(windows)]
 use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
+#[cfg(windows)]
 use windows::Win32::Media::Audio::{
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, IAudioCaptureClient, IAudioClient,
     IMMDeviceEnumerator, MMDeviceEnumerator, WAVEFORMATEX, WAVEFORMATEXTENSIBLE, eMultimedia, eRender,
 };
+#[cfg(windows)]
 use windows::Win32::Media::KernelStreaming::WAVE_FORMAT_EXTENSIBLE;
+#[cfg(windows)]
 use windows::Win32::Media::Multimedia::{KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, WAVE_FORMAT_IEEE_FLOAT};
+#[cfg(windows)]
 use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance, CoTaskMemFree};
 
+#[cfg(windows)]
 const WAVE_FORMAT_PCM: u16 = 1;
 
+#[cfg(windows)]
 fn default_output() -> Result<windows::Win32::Media::Audio::IMMDevice> {
     unsafe {
         let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
@@ -20,9 +27,11 @@ fn default_output() -> Result<windows::Win32::Media::Audio::IMMDevice> {
     }
 }
 
+#[cfg(windows)]
 /// The peak meter of the default playback device.
 pub struct AudioMeter(IAudioMeterInformation);
 
+#[cfg(windows)]
 impl AudioMeter {
     pub fn open_default_output() -> Result<AudioMeter> {
         unsafe { Ok(AudioMeter(default_output()?.Activate(CLSCTX_ALL, None)?)) }
@@ -33,6 +42,7 @@ impl AudioMeter {
     }
 }
 
+#[cfg(windows)]
 /// Records what the default playback device is playing (WASAPI loopback), mixed down to mono, for the spectrum.
 /// Read it regularly with read_into; nothing is buffered when nothing plays.
 pub struct LoopbackCapture {
@@ -44,6 +54,7 @@ pub struct LoopbackCapture {
     pub sample_rate: u32,
 }
 
+#[cfg(windows)]
 impl LoopbackCapture {
     pub fn open_default_output() -> Result<Option<LoopbackCapture>> {
         unsafe {
@@ -116,6 +127,7 @@ impl LoopbackCapture {
     }
 }
 
+#[cfg(windows)]
 impl Drop for LoopbackCapture {
     fn drop(&mut self) {
         unsafe {
@@ -149,5 +161,37 @@ impl SampleHistory {
         for (i, d) in destination.iter_mut().enumerate().take(n) {
             *d = self.ring[(self.next + i) % n];
         }
+    }
+}
+
+/// The sound effects come later on Linux: no meter yet.
+#[cfg(target_os = "linux")]
+pub struct AudioMeter;
+
+#[cfg(target_os = "linux")]
+impl AudioMeter {
+    pub fn open_default_output() -> Result<AudioMeter> {
+        anyhow::bail!("Not available on Linux yet")
+    }
+
+    pub fn read_peak(&self) -> Result<f32> {
+        Ok(0.0)
+    }
+}
+
+/// The sound effects come later on Linux: no capture yet.
+#[cfg(target_os = "linux")]
+pub struct LoopbackCapture {
+    pub sample_rate: u32,
+}
+
+#[cfg(target_os = "linux")]
+impl LoopbackCapture {
+    pub fn open_default_output() -> Result<Option<LoopbackCapture>> {
+        Ok(None)
+    }
+
+    pub fn read_into(&self, _samples: &mut SampleHistory) -> Result<()> {
+        Ok(())
     }
 }

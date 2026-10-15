@@ -6,6 +6,10 @@ pub mod downloads;
 pub mod host;
 pub mod layers;
 pub mod manifest;
+#[cfg(windows)]
+pub mod readings;
+#[cfg(target_os = "linux")]
+#[path = "readings_linux.rs"]
 pub mod readings;
 pub mod server;
 pub mod store;

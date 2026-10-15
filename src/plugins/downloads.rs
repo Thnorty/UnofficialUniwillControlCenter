@@ -5,12 +5,20 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use rhai::{Dynamic, Map};
+#[cfg(windows)]
 use windows::Win32::System::Com::CoTaskMemFree;
+#[cfg(windows)]
 use windows::Win32::UI::Shell::{FOLDERID_Downloads, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
 
 /// Chrome and Edge, Firefox, old Edge, Safari, Opera.
 const PARTIAL: &[&str] = &["crdownload", "part", "partial", "download", "opdownload"];
 
+#[cfg(target_os = "linux")]
+fn folder() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join("Downloads"))
+}
+
+#[cfg(windows)]
 fn folder() -> Option<PathBuf> {
     unsafe {
         if let Ok(path) = SHGetKnownFolderPath(&FOLDERID_Downloads, KF_FLAG_DEFAULT, None) {

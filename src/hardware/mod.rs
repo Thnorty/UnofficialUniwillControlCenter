@@ -2,12 +2,24 @@
 //! settings.
 
 pub mod battery;
+#[cfg(windows)]
+pub mod ec;
+#[cfg(target_os = "linux")]
+#[path = "ec_linux.rs"]
 pub mod ec;
 pub mod fans;
+#[cfg(windows)]
+pub mod gpu;
+#[cfg(target_os = "linux")]
+#[path = "gpu_linux.rs"]
 pub mod gpu;
 pub mod hotkeys;
 pub mod performance;
 pub mod status;
+#[cfg(windows)]
+pub mod system;
+#[cfg(target_os = "linux")]
+#[path = "system_linux.rs"]
 pub mod system;
 pub mod uefi;
 
