@@ -13,6 +13,9 @@ pub mod gpu;
 #[cfg(target_os = "linux")]
 #[path = "gpu_linux.rs"]
 pub mod gpu;
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+pub mod helper_protocol;
 pub mod hotkeys;
 pub mod performance;
 pub mod status;
