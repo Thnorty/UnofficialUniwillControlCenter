@@ -84,6 +84,11 @@ var
   RemoveData: Boolean;
   // The version already installed, or '' on a first install.
   InstalledVersion: String;
+  // On an update's Ready page, which stands in for the skipped tasks page: the PATH task, or a note that the folder
+  // is in PATH already.
+  PathBox: TNewCheckBox;
+  PathNote: TNewStaticText;
+  PathChoiceShown: Boolean;
 
 function InitializeSetup: Boolean;
 begin
@@ -107,105 +112,6 @@ begin
     Result := ComparePackedVersion(Installed, This)
   else
     Result := 1;
-end;
-
-// Whether the installed version is older than Version.
-function InstalledBefore(Version: String): Boolean;
-var
-  Installed, Other: Int64;
-begin
-  Result := StrToVersion(InstalledVersion, Installed) and StrToVersion(Version, Other) and (ComparePackedVersion(Installed, Other) < 0);
-end;
-
-// An update keeps the folder and the choices made when it was installed (the startup switch is the app's own by then),
-// so it goes straight to the Ready page, which says what is updated.
-function ShouldSkipPage(PageID: Integer): Boolean;
-begin
-  Result := IsUpdate and (PageID = wpSelectTasks);
-end;
-
-// An update's summary leaves out the tasks, which it doesn't change, except the PATH task: new in 3.4.0, an update
-// from before then adds it without its page, so it says so.
-function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo,
-  MemoTasksInfo: String): String;
-begin
-  Result := MemoDirInfo;
-  if not IsUpdate and (MemoTasksInfo <> '') then
-    Result := Result + NewLine + NewLine + MemoTasksInfo
-  else if IsUpdate and InstalledBefore('3.4.0') and WizardIsTaskSelected('path') then
-    Result := Result + NewLine + NewLine + 'New in 3.4.0:' + NewLine + Space +
-      'Add the uucc command to PATH (for terminals and scripts)' + NewLine + Space +
-      'To leave it out, cancel and run Setup with /MERGETASKS="!path".';
-end;
-
-procedure CurPageChanged(CurPageID: Integer);
-begin
-  if not IsUpdate then
-    Exit;
-  case CurPageID of
-    wpReady:
-      begin
-        if CompareInstalled < 0 then begin
-          WizardForm.PageNameLabel.Caption := 'Ready to Update';
-          WizardForm.PageDescriptionLabel.Caption := 'Setup is ready to update {#AppName} from ' + InstalledVersion + ' to {#AppVersion}.';
-          WizardForm.ReadyLabel.Caption := 'Click Update to go on. Your settings and plugins are kept.';
-          WizardForm.NextButton.Caption := '&Update';
-        end else if CompareInstalled = 0 then begin
-          WizardForm.PageNameLabel.Caption := 'Ready to Reinstall';
-          WizardForm.PageDescriptionLabel.Caption := '{#AppName} {#AppVersion} is already installed.';
-          WizardForm.ReadyLabel.Caption := 'Click Reinstall to install it again. Your settings and plugins are kept.';
-          WizardForm.NextButton.Caption := '&Reinstall';
-        end else begin
-          WizardForm.PageNameLabel.Caption := 'Ready to Install an Older Version';
-          WizardForm.PageDescriptionLabel.Caption := 'The installed ' + InstalledVersion + ' is newer than this {#AppVersion}.';
-          WizardForm.ReadyLabel.Caption := 'Click Install to replace it. Your settings and plugins are kept.';
-        end;
-      end;
-    wpInstalling:
-      if CompareInstalled < 0 then begin
-        WizardForm.PageNameLabel.Caption := 'Updating';
-        WizardForm.PageDescriptionLabel.Caption := 'Please wait while Setup updates {#AppName} to {#AppVersion}.';
-      end;
-    wpFinished:
-      if CompareInstalled < 0 then begin
-        WizardForm.FinishedHeadingLabel.Caption := '{#AppName} is updated';
-        WizardForm.FinishedLabel.Caption := '{#AppName} is updated from ' + InstalledVersion + ' to {#AppVersion}.';
-      end;
-  end;
-end;
-
-// Before files are replaced: quit the running app (whichever copy it is) the way its Exit menu does, so the Fn keys
-// and the fans are handed back to the laptop. The new exe is used, since an older one doesn't know --exit.
-// That takes a few seconds, so a page says what is going on meanwhile. Setup doesn't wait in Exec, which disables its
-// window (a click only plays the error sound): the app and --exit both hold the app's single-instance lock while they
-// run, so it waits for the lock to go, the way --exit itself does (up to 30 s).
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  Code, Waited: Integer;
-  Page: TOutputMarqueeProgressWizardPage;
-begin
-  Result := '';
-  Page := CreateOutputMarqueeProgressPage('Closing {#AppName}', 'It hands the Fn keys and the fans back to the laptop first.');
-  Page.SetText('Closing {#AppName} if it is running...', '');
-  Page.Show;
-  try
-    Page.Animate;
-    ExtractTemporaryFile('{#AppExe}');
-    if not Exec(ExpandConstant('{tmp}\{#AppExe}'), '--exit', '', SW_HIDE, ewNoWait, Code) then
-      Result := '{#AppName} couldn''t be closed: ' + SysErrorMessage(Code)
-    else begin
-      Waited := 0;
-      while CheckForMutexes('{#AppLock}') and (Waited < 35000) do begin
-        Page.Animate;  // lets the window handle input and paint
-        Sleep(50);
-        Waited := Waited + 50;
-      end;
-      if CheckForMutexes('{#AppLock}') then
-        Result := '{#AppName} is still running. Close it from its tray icon (Exit), then try again.';
-    end;
-  finally
-    Page.Hide;
-  end;
 end;
 
 const
@@ -274,9 +180,146 @@ begin
     RegWriteExpandStringValue(HKLM, EnvironmentKey, 'Path', Path);
 end;
 
+// Whether the install folder is in the machine's PATH.
+function AppInPath: Boolean;
+var
+  Path: String;
+begin
+  Result := False;
+  if MachinePath(Path) then
+    PathWithout(Path, ExpandConstant('{app}'), Result);
+end;
+
+// An update keeps the folder and the choices made when it was installed (the startup switch is the app's own by then),
+// so it goes straight to the Ready page, which says what is updated.
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := IsUpdate and (PageID = wpSelectTasks);
+end;
+
+// An update's summary leaves out the tasks, which it doesn't change (the PATH task has its own box below).
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo,
+  MemoTasksInfo: String): String;
+begin
+  Result := MemoDirInfo;
+  if not IsUpdate and (MemoTasksInfo <> '') then
+    Result := Result + NewLine + NewLine + MemoTasksInfo;
+end;
+
+// Under an update's summary: the PATH task as a box, ticked as chosen before (ticked if it never was: before 3.4.0
+// there was no such task), or a note when the folder is in PATH already.
+procedure ShowPathChoice;
+var
+  Memo: TNewMemo;
+begin
+  Memo := WizardForm.ReadyMemo;
+  if PathBox = nil then begin
+    Memo.Height := Memo.Height - ScaleY(30);
+    PathBox := TNewCheckBox.Create(WizardForm);
+    PathBox.Parent := Memo.Parent;
+    PathBox.Left := Memo.Left;
+    PathBox.Top := Memo.Top + Memo.Height + ScaleY(10);
+    PathBox.Width := Memo.Width;
+    PathBox.Height := ScaleY(20);
+    PathBox.Caption := 'Add the uucc command to PATH (for terminals and scripts)';
+    PathBox.Checked := WizardIsTaskSelected('path');
+    PathNote := TNewStaticText.Create(WizardForm);
+    PathNote.Parent := Memo.Parent;
+    PathNote.Left := Memo.Left;
+    PathNote.Top := PathBox.Top + ScaleY(2);
+    PathNote.Caption := 'The uucc command is in PATH already (for terminals and scripts).';
+  end;
+  PathNote.Visible := AppInPath;
+  PathBox.Visible := not PathNote.Visible;
+  PathChoiceShown := True;
+end;
+
+// The choice on an update's Ready page becomes the PATH task, so the next update starts from it.
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  if (CurPageID = wpReady) and PathChoiceShown then
+    if PathNote.Visible or PathBox.Checked then
+      WizardSelectTasks('path')
+    else
+      WizardSelectTasks('!path');
+  Result := True;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if not IsUpdate then
+    Exit;
+  case CurPageID of
+    wpReady:
+      begin
+        ShowPathChoice;
+        if CompareInstalled < 0 then begin
+          WizardForm.PageNameLabel.Caption := 'Ready to Update';
+          WizardForm.PageDescriptionLabel.Caption := 'Setup is ready to update {#AppName} from ' + InstalledVersion + ' to {#AppVersion}.';
+          WizardForm.ReadyLabel.Caption := 'Click Update to go on. Your settings and plugins are kept.';
+          WizardForm.NextButton.Caption := '&Update';
+        end else if CompareInstalled = 0 then begin
+          WizardForm.PageNameLabel.Caption := 'Ready to Reinstall';
+          WizardForm.PageDescriptionLabel.Caption := '{#AppName} {#AppVersion} is already installed.';
+          WizardForm.ReadyLabel.Caption := 'Click Reinstall to install it again. Your settings and plugins are kept.';
+          WizardForm.NextButton.Caption := '&Reinstall';
+        end else begin
+          WizardForm.PageNameLabel.Caption := 'Ready to Install an Older Version';
+          WizardForm.PageDescriptionLabel.Caption := 'The installed ' + InstalledVersion + ' is newer than this {#AppVersion}.';
+          WizardForm.ReadyLabel.Caption := 'Click Install to replace it. Your settings and plugins are kept.';
+        end;
+      end;
+    wpInstalling:
+      if CompareInstalled < 0 then begin
+        WizardForm.PageNameLabel.Caption := 'Updating';
+        WizardForm.PageDescriptionLabel.Caption := 'Please wait while Setup updates {#AppName} to {#AppVersion}.';
+      end;
+    wpFinished:
+      if CompareInstalled < 0 then begin
+        WizardForm.FinishedHeadingLabel.Caption := '{#AppName} is updated';
+        WizardForm.FinishedLabel.Caption := '{#AppName} is updated from ' + InstalledVersion + ' to {#AppVersion}.';
+      end;
+  end;
+end;
+
+// Before files are replaced: quit the running app (whichever copy it is) the way its Exit menu does, so the Fn keys
+// and the fans are handed back to the laptop. The new exe is used, since an older one doesn't know --exit.
+// That takes a few seconds, so a page says what is going on meanwhile. Setup doesn't wait in Exec, which disables its
+// window (a click only plays the error sound): the app and --exit both hold the app's single-instance lock while they
+// run, so it waits for the lock to go, the way --exit itself does (up to 30 s).
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code, Waited: Integer;
+  Page: TOutputMarqueeProgressWizardPage;
+begin
+  Result := '';
+  Page := CreateOutputMarqueeProgressPage('Closing {#AppName}', 'It hands the Fn keys and the fans back to the laptop first.');
+  Page.SetText('Closing {#AppName} if it is running...', '');
+  Page.Show;
+  try
+    Page.Animate;
+    ExtractTemporaryFile('{#AppExe}');
+    if not Exec(ExpandConstant('{tmp}\{#AppExe}'), '--exit', '', SW_HIDE, ewNoWait, Code) then
+      Result := '{#AppName} couldn''t be closed: ' + SysErrorMessage(Code)
+    else begin
+      Waited := 0;
+      while CheckForMutexes('{#AppLock}') and (Waited < 35000) do begin
+        Page.Animate;  // lets the window handle input and paint
+        Sleep(50);
+        Waited := Waited + 50;
+      end;
+      if CheckForMutexes('{#AppLock}') then
+        Result := '{#AppName} is still running. Close it from its tray icon (Exit), then try again.';
+    end;
+  finally
+    Page.Hide;
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  // An update keeps the tasks chosen before, so one that had the task unticked takes the folder off PATH again.
+  // Unticked on an update's Ready page, the folder isn't in PATH (or the box wouldn't show), so taking it off does
+  // nothing then.
   if CurStep = ssPostInstall then
     if WizardIsTaskSelected('path') then
       AddToPath(ExpandConstant('{app}'))

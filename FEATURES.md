@@ -143,7 +143,8 @@ Control Center's overclocking settings for Intel laptops:
 - **Terminal (`uucc`):** `uucc.exe` sets the mode, Fan Boost, profile, charge mode, setups, lighting, display
   colors and GPU mode, and prints the status with fresh readings, from any terminal without administrator rights.
   It asks the running app over a named pipe that only the signed-in user can open, so the window and tray follow;
-  `--json` is for scripts and `--start` starts the app first. The installer adds it to `PATH` (an option, ticked).
+  `--json` is for scripts and `--start` starts the app first. The installer adds it to `PATH` (an option, ticked). An
+  update shows that option on its Ready page, as chosen before (ticked if it never was), or says it's in `PATH` already.
 - **Tray:** runs in the tray and can start with Windows. The tray menu has the performance mode and Fan Boost.
   **Show in the tray** (Settings) turns the icon off: the app keeps running, notifications still show, starting it
   again opens the window. **Exit** at the bottom of Settings closes the app, with or without the icon.
