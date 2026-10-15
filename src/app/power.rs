@@ -37,6 +37,8 @@ pub(super) struct Power {
     fan_tables: bool,
     pub mode: Mode,
     pub fan_boost: bool,
+    /// How many times the app has set Fan Boost, so an EC reading taken before the latest time doesn't undo it.
+    fan_boost_choices: u64,
     limits: Option<PowerLimits>,
     pub on_ac: bool,
     pub charge: ChargeMode,
@@ -106,6 +108,7 @@ impl Power {
             fan_tables: demo,
             mode: settings.map_or(Mode::Gaming, |s| s.mode),
             fan_boost: settings.is_some_and(|s| s.fan_boost),
+            fan_boost_choices: 0,
             limits: demo.then_some(PowerLimits { pl1: 60, pl2: 60, pl4: 165 }),
             on_ac: status::on_ac(),
             charge: settings.map_or(ChargeMode::HighCapacity, |s| s.charge_mode),
@@ -222,6 +225,22 @@ impl Power {
     }
 
     /// The mode the performance key switches to (MyFanManager_RamFan1p5.ModeSwitchChanged).
+    fn choose_fan_boost(&mut self, on: bool) {
+        self.fan_boost = on;
+        self.fan_boost_choices += 1;
+    }
+
+    /// Taken when the EC reports a Fan Boost change, before reading it.
+    fn fan_boost_ticket(&self) -> u64 {
+        self.fan_boost_choices
+    }
+
+    /// Whether a reading asked for with `ticket` is still news: on Windows it can wait behind slow EC calls, and if
+    /// the app set Fan Boost meanwhile (turned on and quickly off again) the reading is older than that choice.
+    fn fan_boost_reading_current(&self, ticket: u64) -> bool {
+        self.fan_boost_choices == ticket
+    }
+
     fn next_mode(&self) -> Mode {
         match (self.mode, self.turbo) {
             (Mode::Office, _) => Mode::Gaming,
@@ -668,7 +687,7 @@ impl App {
         if !self.power.available(self.demo) {
             return;
         }
-        self.power.fan_boost = on;
+        self.power.choose_fan_boost(on);
         self.power.chosen = true;
         self.settings_dirty = true;
         self.write_fan_mode();
@@ -739,9 +758,14 @@ impl App {
             }
             hotkeys::FAN_BOOST_CHANGED | hotkeys::FAN_BOOST_OFF => {
                 let Some(ec) = self.power.ec.clone() else { return };
+                let ticket = self.power.fan_boost_ticket();
                 ec.spawn(move |ec| {
                     let on = code == hotkeys::FAN_BOOST_CHANGED && performance::current(ec).is_ok_and(|(_, boost)| boost);
-                    post(move |app| app.fan_boost_from_ec(on, code == hotkeys::FAN_BOOST_CHANGED));
+                    post(move |app| {
+                        if app.power.fan_boost_reading_current(ticket) {
+                            app.fan_boost_from_ec(on, code == hotkeys::FAN_BOOST_CHANGED);
+                        }
+                    });
                 });
             }
             hotkeys::FAN_SAFETY => {
@@ -1254,6 +1278,17 @@ mod tests {
         assert!(safety_check_due(true, true));
         assert!(!safety_check_due(true, false)); // the EC's own curve
         assert!(!safety_check_due(false, true)); // Control Center sets the fans
+    }
+
+    #[test]
+    fn a_fan_boost_reading_from_before_a_click_is_ignored() {
+        let mut power = Power::new(None, true);
+        power.choose_fan_boost(true);
+        // The EC reports the change; on Windows its reading can wait behind slow EC calls.
+        let reading = power.fan_boost_ticket();
+        power.choose_fan_boost(false); // turned off again before the reading arrives
+        assert!(!power.fan_boost_reading_current(reading), "the old reading would turn Fan Boost back on");
+        assert!(power.fan_boost_reading_current(power.fan_boost_ticket())); // the key, with no click since
     }
 
     #[test]
