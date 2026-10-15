@@ -220,7 +220,7 @@ fn build_menu(items: &[MenuItem]) -> HMENU {
                 MenuItem::Separator => {
                     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
                 }
-                MenuItem::Item { id, text, checked, enabled } => {
+                MenuItem::Item { id, text, checked, enabled, .. } => {
                     let mut flags = MF_STRING;
                     if *checked {
                         flags |= MF_CHECKED;

@@ -3,18 +3,26 @@
 use crate::color::Rgb;
 
 pub enum MenuItem {
-    Item { id: u32, text: String, checked: bool, enabled: bool },
+    /// `checkable`: made by `check`, so it may show a check mark (Linux menus give such items their own kind).
+    Item {
+        id: u32,
+        text: String,
+        checked: bool,
+        #[cfg_attr(windows, allow(dead_code))]
+        checkable: bool,
+        enabled: bool,
+    },
     Submenu { text: String, enabled: bool, items: Vec<MenuItem> },
     Separator,
 }
 
 impl MenuItem {
     pub fn item(id: u32, text: impl Into<String>) -> MenuItem {
-        MenuItem::Item { id, text: text.into(), checked: false, enabled: true }
+        MenuItem::Item { id, text: text.into(), checked: false, checkable: false, enabled: true }
     }
 
     pub fn check(id: u32, text: impl Into<String>, checked: bool, enabled: bool) -> MenuItem {
-        MenuItem::Item { id, text: text.into(), checked, enabled }
+        MenuItem::Item { id, text: text.into(), checked, checkable: true, enabled }
     }
 }
 

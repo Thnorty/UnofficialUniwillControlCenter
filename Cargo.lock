@@ -4787,6 +4787,7 @@ version = "3.4.0"
 dependencies = [
  "anyhow",
  "embed-resource",
+ "ksni",
  "libc",
  "libloading 0.9.0",
  "raw-window-handle",

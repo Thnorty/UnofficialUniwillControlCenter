@@ -30,6 +30,7 @@ zip = { version = "9.0", default-features = false, features = ["deflate"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"] }
 libloading = "0.9"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 zbus = "5"
