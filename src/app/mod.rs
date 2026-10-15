@@ -1101,6 +1101,12 @@ impl App {
         });
         every(33, |app| app.update_preview());
         every(2000, |app| app.check_app_profiles());
+        #[cfg(target_os = "linux")]
+        every(1000, |app| {
+            if !app.demo {
+                app.check_fan_safety();
+            }
+        });
         every(5000, |app| {
             if !app.demo {
                 app.check_hotkeys();

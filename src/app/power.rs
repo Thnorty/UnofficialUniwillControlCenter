@@ -320,7 +320,9 @@ impl App {
     /// Takes the power settings over when Control Center isn't running, and steps back when it starts. Also notices
     /// the EC's fan safety protection while a custom curve is on. Called every few seconds.
     pub(super) fn check_power_owner(&mut self) {
-        let Some(ec) = self.power.ec.clone() else { return };
+        if self.power.ec.is_none() {
+            return;
+        }
         if system::control_center_running() {
             if self.power.owned || !self.power.ready {
                 self.power.owned = false;
@@ -331,13 +333,23 @@ impl App {
         if !self.power.owned {
             self.power.owned = true;
             self.read_power_state();
-        } else if self.power.custom_applied {
-            ec.spawn(|ec| {
-                if let Ok(true) = fans::safety_protection(ec) {
-                    post(|app| app.safety_changed(true));
-                }
-            });
+        } else {
+            self.check_fan_safety();
         }
+    }
+
+    /// Notices the EC's fan safety protection while a custom curve is on. On Windows the firmware also reports it as
+    /// a hotkey; Linux has only this, so it runs every second there.
+    pub(super) fn check_fan_safety(&self) {
+        let Some(ec) = self.power.ec.clone() else { return };
+        if !safety_check_due(self.power.owned, self.power.custom_applied) {
+            return;
+        }
+        ec.spawn(|ec| {
+            if let Ok(true) = fans::safety_protection(ec) {
+                post(|app| app.safety_changed(true));
+            }
+        });
     }
 
     fn read_power_state(&mut self) {
@@ -964,18 +976,7 @@ impl App {
 
     /// What the Performance page says about whether modes, fans and charging can be set here.
     pub(super) fn power_note(&self) -> String {
-        let power = &self.power;
-        if self.demo {
-            "Demo mode: nothing is sent to the laptop.".to_string()
-        } else if let Some(reason) = &power.ec_error {
-            format!("Can't reach the laptop's embedded controller: {reason}")
-        } else if power.ec.is_some() && !power.owned && power.ready {
-            "Control Center is running and sets these itself, so they're only shown here. To set them here, close Control Center and stop its service (GCUService).".to_string()
-        } else if !power.ready {
-            "Connecting to the laptop's embedded controller…".to_string()
-        } else {
-            String::new()
-        }
+        note(&self.power, self.demo)
     }
 
     pub(super) fn refresh_power(&self) {
@@ -1204,4 +1205,51 @@ fn demo_table(mode: Mode) -> Table {
         })
         .collect();
     Table { cpu: steps.clone(), gpu: steps }
+}
+
+/// Whether to look at the EC's fan safety protection: only while this app's custom curve drives the fans.
+fn safety_check_due(owned: bool, custom_applied: bool) -> bool {
+    owned && custom_applied
+}
+
+/// What the Performance page says about whether modes, fans and charging can be set here; also the reason `uucc`
+/// gives for not doing it.
+pub(super) fn note(power: &Power, demo: bool) -> String {
+    if demo {
+        "Demo mode: nothing is sent to the laptop.".to_string()
+    } else if let Some(reason) = &power.ec_error {
+        format!("Can't reach the laptop's embedded controller: {reason}")
+    } else if power.ec.is_some() && !power.owned && power.ready {
+        "Control Center is running and sets these itself, so they're only shown here. To set them here, close Control Center and stop its service (GCUService).".to_string()
+    } else if !power.ready {
+        "Connecting to the laptop's embedded controller…".to_string()
+    } else {
+        String::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safety_check_runs_only_with_custom_curve() {
+        assert!(safety_check_due(true, true));
+        assert!(!safety_check_due(true, false)); // the EC's own curve
+        assert!(!safety_check_due(false, true)); // Control Center sets the fans
+    }
+
+    #[test]
+    fn ec_commands_report_unavailable_reason() {
+        let mut power = Power::new(None, false);
+        let reason = "Secure Boot is on, so Linux blocks direct access to the embedded controller.";
+        power.ec_error = Some(reason.into());
+        match super::super::cli::refused(note(&power, false)) {
+            crate::cli::protocol::Reply::Error { code, message } => {
+                assert_eq!(code, 3);
+                assert!(message.contains(reason), "{message}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
 }

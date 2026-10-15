@@ -195,7 +195,7 @@ fn bad(message: String) -> Reply {
     Reply::Error { code: 1, message }
 }
 
-fn refused(message: impl Into<String>) -> Reply {
+pub(super) fn refused(message: impl Into<String>) -> Reply {
     Reply::Error { code: 3, message: message.into() }
 }
 

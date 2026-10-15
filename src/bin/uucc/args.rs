@@ -53,6 +53,20 @@ Lighting options: --effect NAME, --brightness 0-100, --speed slowest|slow|medium
 Every command: --json (output for scripts), --start (start the app if it isn't running), --help.
 Exit codes: 0 done, 1 bad command or value, 2 the app isn't running, 3 the app couldn't do it.";
 
+/// `USAGE` as this platform has it: Linux has no display colors.
+pub fn usage() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        static LINUX: std::sync::LazyLock<String> =
+            std::sync::LazyLock::new(|| USAGE.lines().filter(|l| !l.trim_start().starts_with("uucc display")).collect::<Vec<_>>().join("\n"));
+        &LINUX
+    }
+    #[cfg(not(target_os = "linux"))]
+    USAGE
+}
+
+const NO_DISPLAY: &str = "Display color modes aren't available on Linux";
+
 /// More about one command, for `uucc help COMMAND`.
 pub fn help(command: &str) -> &'static str {
     match command {
@@ -65,9 +79,10 @@ pub fn help(command: &str) -> &'static str {
         "effects" => "uucc effects\n  Lists each device's effects: ID, name, and how many colors each takes.",
         "charge" => "uucc charge [full|balanced|long-life]\n  Shows or sets the battery charge mode: full charges to 100%, long-life keeps it around 50-60%.",
         "setup" => "uucc setup [NAME]\n  Lists the setups saved on the Setups page, or applies one.",
+        #[cfg(not(target_os = "linux"))]
         "display" => "uucc display [on|off] [--mode Vibrant|Cinema|\"Low blue light\"|Custom]\n  Shows or changes the display colors. --mode turns them on.",
         "gpu-mode" => "uucc gpu-mode [hybrid|intel|nvidia]\n  Shows or sets the GPU mode (MUX switch). It takes effect when the laptop restarts.",
-        _ => USAGE,
+        _ => usage(),
     }
 }
 
@@ -116,7 +131,7 @@ pub fn parse(args: &[String]) -> Result<Command, Usage> {
                 }
                 options.push((name, value));
             }
-            _ => return Err(Usage(format!("unknown option --{name}\n\n{USAGE}"))),
+            _ => return Err(Usage(format!("unknown option --{name}\n\n{}", usage()))),
         }
     }
     if command.version {
@@ -132,10 +147,13 @@ pub fn parse(args: &[String]) -> Result<Command, Usage> {
             command.help = Some(String::new());
             return Ok(command);
         }
-        None => return Err(Usage(USAGE.into())),
+        None => return Err(Usage(usage().into())),
     };
     if !COMMANDS.contains(&name) {
-        return Err(Usage(format!("unknown command \"{name}\"\n\n{USAGE}")));
+        return Err(Usage(format!("unknown command \"{name}\"\n\n{}", usage())));
+    }
+    if cfg!(target_os = "linux") && name == "display" {
+        return Err(Usage(NO_DISPLAY.into()));
     }
     if help {
         command.help = Some(name.into());
@@ -296,8 +314,10 @@ mod tests {
     fn values_with_words() {
         assert_eq!(request(&["charge", "long"]), Request::Charge(Some("long-life".into())));
         assert_eq!(request(&["gpu-mode", "i"]), Request::GpuMode(Some("intel".into())));
-        assert_eq!(request(&["display", "--mode", "low blue"]), Request::Display { on: None, mode: Some("low blue".into()) });
-        assert_eq!(request(&["display", "on"]), Request::Display { on: Some(true), mode: None });
+        if cfg!(not(target_os = "linux")) {
+            assert_eq!(request(&["display", "--mode", "low blue"]), Request::Display { on: None, mode: Some("low blue".into()) });
+            assert_eq!(request(&["display", "on"]), Request::Display { on: Some(true), mode: None });
+        }
         assert_eq!(request(&["setup", "Gece Modu – Sessiz"]), Request::Setup(Some("Gece Modu – Sessiz".into())));
         assert_eq!(request(&["profile", "Quiet"]), Request::Profile(Some("Quiet".into())));
         assert_eq!(request(&["effects"]), Request::Effects);
@@ -321,5 +341,15 @@ mod tests {
         assert_eq!(parse_line(&["mode", "--help"]).unwrap().help, Some("mode".into()));
         assert_eq!(parse_line(&["--help"]).unwrap().help, Some(String::new()));
         assert!(parse_line(&["--version"]).unwrap().version);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn display_command_unavailable_on_linux() {
+        assert_eq!(usage(&["display"]), "Display color modes aren't available on Linux");
+        assert_eq!(usage(&["display", "on"]), "Display color modes aren't available on Linux");
+        assert!(!usage(&[]).contains("uucc display"));
+        assert!(!help("display").contains("uucc display"));
+        assert!(help("").contains("uucc mode"));
     }
 }
