@@ -465,16 +465,17 @@ impl App {
         }
     }
 
-    /// Notices the EC's fan safety protection while a custom curve is on. On Windows the firmware also reports it as
-    /// a hotkey; Linux has only this, so it runs every second there.
+    /// Notices the EC's fan safety protection turning on while a custom curve is on, and off again, which puts the
+    /// curve back. On Windows the firmware also reports it as a hotkey; Linux has only this, so it runs every second
+    /// there.
     pub(super) fn check_fan_safety(&self) {
         let Some(ec) = self.power.ec.clone() else { return };
-        if !safety_check_due(self.power.owned, self.power.custom_applied) {
+        if !safety_check_due(self.power.owned, self.power.custom_applied, self.power.safety) {
             return;
         }
         ec.spawn(|ec| {
-            if let Ok(true) = fans::safety_protection(ec) {
-                post(|app| app.safety_changed(true));
+            if let Ok(on) = fans::safety_protection(ec) {
+                post(move |app| app.safety_changed(on));
             }
         });
     }
@@ -1341,8 +1342,8 @@ fn demo_table(mode: Mode) -> Table {
 }
 
 /// Whether to look at the EC's fan safety protection: only while this app's custom curve drives the fans.
-fn safety_check_due(owned: bool, custom_applied: bool) -> bool {
-    owned && custom_applied
+fn safety_check_due(owned: bool, custom_applied: bool, safety: bool) -> bool {
+    owned && (custom_applied || safety)
 }
 
 /// What the Performance page says about whether modes, fans and charging can be set here; also the reason `uucc`
@@ -1366,10 +1367,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn safety_check_runs_only_with_custom_curve() {
-        assert!(safety_check_due(true, true));
-        assert!(!safety_check_due(true, false)); // the EC's own curve
-        assert!(!safety_check_due(false, true)); // Control Center sets the fans
+    fn safety_check_runs_with_custom_curve_or_protection() {
+        assert!(safety_check_due(true, true, false));
+        assert!(!safety_check_due(true, false, false)); // the EC's own curve
+        assert!(!safety_check_due(false, true, false)); // Control Center sets the fans
+        // The protection turned the curve off: checking goes on, to put the curve back once it ends.
+        assert!(safety_check_due(true, false, true));
     }
 
     #[test]
