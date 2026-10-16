@@ -28,6 +28,10 @@ pub struct State {
     pub releases: BTreeMap<u16, (u8, u8)>,
     /// Close the first connection after this many replies.
     pub close_first_after: Option<usize>,
+    /// Hotkey codes pushed to a client that subscribes, after which its connection closes.
+    pub hotkeys: Vec<u8>,
+    /// Answers a hotkey subscription with this error instead.
+    pub hotkeys_error: Option<String>,
 }
 
 pub struct FakeHelper {
@@ -67,8 +71,16 @@ fn serve(number: usize, stream: UnixStream, state: Arc<Mutex<State>>) {
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut writer = stream;
     let mut replies = 0;
-    state.lock().unwrap().releases.clear();
+    let mut first = true;
     while let Ok(Some(envelope)) = protocol::read_line::<Envelope>(&mut reader) {
+        if std::mem::take(&mut first) {
+            if envelope.request == Request::Hotkeys {
+                push_hotkeys(&mut writer, &state);
+                return;
+            }
+            // The helper keeps the disconnect actions per connection; a hotkey connection has none.
+            state.lock().unwrap().releases.clear();
+        }
         let reply = {
             let mut state = state.lock().unwrap();
             state.received.push((number, envelope.request.clone()));
@@ -79,6 +91,25 @@ fn serve(number: usize, stream: UnixStream, state: Arc<Mutex<State>>) {
         if number == 0 && state.lock().unwrap().close_first_after == Some(replies) {
             return;
         }
+    }
+}
+
+/// A hotkey subscription: `Done`, the codes, then the connection closes (like a helper that stopped).
+fn push_hotkeys(writer: &mut UnixStream, state: &Arc<Mutex<State>>) {
+    let (error, codes) = {
+        let mut state = state.lock().unwrap();
+        state.received.push((usize::MAX, Request::Hotkeys));
+        (state.hotkeys_error.clone(), state.hotkeys.clone())
+    };
+    if let Some(message) = error {
+        let _ = protocol::write_line(writer, &Reply::Error { message });
+        return;
+    }
+    let _ = protocol::write_line(writer, &Reply::Done);
+    // The app takes the keys once it has the subscription's answer.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    for code in codes {
+        let _ = protocol::write_line(writer, &Reply::Hotkey { code });
     }
 }
 
@@ -115,6 +146,6 @@ fn answer(state: &mut State, request: Request) -> Reply {
             state.variable = Some((attributes, bytes));
             Reply::Done
         }
-        Request::Hotkeys => Reply::Error { message: "The fake helper has no hotkeys".into() },
+        Request::Hotkeys => Reply::Error { message: "Hotkeys must be the first request on a connection of its own".into() },
     }
 }

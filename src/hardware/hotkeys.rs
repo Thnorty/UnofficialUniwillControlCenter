@@ -37,6 +37,8 @@ pub const FAN_SAFETY: u32 = 187; // SafetyProtectionUpdate: the EC's fan safety 
 pub struct Hotkeys {
     ec: Ec,
     active: Arc<AtomicBool>,
+    /// False once the hotkey events stopped coming (on Linux, the helper went away).
+    alive: Arc<AtomicBool>,
 }
 
 /// The running instance's EC, so a crash can give the hotkeys back. If the bit stayed set with nothing listening,
@@ -52,15 +54,21 @@ impl Hotkeys {
         // Listen before taking the keys over, so no press is lost.
         let (listening_tx, listening_rx) = mpsc::channel();
         let event_active = active.clone();
-        std::thread::Builder::new()
-            .name("Hotkey events".into())
-            .spawn(move || event_thread(pressed, listening_tx, event_active))?;
+        let alive = Arc::new(AtomicBool::new(true));
+        let event_alive = alive.clone();
+        std::thread::Builder::new().name("Hotkey events".into()).spawn(move || {
+            event_thread(pressed, listening_tx, event_active);
+            event_alive.store(false, Ordering::Release);
+        })?;
         listening_rx.recv().map_err(|_| anyhow!("The hotkey listener stopped"))??;
 
         active.store(true, Ordering::Release);
         *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(ec.clone());
-        let hotkeys = Hotkeys { ec, active };
+        let hotkeys = Hotkeys { ec, active, alive };
         let taken = hotkeys.ec.run_for(Duration::from_secs(5), |ec| {
+            // On Linux the helper clears the bit if the app goes away, so a crash gives the keys back.
+            #[cfg(target_os = "linux")]
+            ec.on_disconnect(AP_OEM_BYTE, AP_EXIST_BIT, 0)?;
             let value = ec.read(AP_OEM_BYTE)?;
             if value & AP_EXIST_BIT == 0 {
                 ec.write(AP_OEM_BYTE, value | AP_EXIST_BIT)?;
@@ -77,6 +85,11 @@ impl Hotkeys {
                 Err(e.context("Can't take the Fn keys over"))
             }
         }
+    }
+
+    /// Whether hotkey events still come: false once the listener ended (on Linux, the helper went away).
+    pub fn alive(&self) -> bool {
+        self.alive.load(Ordering::Acquire)
     }
 
     /// Sets the bit if something cleared it. GCUService re-sets it after resume from sleep, so this is called
@@ -131,7 +144,17 @@ fn clear_current() {
 }
 
 fn release_through(ec: &Ec) {
-    let _ = ec.run_for(Duration::from_secs(2), |ec| ec.update(AP_OEM_BYTE, AP_EXIST_BIT, 0));
+    let _ = ec.run_for(Duration::from_secs(2), |ec| {
+        ec.update(AP_OEM_BYTE, AP_EXIST_BIT, 0)?;
+        #[cfg(target_os = "linux")]
+        ec.clear_on_disconnect(AP_OEM_BYTE)?;
+        Ok(())
+    });
+}
+
+/// Whether a `Hotkeys` holds the app-present bit: then nothing else sets or clears it.
+pub fn active() -> bool {
+    CURRENT.lock().unwrap_or_else(|e| e.into_inner()).is_some()
 }
 
 /// Gives the hotkeys back if they're taken; for crash and exit handlers.
@@ -157,10 +180,24 @@ pub fn without_app_present<R>(ec: &super::ec::Registers, job: impl FnOnce() -> R
     Ok(result)
 }
 
-/// Linux has no driver for the firmware's hotkey events yet.
+/// The hotkeys through the app's helper, which hears the kernel's ACPI event for each and reads its code from the EC.
 #[cfg(target_os = "linux")]
-fn event_thread(_pressed: impl Fn(u32), listening: Sender<Result<()>>, _active: Arc<AtomicBool>) {
-    listening.send(Err(anyhow!("The Fn keys aren't available on Linux yet"))).ok();
+fn event_thread(pressed: impl Fn(u32), listening: Sender<Result<()>>, active: Arc<AtomicBool>) {
+    let codes = match super::ec::subscribe_hotkeys() {
+        Ok(codes) => {
+            listening.send(Ok(())).ok();
+            codes
+        }
+        Err(e) => {
+            listening.send(Err(e)).ok();
+            return;
+        }
+    };
+    for code in codes {
+        if active.load(Ordering::Acquire) {
+            pressed(code);
+        }
+    }
 }
 
 /// Only the code is read, so the event's other properties can't make it fail to convert.
@@ -201,5 +238,43 @@ fn event_thread(pressed: impl Fn(u32), listening: Sender<Result<()>>, active: Ar
             continue;
         }
         pressed(event.code);
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+    use crate::hardware::fake_helper::{FakeHelper, serial};
+
+    #[test]
+    fn linux_hotkeys_set_and_release_app_present() {
+        let _serial = serial();
+        let helper = FakeHelper::start("hotkeys-app-present", |s| s.registers[0x741] = 0x80);
+        let hotkeys = Hotkeys::start(Ec::connect().unwrap(), |_| {}).unwrap();
+        {
+            let state = helper.state.lock().unwrap();
+            assert_eq!(state.registers[0x741], 0x81);
+            assert_eq!(state.releases.get(&0x741), Some(&(0x01, 0))); // a crash gives the keys back to the firmware
+        }
+        hotkeys.release();
+        let state = helper.state.lock().unwrap();
+        assert_eq!(state.registers[0x741], 0x80);
+        assert!(!state.releases.contains_key(&0x741));
+    }
+
+    #[test]
+    fn hotkey_thread_reports_its_end() {
+        let _serial = serial();
+        let _helper = FakeHelper::start("hotkeys-end", |s| s.hotkeys = vec![0xB2]);
+        let (tx, rx) = mpsc::channel();
+        let hotkeys = Hotkeys::start(Ec::connect().unwrap(), move |code| tx.send(code).unwrap_or(())).unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)), Ok(178));
+        // The fake closes after its codes, as a helper that stopped: the app sees the hotkeys ended.
+        let started = std::time::Instant::now();
+        while hotkeys.alive() && started.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!hotkeys.alive());
+        hotkeys.abandon();
     }
 }

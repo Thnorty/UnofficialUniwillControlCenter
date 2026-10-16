@@ -125,6 +125,46 @@ pub(crate) fn request(request: Request) -> Result<Reply> {
     }
 }
 
+/// The laptop's hotkey codes, as the helper hears them; ends when the helper's connection does (it stopped).
+pub struct HotkeyStream {
+    reader: BufReader<UnixStream>,
+}
+
+impl Iterator for HotkeyStream {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<u32> {
+        match protocol::read_line::<Reply>(&mut self.reader) {
+            Ok(Some(Reply::Hotkey { code })) => Some(code as u32),
+            _ => None,
+        }
+    }
+}
+
+/// Subscribes to the hotkeys on a connection of its own, which then carries only their codes.
+pub fn subscribe_hotkeys() -> Result<HotkeyStream> {
+    let stream = match UnixStream::connect(socket()) {
+        Ok(stream) => stream,
+        Err(error) if matches!(error.kind(), io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused) => {
+            return Err(EcUnavailable(NOT_RUNNING.into()).into());
+        }
+        Err(error) => bail!("The app's helper didn't answer: {error}"),
+    };
+    stream.set_read_timeout(Some(ANSWER_TIMEOUT))?;
+    let mut writer = stream.try_clone()?;
+    let mut reader = BufReader::new(stream.try_clone()?);
+    protocol::write_line(&mut writer, &Envelope { version: protocol::VERSION, request: Request::Hotkeys })?;
+    match protocol::read_line::<Reply>(&mut reader)? {
+        Some(Reply::Done) => {
+            stream.set_read_timeout(None)?; // the next code may be hours away
+            Ok(HotkeyStream { reader })
+        }
+        Some(Reply::WrongVersion { .. }) => Err(EcUnavailable(OTHER_VERSION.into()).into()),
+        Some(other) => Err(unexpected(other)),
+        None => bail!("The app's helper went away"),
+    }
+}
+
 /// A reply that isn't the answer expected, as an error.
 fn unexpected(reply: Reply) -> anyhow::Error {
     match reply {
@@ -294,6 +334,21 @@ mod tests {
         drop(helper); // `systemctl stop uucc-helper.socket uucc-helper.service`
         let error = ec.run_for(Duration::from_secs(5), |r| r.check()).err().expect("the helper is gone");
         assert!(may_come_back(&format!("{error:#}")), "{error:#}");
+    }
+
+    #[test]
+    fn hotkeys_arrive_in_order() {
+        let _serial = serial();
+        let _helper = FakeHelper::start("hotkeys", |s| s.hotkeys = vec![0xB1, 0xB2, 0xB0]);
+        assert_eq!(subscribe_hotkeys().unwrap().collect::<Vec<_>>(), vec![177, 178, 176]);
+    }
+
+    #[test]
+    fn hotkeys_refused_say_why() {
+        let _serial = serial();
+        let _helper = FakeHelper::start("hotkeys-refused", |s| s.hotkeys_error = Some("The helper can't hear the laptop's hotkeys: test".into()));
+        let error = subscribe_hotkeys().err().expect("refused");
+        assert!(format!("{error:#}").contains("The helper can't hear the laptop's hotkeys: test"), "{error:#}");
     }
 
     #[test]
