@@ -4,7 +4,7 @@
 //!
 //! Control Center's service rewrites the whole variable from its own copy, so nothing is written while it runs.
 
-use super::{App, Kind, needs_app, post};
+use super::{App, Kind, boots_as_is, post};
 use crate::hardware::system;
 use crate::hardware::uefi::{self, GpuMode, Startup, Variable, VoltageOffset};
 use crate::lighting::effects;
@@ -170,7 +170,7 @@ impl App {
         if !lighting.on {
             return;
         }
-        let (effect, colors) = if needs_app(kind, plan.effect) || plan.effect.drawn_by_app() {
+        let (effect, colors) = if !boots_as_is(kind, plan.effect) {
             match kind {
                 Kind::Keyboard => (&effects::KEYBOARD[0], lighting.zones.to_vec()),
                 Kind::LightBar => (&effects::LIGHT_BAR[0], vec![plan.colors.first().copied().unwrap_or(effects::LIGHT_BAR[0].default_colors[0])]),

@@ -266,6 +266,12 @@ fn needs_app(kind: Kind, effect: &Effect) -> bool {
     effect.drawn_by_app() || smooth_wave(kind, effect) || (kind == Kind::LightBar && effect.colors == EffectColors::Zones)
 }
 
+/// Whether the BIOS can show `effect` while the laptop starts, as it is: not one only this app draws. The keyboard's
+/// Wave is the firmware's own, even though the app draws it more smoothly while it runs.
+fn boots_as_is(kind: Kind, effect: &Effect) -> bool {
+    !needs_app(kind, effect) || smooth_wave(kind, effect)
+}
+
 /// The keyboard firmware's Wave moves the colors a whole zone at a time. While the app runs it draws Wave itself,
 /// blending the colors across the zones as the preview shows; on exit the firmware's Wave takes over again.
 fn smooth_wave(kind: Kind, effect: &Effect) -> bool {
@@ -2088,6 +2094,16 @@ fn show_window(ui: &AppWindow) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_keyboards_wave_boots_as_the_firmwares_own() {
+        // The app draws Wave smoothly while it runs, but the firmware's own Wave is one the BIOS can play at start.
+        assert!(boots_as_is(Kind::Keyboard, effects::keyboard_wave()));
+        let drawn = effects::KEYBOARD.iter().find(|e| e.drawn_by_app()).expect("an effect the app draws");
+        assert!(!boots_as_is(Kind::Keyboard, drawn));
+        let zones = effects::LIGHT_BAR.iter().find(|e| e.colors == EffectColors::Zones);
+        assert!(zones.is_none_or(|e| !boots_as_is(Kind::LightBar, e)));
+    }
 
     #[test]
     fn only_confirmations_fade() {
