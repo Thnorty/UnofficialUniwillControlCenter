@@ -75,6 +75,10 @@ export component AppWindow inherits Window {
     changed dark-mode => {
         Palette.color-scheme = root.dark-mode ? ColorScheme.dark : ColorScheme.light;
     }
+    // All pages share one scroll area: a page opens at its top, not where the last one was left.
+    changed page => {
+        scroll.content-y = 0;
+    }
     in property <bool> has-light-bar;
     in property <string> status-text;
     in property <bool> status-error;

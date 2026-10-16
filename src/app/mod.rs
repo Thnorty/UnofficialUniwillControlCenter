@@ -267,7 +267,8 @@ fn needs_app(kind: Kind, effect: &Effect) -> bool {
 }
 
 /// Whether the EC must be read every second for what the hotkeys report otherwise: the mode the performance key set,
-/// and the fan safety protection.
+/// and the fan safety protection. Only Linux polls; Windows always waits for the hotkeys.
+#[cfg_attr(windows, allow(dead_code))]
 fn ec_polling_due(hotkeys_active: bool) -> bool {
     !hotkeys_active
 }
