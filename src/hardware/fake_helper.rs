@@ -115,5 +115,6 @@ fn answer(state: &mut State, request: Request) -> Reply {
             state.variable = Some((attributes, bytes));
             Reply::Done
         }
+        Request::Hotkeys => Reply::Error { message: "The fake helper has no hotkeys".into() },
     }
 }

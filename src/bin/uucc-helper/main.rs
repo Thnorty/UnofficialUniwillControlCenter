@@ -34,10 +34,11 @@ mod linux {
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::Path;
     use std::collections::BTreeMap;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::time::{Duration, Instant};
 
+    use crate::acpi_events::{self, AcpiEvent};
     use crate::ec::{self, EcAccess, EcWindow};
     use crate::protocol::{self, Envelope, Reply, Unavailable};
     use crate::rules::Releases;
@@ -46,12 +47,16 @@ mod linux {
 
     /// Connections waiting for polkit's answer at once; more are closed at once, so nobody can tie the helper up.
     const MAX_PENDING: usize = 16;
+    /// The EC's ACPI-space byte 0x7C (`OSDF`), where `_Q53` finds the hotkey's code; the EC window shows that space at 0x400.
+    const HOTKEY_CODE: u16 = 0x47C;
+
     /// How long a refused client has to send its request before it's told no. The app sends its request as it connects.
     const REFUSE_WAIT: Duration = Duration::from_millis(500);
 
     /// What every client shares: the EC (one request at a time), how many authorized clients are connected since
     /// when, how many connections wait for authorization, and what each connected client wants undone (for when the
-    /// helper itself is stopped). `sessions` is only locked while holding `ec`.
+    /// helper itself is stopped). `sessions` is only locked while holding `ec`. Also the clients that take the hotkeys,
+    /// and whether the hotkey listener runs (or why not).
     struct Shared {
         ec: Mutex<Option<Box<dyn EcAccess>>>,
         status: Result<u64, Unavailable>,
@@ -59,6 +64,9 @@ mod linux {
         pending: Mutex<usize>,
         sessions: Mutex<BTreeMap<u64, Releases>>,
         next_session: AtomicU64,
+        subscribers: Mutex<Vec<UnixStream>>,
+        listening: AtomicBool,
+        listen_error: Mutex<String>,
     }
 
     impl Shared {
@@ -70,6 +78,9 @@ mod linux {
                 pending: Mutex::new(0),
                 sessions: Mutex::new(BTreeMap::new()),
                 next_session: AtomicU64::new(0),
+                subscribers: Mutex::new(Vec::new()),
+                listening: AtomicBool::new(false),
+                listen_error: Mutex::new("the EC can't be used".into()),
             }
         }
     }
@@ -140,6 +151,10 @@ mod linux {
         };
         let shared = Arc::new(Shared::new(window, status));
 
+        if shared.status.is_ok() {
+            listen_for_hotkeys(&shared);
+        }
+
         let stopping = shared.clone();
         std::thread::spawn(move || {
             let mut signal = 0;
@@ -158,6 +173,77 @@ mod linux {
         });
 
         serve_all(listener, shared, authorized);
+    }
+
+    /// Starts the thread that hears the laptop's hotkeys and passes their codes to the subscribed clients.
+    fn listen_for_hotkeys(shared: &Arc<Shared>) {
+        let mut listener = match acpi_events::Listener::open() {
+            Ok(listener) => listener,
+            Err(error) => {
+                eprintln!("Can't hear the laptop's hotkeys: {error}");
+                *shared.listen_error.lock().unwrap_or_else(|e| e.into_inner()) = error.to_string();
+                return;
+            }
+        };
+        shared.listening.store(true, Ordering::Release);
+        let shared = shared.clone();
+        std::thread::spawn(move || loop {
+            let events = match listener.next() {
+                Ok(events) => events,
+                Err(error) => {
+                    eprintln!("Stopped hearing the laptop's hotkeys: {error}");
+                    *shared.listen_error.lock().unwrap_or_else(|e| e.into_inner()) = error.to_string();
+                    shared.listening.store(false, Ordering::Release);
+                    return;
+                }
+            };
+            for event in events {
+                let code = {
+                    let mut ec = shared.ec.lock().unwrap_or_else(|e| e.into_inner());
+                    ec.as_deref_mut().and_then(|ec| hotkey_code(&event, ec))
+                };
+                if let Some(code) = code {
+                    broadcast(&shared, code);
+                }
+            }
+        });
+    }
+
+    /// The code of the hotkey `event` reports, read straight away: the firmware clears it about 20 ms later. None for
+    /// another event, or when the code is already gone.
+    fn hotkey_code(event: &AcpiEvent, ec: &mut dyn EcAccess) -> Option<u8> {
+        if !acpi_events::is_hotkey(event) {
+            return None;
+        }
+        Some(ec.read(HOTKEY_CODE)).filter(|&code| code != 0)
+    }
+
+    /// Sends `code` to every subscribed client; one that can't take it (gone, or not reading) is dropped.
+    fn broadcast(shared: &Shared, code: u8) {
+        let mut subscribers = shared.subscribers.lock().unwrap_or_else(|e| e.into_inner());
+        subscribers.retain(|stream| protocol::write_line(&mut &*stream, &Reply::Hotkey { code }).is_ok());
+    }
+
+    /// Takes a client's hotkey subscription: `Done`, then only `Hotkey` lines, until it goes away.
+    fn subscribe(stream: &UnixStream, reader: &mut BufReader<UnixStream>, shared: &Shared) -> io::Result<()> {
+        if let Err(reason) = &shared.status {
+            return protocol::write_line(&mut &*stream, &Reply::Unavailable { reason: reason.clone() });
+        }
+        if !shared.listening.load(Ordering::Acquire) {
+            let why = shared.listen_error.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let message = format!("The helper can't hear the laptop's hotkeys: {why}");
+            return protocol::write_line(&mut &*stream, &Reply::Error { message });
+        }
+        protocol::write_line(&mut &*stream, &Reply::Done)?;
+        let pushed = stream.try_clone()?;
+        pushed.set_nonblocking(true)?;
+        shared.subscribers.lock().unwrap_or_else(|e| e.into_inner()).push(pushed);
+        // Nothing more is expected from it: wait for it to go away, so it counts as connected meanwhile.
+        let mut ignored = Vec::new();
+        while std::io::BufRead::read_until(reader, b'\n', &mut ignored)? > 0 {
+            ignored.clear();
+        }
+        Ok(())
     }
 
     /// SIGTERM and SIGINT.
@@ -272,6 +358,7 @@ mod linux {
         let mut writer = stream.try_clone()?;
         let mut session = Session::default();
         let id = shared.next_session.fetch_add(1, Ordering::Relaxed);
+        let mut first = true;
         let result = loop {
             let envelope: Envelope = match protocol::read_line(&mut reader) {
                 Ok(Some(envelope)) => envelope,
@@ -285,6 +372,10 @@ mod linux {
                 protocol::write_line(&mut writer, &Reply::WrongVersion { helper: protocol::VERSION })?;
                 break Ok(());
             }
+            if envelope.request == protocol::Request::Hotkeys && first {
+                break subscribe(stream, &mut reader, shared);
+            }
+            first = false;
             let reply = {
                 let mut ec = shared.ec.lock().unwrap_or_else(|e| e.into_inner());
                 let ec = ec.as_mut().map(|ec| -> &mut dyn EcAccess { ec.as_mut() });
@@ -397,6 +488,105 @@ mod linux {
             }
             assert_eq!(pending(), MAX_PENDING);
             drop(silent);
+        }
+
+        fn wmi_d2() -> crate::acpi_events::AcpiEvent {
+            crate::acpi_events::AcpiEvent { class: "wmi".into(), bus_id: "PNP0C14:00".into(), kind: 0xd2, data: 0 }
+        }
+
+        fn fake_ec(code: u8) -> crate::ec::FakeEc {
+            let mut ec = crate::ec::FakeEc([0; 0x1000]);
+            ec.0[0x47C] = code;
+            ec
+        }
+
+        /// A helper with a usable (fake) EC whose hotkey listener runs, or doesn't.
+        fn listening(listening: bool) -> Arc<Shared> {
+            let shared = Arc::new(Shared::new(Some(Box::new(fake_ec(0))), Ok(0xFE41_0000)));
+            shared.listening.store(listening, Ordering::Release);
+            shared
+        }
+
+        fn subscribe(path: &std::path::Path) -> (UnixStream, BufReader<UnixStream>) {
+            let mut client = UnixStream::connect(path).unwrap();
+            assert_eq!(ask(&mut client, protocol::Request::Hotkeys), Reply::Done);
+            client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let reader = BufReader::new(client.try_clone().unwrap());
+            (client, reader)
+        }
+
+        fn next_reply(reader: &mut BufReader<UnixStream>) -> Option<Reply> {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(n) if n > 0 => Some(serde_json::from_str(&line).unwrap()),
+                _ => None,
+            }
+        }
+
+        fn subscribers(shared: &Shared) -> usize {
+            shared.subscribers.lock().unwrap().len()
+        }
+
+        fn wait_for(condition: impl Fn() -> bool) {
+            let started = Instant::now();
+            while !condition() && started.elapsed() < Duration::from_secs(2) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        #[test]
+        fn hotkey_events_read_the_code() {
+            assert_eq!(hotkey_code(&wmi_d2(), &mut fake_ec(0xB2)), Some(0xB2));
+        }
+
+        #[test]
+        fn zero_code_sends_nothing() {
+            // The code was already cleared, or another firmware's 0xd2.
+            assert_eq!(hotkey_code(&wmi_d2(), &mut fake_ec(0)), None);
+            let battery = crate::acpi_events::AcpiEvent { class: "battery".into(), bus_id: "PNP0C0A:00".into(), kind: 0x80, data: 1 };
+            assert_eq!(hotkey_code(&battery, &mut fake_ec(0xB2)), None);
+        }
+
+        #[test]
+        fn subscribers_get_codes() {
+            let shared = listening(true);
+            let path = start("hotkeys", &shared, |_| true);
+            let (_client, mut reader) = subscribe(&path);
+            let mut other = UnixStream::connect(&path).unwrap();
+            ask_status(&mut other);
+            other.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+            wait_for(|| subscribers(&shared) == 1);
+            broadcast(&shared, 0xB0);
+            assert_eq!(next_reply(&mut reader), Some(Reply::Hotkey { code: 0xB0 }));
+            // A client that didn't subscribe gets no hotkeys.
+            assert_eq!(next_reply(&mut BufReader::new(other)), None);
+        }
+
+        #[test]
+        fn dead_subscriber_is_dropped() {
+            let shared = listening(true);
+            let path = start("hotkeys-dead", &shared, |_| true);
+            let (_live, mut reader) = subscribe(&path);
+            let (gone, gone_reader) = subscribe(&path);
+            wait_for(|| subscribers(&shared) == 2);
+            drop(gone_reader);
+            drop(gone);
+            broadcast(&shared, 0xB1);
+            broadcast(&shared, 0xB2);
+            assert_eq!(next_reply(&mut reader), Some(Reply::Hotkey { code: 0xB1 }));
+            assert_eq!(next_reply(&mut reader), Some(Reply::Hotkey { code: 0xB2 }));
+            assert_eq!(subscribers(&shared), 1);
+        }
+
+        #[test]
+        fn hotkeys_without_a_listener_are_refused() {
+            let shared = listening(false);
+            let path = start("hotkeys-none", &shared, |_| true);
+            let mut client = UnixStream::connect(&path).unwrap();
+            match ask(&mut client, protocol::Request::Hotkeys) {
+                Reply::Error { message } => assert!(message.starts_with("The helper can't hear the laptop's hotkeys"), "{message}"),
+                other => panic!("{other:?}"),
+            }
         }
 
         #[test]

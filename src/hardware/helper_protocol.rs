@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 /// Changes when a request or reply changes, so an app and a helper of different versions notice.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 /// Where the helper listens; systemd opens it (`uucc-helper.socket`).
 pub const SOCKET: &str = "/run/uucc-helper.sock";
 /// The longest line either side reads.
@@ -34,6 +34,8 @@ pub enum Request {
     ClearOnDisconnect { address: u16 },
     ReadVariable,
     WriteVariable { attributes: u32, bytes: Vec<u8> },
+    /// The laptop's hotkeys: sent first on a connection of its own, which then carries only `Hotkey` replies.
+    Hotkeys,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -45,6 +47,8 @@ pub enum Reply {
     Bytes { values: Vec<u8> },
     Done,
     Variable { attributes: u32, bytes: Vec<u8> },
+    /// A hotkey's code (Control Center's: 176 the performance key, 177/178 keyboard light down/up, ...).
+    Hotkey { code: u8 },
     /// The request isn't allowed: a register the app doesn't write, or a client that isn't signed in at the laptop.
     Refused { message: String },
     Error { message: String },

@@ -95,6 +95,7 @@ fn ec_reply(request: Request, session: &mut Session, ec: &mut dyn EcAccess) -> R
         }
         Request::Write { address, .. } | Request::Update { address, .. } | Request::OnDisconnect { address, .. } => not_written(address),
         Request::Status | Request::ReadVariable | Request::WriteVariable { .. } => unreachable!("answered in handle"),
+        Request::Hotkeys => Reply::Error { message: "Hotkeys must be the first request on a connection of its own".into() },
     }
 }
 
