@@ -282,16 +282,7 @@ export component FluentSlider inherits Rectangle {
                 self.set-from(self.mouse-x);
             }
         }
-        scroll-event(event) => {
-            let delta = event.delta-y > 0 ? root.step : -root.step;
-            let next = Math.clamp(root.value + delta, root.minimum, root.maximum);
-            if (next != root.value) {
-                root.value = next;
-                root.changed(next);
-                root.released(next);
-            }
-            accept
-        }
+        // No scroll-wheel handler: the wheel scrolls the page, so scrolling past a slider doesn't change it.
     }
 }
 
