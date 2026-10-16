@@ -1,5 +1,5 @@
 import { ComboBox, LineEdit } from "std-widgets.slint";
-import { Theme, Glyphs } from "theme.slint";
+import { Theme, Glyphs, Platform } from "theme.slint";
 import { BodyStrong, Caption, Card, FluentButton, FluentSlider, Glyph, InfoBar, LinkButton, SectionHeader, Segmented, SettingRow, Title, ToggleSwitch } from "controls.slint";
 
 /// A reading on the Monitor page.
@@ -815,6 +815,22 @@ export component PerformancePage inherits VerticalLayout {
                     }
                     Caption {
                         text: "The laptop's fan safety protection is on, so the fans follow its own curve until it turns off.";
+                        horizontal-stretch: 1;
+                    }
+                }
+                // A custom curve needs the EC's app-present bit, and with it set the performance key goes to the app as
+                // an event, which Linux can't take yet.
+                if Platform.linux && root.curve-enabled: HorizontalLayout {
+                    spacing: 10px;
+                    Glyph {
+                        text: Glyphs.info;
+                        color: Theme.accent;
+                        width: 16px;
+                        font-size: 14px;
+                        vertical-alignment: top;
+                    }
+                    Caption {
+                        text: "While a custom curve is on, the performance key doesn't work on Linux yet: switch modes here.";
                         horizontal-stretch: 1;
                     }
                 }
