@@ -659,11 +659,11 @@ export component PerformancePage inherits VerticalLayout {
         }
     }
 
-    if root.tuning.gpu-available || root.gpu-mode-shown: VerticalLayout {
+    if root.tuning.gpu-available: VerticalLayout {
         padding-top: 20px;
         spacing: 4px;
         SectionHeader {
-            text: root.tuning.gpu-available ? "GPU for " + root.mode-names[root.mode] + " mode" : "GPU";
+            text: "GPU for " + root.mode-names[root.mode] + " mode";
             height: 28px;
             vertical-alignment: top;
         }
@@ -697,6 +697,40 @@ export component PerformancePage inherits VerticalLayout {
                 toggled(on) => { root.set-dynamic-boost(on); }
             }
         }
+    }
+
+    VerticalLayout {
+        padding-top: 12px;
+        HorizontalLayout {
+            spacing: 10px;
+            Glyph {
+                text: Glyphs.warning;
+                color: Theme.caution;
+                width: 16px;
+                font-size: 14px;
+                vertical-alignment: top;
+            }
+            Caption {
+                text: "Higher limits make the laptop hotter and louder. A voltage offset can make the operating system crash or the laptop fail to start; if it fails to start, the BIOS starts without the tuning next time, and this app then sets everything here back to the defaults.";
+                horizontal-stretch: 1;
+            }
+            LinkButton {
+                text: "Reset this mode";
+                vertical-alignment: top;
+                clicked => { root.reset-tuning(); }
+            }
+        }
+    }
+
+    // The GPU mode is the BIOS's, for every mode: apart from this mode's tuning, which "Reset this mode" resets.
+    if root.gpu-mode-shown: VerticalLayout {
+        padding-top: 20px;
+        spacing: 4px;
+        SectionHeader {
+            text: "Graphics";
+            height: 28px;
+            vertical-alignment: top;
+        }
         if root.gpu-mode-shown: SettingRow {
             icon: Glyphs.display;
             title: "GPU mode (all modes)";
@@ -714,29 +748,6 @@ export component PerformancePage inherits VerticalLayout {
             message: root.gpu-mode-restart;
             closable: true;
             closed => { root.gpu-mode-restart-closed = root.gpu-mode-restart; }
-        }
-    }
-
-    VerticalLayout {
-        padding-top: 12px;
-        HorizontalLayout {
-            spacing: 10px;
-            Glyph {
-                text: Glyphs.warning;
-                color: Theme.caution;
-                width: 16px;
-                font-size: 14px;
-                vertical-alignment: top;
-            }
-            Caption {
-                text: "Higher limits make the laptop hotter and louder. A voltage offset can make Windows crash or the laptop fail to start; if it fails to start, the BIOS starts without the tuning next time, and this app then sets everything here back to the defaults.";
-                horizontal-stretch: 1;
-            }
-            LinkButton {
-                text: "Reset this mode";
-                vertical-alignment: top;
-                clicked => { root.reset-tuning(); }
-            }
         }
     }
 
