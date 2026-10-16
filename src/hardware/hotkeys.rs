@@ -153,6 +153,7 @@ fn release_through(ec: &Ec) {
 }
 
 /// Whether a `Hotkeys` holds the app-present bit: then nothing else sets or clears it.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // on Windows the hotkeys always hold it
 pub fn active() -> bool {
     CURRENT.lock().unwrap_or_else(|e| e.into_inner()).is_some()
 }

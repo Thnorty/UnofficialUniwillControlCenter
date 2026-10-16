@@ -266,6 +266,17 @@ fn needs_app(kind: Kind, effect: &Effect) -> bool {
     effect.drawn_by_app() || smooth_wave(kind, effect) || (kind == Kind::LightBar && effect.colors == EffectColors::Zones)
 }
 
+/// Whether the EC must be read every second for what the hotkeys report otherwise: the mode the performance key set,
+/// and the fan safety protection.
+fn ec_polling_due(hotkeys_active: bool) -> bool {
+    !hotkeys_active
+}
+
+/// Whether the hotkeys stopped coming (on Linux, the helper went away) and must be taken again.
+fn hotkeys_need_restart(present: bool, alive: bool) -> bool {
+    present && !alive
+}
+
 /// Whether the BIOS can show `effect` while the laptop starts, as it is: not one only this app draws. The keyboard's
 /// Wave is the firmware's own, even though the app draws it more smoothly while it runs.
 fn boots_as_is(kind: Kind, effect: &Effect) -> bool {
@@ -1003,10 +1014,6 @@ impl App {
         if self.demo || self.keyboard.device.is_none() || self.hotkeys.is_some() || self.hotkeys_starting {
             return;
         }
-        if cfg!(target_os = "linux") {
-            self.set_fn_mode("Fn keys: handled by the firmware (this app doesn't take them over on Linux yet)");
-            return;
-        }
         if system::control_center_running() {
             self.set_fn_mode("Fn keys: handled by Control Center");
             return;
@@ -1043,6 +1050,12 @@ impl App {
     }
 
     fn check_hotkeys(&mut self) {
+        if hotkeys_need_restart(self.hotkeys.is_some(), self.hotkeys.as_ref().is_some_and(Hotkeys::alive)) {
+            // The helper restarted, and gave the keys back to the firmware as it went.
+            if let Some(hotkeys) = self.hotkeys.take() {
+                hotkeys.abandon();
+            }
+        }
         let Some(hotkeys) = &self.hotkeys else {
             self.start_hotkeys(); // e.g. Control Center was stopped
             return;
@@ -1139,7 +1152,7 @@ impl App {
         every(2000, |app| app.check_app_profiles());
         #[cfg(target_os = "linux")]
         every(1000, |app| {
-            if !app.demo {
+            if !app.demo && ec_polling_due(app.hotkeys.is_some()) {
                 app.check_fan_safety();
                 app.check_ec_mode();
             }
@@ -2099,6 +2112,20 @@ fn show_window(ui: &AppWindow) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn polls_only_without_hotkeys() {
+        assert!(ec_polling_due(false));
+        assert!(!ec_polling_due(true)); // the mode and the fan safety protection come as hotkeys
+    }
+
+    #[test]
+    fn ended_hotkeys_are_started_again() {
+        assert!(hotkeys_need_restart(true, false)); // the helper restarted
+        assert!(!hotkeys_need_restart(true, true));
+        assert!(!hotkeys_need_restart(false, false));
+        assert!(!hotkeys_need_restart(false, true));
+    }
 
     #[test]
     fn the_keyboards_wave_boots_as_the_firmwares_own() {
