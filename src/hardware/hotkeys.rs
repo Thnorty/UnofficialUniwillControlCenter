@@ -18,8 +18,8 @@ use wmi::WMIConnection;
 use super::ec::Ec;
 
 // Define.ECSpec
-const AP_OEM_BYTE: u16 = 0x741; // ADDR_AP_OEM_BYTE
-const AP_EXIST_BIT: u8 = 0x01; // MyEcCtrl.Set_APExistToEC
+pub(super) const AP_OEM_BYTE: u16 = 0x741; // ADDR_AP_OEM_BYTE
+pub(super) const AP_EXIST_BIT: u8 = 0x01; // MyEcCtrl.Set_APExistToEC
 const TRIGGER_BYTE: u16 = 0x767; // TriggerByteFlag.WinLock_Trigger = bit 0 (MySettingManager.WinKeyLock_Trigger)
 const STATUS_BYTE: u16 = 0x768; // StatusByteOneFlag.WinLock = bit 0 (MySettingManager.SetWinKey)
 

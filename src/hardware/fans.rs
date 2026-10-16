@@ -233,13 +233,18 @@ pub fn apply_custom(ec: &Registers, table: &Table) -> Result<()> {
 
 /// Turns the RAM tables on or off; off, the EC uses its own table for the mode. On, each fan follows its own table:
 /// with Control Center's default of "respective" off, the EC doesn't keep the two curves apart (a maxed GPU curve ran
-/// the CPU fan at 100% and left the GPU fan off). Off puts that default back. On Linux the helper is also told to turn
-/// both off if the app goes away with them on.
+/// the CPU fan at 100% and left the GPU fan off). Off puts that default back.
+///
+/// On Linux, which can't take the Fn keys yet, the app-present bit is set only while a custom curve is on: Windows has
+/// it set all along, and the EC may not keep to the RAM tables without it. The helper is told to turn all three off if
+/// the app goes away with them on.
 pub fn set_custom(ec: &Registers, on: bool) -> Result<()> {
     #[cfg(target_os = "linux")]
     if on {
         ec.on_disconnect(RAM_FAN_CONTROL, RAM_FAN_BIT, 0)?;
         ec.on_disconnect(OEM_BYTE5, RESPECTIVE_BIT, 0)?;
+        ec.on_disconnect(hotkeys::AP_OEM_BYTE, hotkeys::AP_EXIST_BIT, 0)?;
+        ec.update(hotkeys::AP_OEM_BYTE, hotkeys::AP_EXIST_BIT, hotkeys::AP_EXIST_BIT)?;
     }
     if on {
         ec.update(OEM_BYTE5, RESPECTIVE_BIT, RESPECTIVE_BIT)?;
@@ -250,8 +255,10 @@ pub fn set_custom(ec: &Registers, on: bool) -> Result<()> {
     }
     #[cfg(target_os = "linux")]
     if !on {
+        ec.update(hotkeys::AP_OEM_BYTE, hotkeys::AP_EXIST_BIT, 0)?;
         ec.clear_on_disconnect(RAM_FAN_CONTROL)?;
         ec.clear_on_disconnect(OEM_BYTE5)?;
+        ec.clear_on_disconnect(hotkeys::AP_OEM_BYTE)?;
     }
     Ok(())
 }
@@ -364,5 +371,25 @@ mod tests {
         let state = helper.state.lock().unwrap();
         assert_eq!(state.registers[0x7C5] & 0x80, 0); // back to Control Center's default with the EC's own curve
         assert!(!state.releases.contains_key(&0x7C5));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_says_an_app_is_present_while_a_curve_is_on() {
+        use crate::hardware::fake_helper::{FakeHelper, serial};
+        let _serial = serial();
+        let helper = FakeHelper::start("app-present", |s| s.registers[0x741] = 0x80);
+        let ec = Ec::connect().unwrap();
+        ec.run_for(Duration::from_secs(5), |r| set_custom(r, true)).unwrap();
+        {
+            // Windows sets it for the Fn keys; Linux, which can't take them yet, only while a custom curve is on.
+            let state = helper.state.lock().unwrap();
+            assert_eq!(state.registers[0x741], 0x81);
+            assert_eq!(state.releases.get(&0x741), Some(&(0x01, 0)));
+        }
+        ec.run_for(Duration::from_secs(5), |r| set_custom(r, false)).unwrap();
+        let state = helper.state.lock().unwrap();
+        assert_eq!(state.registers[0x741], 0x80); // the firmware has the Fn keys again
+        assert!(!state.releases.contains_key(&0x741));
     }
 }
