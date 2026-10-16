@@ -44,8 +44,8 @@ mod linux {
 
     /// Connections waiting for polkit's answer at once; more are closed at once, so nobody can tie the helper up.
     const MAX_PENDING: usize = 16;
-    /// How long a refused client has to send its request before it's told no.
-    const REFUSE_WAIT: Duration = Duration::from_secs(2);
+    /// How long a refused client has to send its request before it's told no. The app sends its request as it connects.
+    const REFUSE_WAIT: Duration = Duration::from_millis(500);
 
     /// What every client shares: the EC (one request at a time), how many authorized clients are connected since
     /// when, how many connections wait for authorization, and what each connected client wants undone (for when the
@@ -209,12 +209,11 @@ mod linux {
     }
 
     fn client(stream: UnixStream, shared: &Arc<Shared>, authorize: fn(&UnixStream) -> bool, pending: Pending) {
-        let allowed = authorize(&stream);
-        drop(pending);
-        if !allowed {
-            refuse(&stream);
+        if !authorize(&stream) {
+            refuse(&stream); // still counted as pending, so refused connections can't pile up
             return;
         }
+        drop(pending);
         let _counted = Counted::new(shared);
         if let Err(error) = serve(&stream, shared) {
             eprintln!("A client's connection ended: {error}");
@@ -380,6 +379,22 @@ mod linux {
             assert_eq!(ec.as_mut().unwrap().read(0x7C6) & 0x04, 0);
             drop(ec);
             drop(client);
+        }
+
+        #[test]
+        fn refused_connections_count_until_answered() {
+            let shared = shared();
+            let path = start("refused-cap", &shared, |_| false);
+            // Connections polkit refuses, that send nothing: each waits to be told no, and is counted meanwhile, so
+            // a flood of them can't pile up threads and file descriptors in the helper.
+            let silent: Vec<UnixStream> = (0..MAX_PENDING).map(|_| UnixStream::connect(&path).unwrap()).collect();
+            let pending = || *shared.pending.lock().unwrap();
+            let started = Instant::now();
+            while pending() < MAX_PENDING && started.elapsed() < Duration::from_millis(300) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert_eq!(pending(), MAX_PENDING);
+            drop(silent);
         }
 
         #[test]
