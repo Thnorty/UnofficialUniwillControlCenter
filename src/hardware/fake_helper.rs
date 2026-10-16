@@ -32,6 +32,10 @@ pub struct State {
     pub hotkeys: Vec<u8>,
     /// Answers a hotkey subscription with this error instead.
     pub hotkeys_error: Option<String>,
+    /// Keeps a hotkey subscription open after its codes, until the app closes it.
+    pub hotkeys_stay_open: bool,
+    /// The app closed its hotkey subscription.
+    pub hotkeys_closed: bool,
 }
 
 pub struct FakeHelper {
@@ -110,6 +114,11 @@ fn push_hotkeys(writer: &mut UnixStream, state: &Arc<Mutex<State>>) {
     std::thread::sleep(std::time::Duration::from_millis(200));
     for code in codes {
         let _ = protocol::write_line(writer, &Reply::Hotkey { code });
+    }
+    if state.lock().unwrap().hotkeys_stay_open {
+        let mut ignored = [0u8; 64];
+        while matches!(std::io::Read::read(writer, &mut ignored), Ok(n) if n > 0) {}
+        state.lock().unwrap().hotkeys_closed = true;
     }
 }
 

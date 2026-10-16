@@ -130,6 +130,13 @@ pub struct HotkeyStream {
     reader: BufReader<UnixStream>,
 }
 
+impl HotkeyStream {
+    /// The same connection, to close it from another thread: the stream then ends.
+    pub fn closer(&self) -> io::Result<UnixStream> {
+        self.reader.get_ref().try_clone()
+    }
+}
+
 impl Iterator for HotkeyStream {
     type Item = u32;
 

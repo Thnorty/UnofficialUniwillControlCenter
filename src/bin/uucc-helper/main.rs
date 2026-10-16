@@ -190,10 +190,11 @@ mod linux {
         std::thread::spawn(move || loop {
             let events = match listener.next() {
                 Ok(events) => events,
+                // Events came faster than they were read, and some were lost: the next ones still come.
+                Err(error) if error.raw_os_error() == Some(libc::ENOBUFS) || error.kind() == io::ErrorKind::Interrupted => continue,
                 Err(error) => {
                     eprintln!("Stopped hearing the laptop's hotkeys: {error}");
-                    *shared.listen_error.lock().unwrap_or_else(|e| e.into_inner()) = error.to_string();
-                    shared.listening.store(false, Ordering::Release);
+                    listener_stopped(&shared, &error.to_string());
                     return;
                 }
             };
@@ -209,6 +210,16 @@ mod linux {
         });
     }
 
+    /// The listener ended: the subscribers' connections are closed, so the app sees its hotkeys end and gives the keys
+    /// back to the firmware.
+    fn listener_stopped(shared: &Shared, why: &str) {
+        *shared.listen_error.lock().unwrap_or_else(|e| e.into_inner()) = why.to_string();
+        shared.listening.store(false, Ordering::Release);
+        for subscriber in std::mem::take(&mut *shared.subscribers.lock().unwrap_or_else(|e| e.into_inner())) {
+            let _ = subscriber.shutdown(std::net::Shutdown::Both);
+        }
+    }
+
     /// The code of the hotkey `event` reports, read straight away: the firmware clears it about 20 ms later. None for
     /// another event, or when the code is already gone.
     fn hotkey_code(event: &AcpiEvent, ec: &mut dyn EcAccess) -> Option<u8> {
@@ -218,10 +229,24 @@ mod linux {
         Some(ec.read(HOTKEY_CODE)).filter(|&code| code != 0)
     }
 
-    /// Sends `code` to every subscribed client; one that can't take it (gone, or not reading) is dropped.
+    /// Sends `code` to every subscribed client without waiting; one that can't take the whole line (gone, or not
+    /// reading) is dropped and its connection closed, so it sees its hotkeys end.
     fn broadcast(shared: &Shared, code: u8) {
+        let mut line = Vec::new();
+        if protocol::write_line(&mut line, &Reply::Hotkey { code }).is_err() {
+            return;
+        }
         let mut subscribers = shared.subscribers.lock().unwrap_or_else(|e| e.into_inner());
-        subscribers.retain(|stream| protocol::write_line(&mut &*stream, &Reply::Hotkey { code }).is_ok());
+        subscribers.retain(|stream| {
+            let sent = unsafe {
+                libc::send(stream.as_raw_fd(), line.as_ptr() as *const libc::c_void, line.len(), libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL)
+            };
+            let whole = sent == line.len() as isize;
+            if !whole {
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            }
+            whole
+        });
     }
 
     /// Takes a client's hotkey subscription: `Done`, then only `Hotkey` lines, until it goes away.
@@ -235,15 +260,19 @@ mod linux {
             return protocol::write_line(&mut &*stream, &Reply::Error { message });
         }
         protocol::write_line(&mut &*stream, &Reply::Done)?;
-        let pushed = stream.try_clone()?;
-        pushed.set_nonblocking(true)?;
-        shared.subscribers.lock().unwrap_or_else(|e| e.into_inner()).push(pushed);
-        // Nothing more is expected from it: wait for it to go away, so it counts as connected meanwhile.
-        let mut ignored = Vec::new();
-        while std::io::BufRead::read_until(reader, b'\n', &mut ignored)? > 0 {
-            ignored.clear();
+        // A copy of the same connection: it stays blocking (the flag would be shared); `broadcast` doesn't wait.
+        shared.subscribers.lock().unwrap_or_else(|e| e.into_inner()).push(stream.try_clone()?);
+        // Nothing more is expected from it: wait for it to go away, so it counts as connected meanwhile. Whatever it
+        // sends is read and dropped, a little at a time.
+        let mut ignored = [0u8; 256];
+        loop {
+            match std::io::Read::read(reader, &mut ignored) {
+                Ok(0) => return Ok(()),
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
         }
-        Ok(())
     }
 
     /// SIGTERM and SIGINT.
@@ -576,6 +605,30 @@ mod linux {
             assert_eq!(next_reply(&mut reader), Some(Reply::Hotkey { code: 0xB1 }));
             assert_eq!(next_reply(&mut reader), Some(Reply::Hotkey { code: 0xB2 }));
             assert_eq!(subscribers(&shared), 1);
+        }
+
+        #[test]
+        fn a_subscription_counts_as_a_client() {
+            let shared = listening(true);
+            let path = start("hotkeys-counted", &shared, |_| true);
+            let (_client, _reader) = subscribe(&path);
+            wait_for(|| subscribers(&shared) == 1);
+            std::thread::sleep(Duration::from_millis(300));
+            // Connected for as long as the app runs, so the helper doesn't idle out under it.
+            assert_eq!(clients(&shared), 1);
+        }
+
+        #[test]
+        fn a_listener_that_stops_closes_its_subscribers() {
+            let shared = listening(true);
+            let path = start("hotkeys-stopped", &shared, |_| true);
+            let (_client, mut reader) = subscribe(&path);
+            wait_for(|| subscribers(&shared) == 1);
+            listener_stopped(&shared, "test");
+            // The app sees its hotkeys end, and gives the keys back to the firmware.
+            assert_eq!(next_reply(&mut reader), None);
+            assert!(!shared.listening.load(Ordering::Acquire));
+            assert_eq!(subscribers(&shared), 0);
         }
 
         #[test]

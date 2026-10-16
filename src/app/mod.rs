@@ -1054,9 +1054,10 @@ impl App {
 
     fn check_hotkeys(&mut self) {
         if hotkeys_need_restart(self.hotkeys.is_some(), self.hotkeys.as_ref().is_some_and(Hotkeys::alive)) {
-            // The helper restarted, and gave the keys back to the firmware as it went.
+            // The hotkeys stopped coming: the helper restarted (it gave the keys back as it went), or it can't hear
+            // them any more. Either way the firmware has them until they're taken again.
             if let Some(hotkeys) = self.hotkeys.take() {
-                hotkeys.abandon();
+                hotkeys.release();
             }
         }
         let Some(hotkeys) = &self.hotkeys else {

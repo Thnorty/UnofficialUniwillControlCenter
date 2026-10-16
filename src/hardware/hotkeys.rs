@@ -39,7 +39,13 @@ pub struct Hotkeys {
     active: Arc<AtomicBool>,
     /// False once the hotkey events stopped coming (on Linux, the helper went away).
     alive: Arc<AtomicBool>,
+    /// On Linux, the subscription's connection, closed to end the event thread.
+    #[cfg(target_os = "linux")]
+    subscription: Subscription,
 }
+
+#[cfg(target_os = "linux")]
+type Subscription = Arc<Mutex<Option<std::os::unix::net::UnixStream>>>;
 
 /// The running instance's EC, so a crash can give the hotkeys back. If the bit stayed set with nothing listening,
 /// the keyboard-light keys would do nothing until this app ran again.
@@ -56,7 +62,14 @@ impl Hotkeys {
         let event_active = active.clone();
         let alive = Arc::new(AtomicBool::new(true));
         let event_alive = alive.clone();
+        #[cfg(target_os = "linux")]
+        let subscription: Subscription = Arc::new(Mutex::new(None));
+        #[cfg(target_os = "linux")]
+        let event_subscription = subscription.clone();
         std::thread::Builder::new().name("Hotkey events".into()).spawn(move || {
+            #[cfg(target_os = "linux")]
+            event_thread(pressed, listening_tx, event_active, event_subscription);
+            #[cfg(windows)]
             event_thread(pressed, listening_tx, event_active);
             event_alive.store(false, Ordering::Release);
         })?;
@@ -64,7 +77,13 @@ impl Hotkeys {
 
         active.store(true, Ordering::Release);
         *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = Some(ec.clone());
-        let hotkeys = Hotkeys { ec, active, alive };
+        let hotkeys = Hotkeys {
+            ec,
+            active,
+            alive,
+            #[cfg(target_os = "linux")]
+            subscription,
+        };
         let taken = hotkeys.ec.run_for(Duration::from_secs(5), |ec| {
             // On Linux the helper clears the bit if the app goes away, so a crash gives the keys back.
             #[cfg(target_os = "linux")]
@@ -128,6 +147,7 @@ impl Hotkeys {
     /// Stops handling hotkeys without touching the EC, for when Control Center's service takes over the bit.
     pub fn abandon(self) {
         self.active.store(false, Ordering::Release);
+        self.unsubscribe();
         clear_current();
     }
 
@@ -135,7 +155,16 @@ impl Hotkeys {
     pub fn release(self) {
         release_through(&self.ec);
         self.active.store(false, Ordering::Release);
+        self.unsubscribe();
         clear_current();
+    }
+
+    /// On Linux, closes the helper connection the codes come on, so the event thread ends.
+    fn unsubscribe(&self) {
+        #[cfg(target_os = "linux")]
+        if let Some(connection) = self.subscription.lock().unwrap_or_else(|e| e.into_inner()).take() {
+            let _ = connection.shutdown(std::net::Shutdown::Both);
+        }
     }
 }
 
@@ -183,9 +212,10 @@ pub fn without_app_present<R>(ec: &super::ec::Registers, job: impl FnOnce() -> R
 
 /// The hotkeys through the app's helper, which hears the kernel's ACPI event for each and reads its code from the EC.
 #[cfg(target_os = "linux")]
-fn event_thread(pressed: impl Fn(u32), listening: Sender<Result<()>>, active: Arc<AtomicBool>) {
+fn event_thread(pressed: impl Fn(u32), listening: Sender<Result<()>>, active: Arc<AtomicBool>, subscription: Subscription) {
     let codes = match super::ec::subscribe_hotkeys() {
         Ok(codes) => {
+            *subscription.lock().unwrap_or_else(|e| e.into_inner()) = codes.closer().ok();
             listening.send(Ok(())).ok();
             codes
         }
@@ -261,6 +291,20 @@ mod tests {
         let state = helper.state.lock().unwrap();
         assert_eq!(state.registers[0x741], 0x80);
         assert!(!state.releases.contains_key(&0x741));
+    }
+
+    #[test]
+    fn abandoned_linux_hotkeys_close_their_subscription() {
+        let _serial = serial();
+        let helper = FakeHelper::start("hotkeys-abandoned", |s| s.hotkeys_stay_open = true);
+        let hotkeys = Hotkeys::start(Ec::connect().unwrap(), |_| {}).unwrap();
+        // A start that failed after subscribing, retried every 5 s, mustn't leave a thread and a connection each time.
+        hotkeys.abandon();
+        let started = std::time::Instant::now();
+        while !helper.state.lock().unwrap().hotkeys_closed && started.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(helper.state.lock().unwrap().hotkeys_closed);
     }
 
     #[test]
