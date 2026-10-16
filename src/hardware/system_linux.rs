@@ -145,6 +145,20 @@ pub mod startup {
 
     /// Nothing to move over on Linux.
     pub fn migrate() {}
+
+    /// Turns starting at login on the first time the app runs, as the Windows installer does by default (a package
+    /// installs as root, and the entry is the user's). `done` remembers it, so turning it off in Settings stays off.
+    pub fn enable_first_time(done: &mut bool) -> Result<()> {
+        enable_first_time_in(&config(), done)
+    }
+
+    pub(super) fn enable_first_time_in(config: &Path, done: &mut bool) -> Result<()> {
+        if !*done {
+            enable_in(config)?;
+            *done = true;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -177,6 +191,19 @@ mod tests {
         assert!(!dir.join("autostart/unofficial-uniwill-control-center.desktop").exists());
         assert!(!startup::is_enabled_in(&dir));
         startup::disable_in(&dir).unwrap(); // already gone is fine
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn start_at_login_is_turned_on_only_the_first_time() {
+        let dir = config("first");
+        let mut done = false;
+        startup::enable_first_time_in(&dir, &mut done).unwrap();
+        assert!(startup::is_enabled_in(&dir) && done); // as the Windows installer does by default
+        // Turned off in Settings: the next start leaves it off.
+        startup::disable_in(&dir).unwrap();
+        startup::enable_first_time_in(&dir, &mut done).unwrap();
+        assert!(!startup::is_enabled_in(&dir));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

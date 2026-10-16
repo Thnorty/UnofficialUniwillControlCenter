@@ -337,7 +337,8 @@ lighting controllers are used directly over `hidraw`. Where Linux differs:
   (so the GPU isn't woken to ask) and its temperature from NVML when the NVIDIA driver is installed.
 - **Desktop:** the tray icon is a StatusNotifierItem (KDE Plasma; GNOME with the AppIndicator extension), dialogs use
   kdialog or zenity and the desktop's file picker, the theme and accent color follow the desktop's settings portal,
-  and start at login is an XDG autostart entry.
+  and start at login is an XDG autostart entry, turned on at the first start as the Windows installer does by
+  default (turning it off in Settings stays off).
 
 ## Building
 

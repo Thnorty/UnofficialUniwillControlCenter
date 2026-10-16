@@ -409,7 +409,8 @@ fn tile_names_and_groups(effects: &[Effect]) -> (Vec<SharedString>, Vec<TileGrou
 impl App {
     /// Builds the app around the window and starts it. `demo` shows the window with simulated devices only.
     pub fn start(ui: &AppWindow, demo: bool, start_hidden: bool) {
-        let settings = Settings::load();
+        #[allow(unused_mut)] // set on Linux
+        let mut settings = Settings::load();
         let keyboard = Lighting::new(Kind::Keyboard, settings.keyboard.as_ref().expect("loaded with a keyboard"));
         let idle_index = IDLE_TIMEOUTS.iter().position(|t| t.1 == settings.idle_timeout_seconds).unwrap_or(0);
 
@@ -448,6 +449,10 @@ impl App {
         if !demo {
             startup::migrate();
         }
+        #[cfg(target_os = "linux")]
+        let start_at_login_set = !demo && !settings.start_at_login_set && startup::enable_first_time(&mut settings.start_at_login_set).is_ok();
+        #[cfg(not(target_os = "linux"))]
+        let start_at_login_set = false;
         ui.set_start_with_windows(!demo && startup::is_enabled());
         apply_theme(ui);
 
@@ -480,7 +485,7 @@ impl App {
             status_timer: slint::Timer::default(),
             watch,
             started: Instant::now(),
-            settings_dirty: false,
+            settings_dirty: start_at_login_set,
             exiting: false,
             replace_settings: None,
             power,

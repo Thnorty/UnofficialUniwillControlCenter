@@ -45,6 +45,9 @@ pub struct Settings {
     pub accepted_risk: bool,
     /// No icon in the notification area; the app still runs, and starting it again opens the window.
     pub hide_tray_icon: bool,
+    /// Linux: starting at login was turned on at the first start (as the Windows installer does), so turning it off
+    /// in Settings stays off.
+    pub start_at_login_set: bool,
 }
 
 /// Whole-screen color modes: whether one is on, which, and each mode's values (missing ones are the mode's own).
@@ -126,6 +129,7 @@ impl Default for Settings {
             nav_collapsed: false,
             accepted_risk: false,
             hide_tray_icon: false,
+            start_at_login_set: false,
         }
     }
 }
