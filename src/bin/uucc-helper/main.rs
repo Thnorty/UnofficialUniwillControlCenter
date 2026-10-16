@@ -6,6 +6,8 @@
 #[path = "../../hardware/helper_protocol.rs"]
 mod protocol;
 #[cfg(target_os = "linux")]
+mod acpi_events;
+#[cfg(target_os = "linux")]
 mod ec;
 #[cfg(target_os = "linux")]
 mod efivar;
