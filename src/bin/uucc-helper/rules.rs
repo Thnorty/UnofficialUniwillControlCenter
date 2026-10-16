@@ -16,6 +16,26 @@ const WRITABLE: &[(u16, u16)] = &[
     (0xF00, 0xF5F),
 ];
 
+/// The BIOS settings variable's bytes the app changes, as ranges: the boot lighting of the keyboard and the light bar
+/// (15-46), the voltage offset up (58-59), the overclock recovery flag (92), the GPU mode (98) and the voltage offset
+/// down (100-101).
+const VARIABLE_WRITABLE: &[std::ops::Range<usize>] = &[15..47, 58..60, 92..93, 98..99, 100..102];
+
+/// Whether `bytes` with `attributes` may replace the variable that has `current_attributes` and `current`: the same
+/// attributes (0 would delete it, APPEND_WRITE grow it) and size, and changes only in the app's fields.
+pub fn variable_write_allowed(current_attributes: u32, current: &[u8], attributes: u32, bytes: &[u8]) -> Result<(), String> {
+    if attributes != current_attributes {
+        return Err(format!("the attributes must stay {current_attributes:#x}, not {attributes:#x}"));
+    }
+    if bytes.len() != current.len() {
+        return Err(format!("the variable must stay {} bytes, not {}", current.len(), bytes.len()));
+    }
+    match (0..bytes.len()).find(|&i| bytes[i] != current[i] && !VARIABLE_WRITABLE.iter().any(|r| r.contains(&i))) {
+        Some(i) => Err(format!("byte {i} isn't one the app changes")),
+        None => Ok(()),
+    }
+}
+
 /// The EC window is one 4 KB page.
 const WINDOW: u16 = 0x1000;
 
@@ -81,6 +101,38 @@ mod tests {
         releases.set(0x7C6, 0x04, 0x04);
         assert_eq!(releases.take(), vec![(0x7C6, 0x04, 0x04)]);
         assert!(releases.take().is_empty());
+    }
+
+    #[test]
+    fn variable_writes_change_only_the_apps_fields() {
+        let before = vec![0u8; 180];
+        let changed = |at: &[usize]| {
+            let mut bytes = before.clone();
+            for &i in at {
+                bytes[i] = 0x5A;
+            }
+            bytes
+        };
+        // Boot lighting (15-46), the voltage offset (58-59, 100-101), the recovery flag (92) and the GPU mode (98).
+        for fields in [&[15, 30, 31, 46][..], &[58, 59, 100, 101], &[92], &[98]] {
+            assert_eq!(variable_write_allowed(7, &before, 7, &changed(fields)), Ok(()), "{fields:?}");
+        }
+        // The rest is the BIOS's, such as the voltage offset's maximum (60) and the bytes next to the app's.
+        for i in [0, 14, 47, 57, 60, 91, 93, 97, 99, 102, 179] {
+            assert!(variable_write_allowed(7, &before, 7, &changed(&[i])).is_err(), "byte {i}");
+        }
+        assert!(variable_write_allowed(7, &before, 7, &before[..179]).is_err());
+    }
+
+    #[test]
+    fn variable_writes_keep_the_attributes() {
+        let before = vec![0u8; 180];
+        let mut gpu = before.clone();
+        gpu[98] = 1;
+        // Attributes 0 would delete the variable; APPEND_WRITE (0x40) would grow it until the NVRAM is full.
+        assert!(variable_write_allowed(7, &before, 0, &gpu).is_err());
+        assert!(variable_write_allowed(7, &before, 7 | 0x40, &gpu).is_err());
+        assert!(variable_write_allowed(7, &before, 3, &gpu).is_err());
     }
 
     #[test]

@@ -42,10 +42,19 @@ pub fn handle(request: Request, session: &mut Session, ec: Option<&mut dyn EcAcc
             Ok((attributes, bytes)) => Reply::Variable { attributes, bytes },
             Err(error) => Reply::Error { message: format!("Couldn't read the BIOS settings: {error}") },
         },
-        Request::WriteVariable { attributes, bytes } => match efivar::write(variable, attributes, &bytes, &efivar::Ioctl) {
-            Ok(()) => Reply::Done,
-            Err(error) => Reply::Error { message: format!("Couldn't write the BIOS settings: {error}") },
-        },
+        Request::WriteVariable { attributes, bytes } => {
+            let allowed = efivar::read(variable)
+                .map_err(|error| format!("Couldn't read the BIOS settings: {error}"))
+                .and_then(|(current_attributes, current)| rules::variable_write_allowed(current_attributes, &current, attributes, &bytes)
+                    .map_err(|reason| format!("The helper refused that change to the BIOS settings: {reason}")));
+            match allowed {
+                Err(message) => Reply::Refused { message },
+                Ok(()) => match efivar::write(variable, attributes, &bytes, &efivar::Ioctl) {
+                    Ok(()) => Reply::Done,
+                    Err(error) => Reply::Error { message: format!("Couldn't write the BIOS settings: {error}") },
+                },
+            }
+        }
         ec_request => {
             let Some(ec) = ec else { return unavailable() };
             ec_reply(ec_request, session, ec)
@@ -204,6 +213,20 @@ mod tests {
         let mut session = Session::default();
         let reply = handle(Request::ReadVariable, &mut session, None, &Err(Unavailable::SecureBoot), &path);
         assert_eq!(reply, Reply::Variable { attributes: 7, bytes: vec![0; crate::efivar::SIZE] });
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn variable_writes_the_app_wouldnt_make_are_refused() {
+        let path = std::env::temp_dir().join(format!("uucc-server-variable-refused-{}", std::process::id()));
+        let mut contents = 7u32.to_le_bytes().to_vec();
+        contents.extend([0u8; crate::efivar::SIZE]);
+        std::fs::write(&path, &contents).unwrap();
+        let mut session = Session::default();
+        let bytes = vec![0x5A; crate::efivar::SIZE];
+        let reply = handle(Request::WriteVariable { attributes: 0, bytes }, &mut session, None, &Err(Unavailable::SecureBoot), &path);
+        assert!(matches!(reply, Reply::Refused { .. }), "{reply:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), contents);
         let _ = std::fs::remove_file(path);
     }
 
