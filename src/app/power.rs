@@ -40,8 +40,9 @@ pub(super) struct Power {
     fan_tables: bool,
     pub mode: Mode,
     pub fan_boost: bool,
-    /// How many times the app has set Fan Boost, so an EC reading taken before the latest time doesn't undo it.
-    fan_boost_choices: u64,
+    /// How many times the app has set the mode or Fan Boost, so an EC reading taken before the latest time doesn't
+    /// undo it.
+    choices: u64,
     limits: Option<PowerLimits>,
     pub on_ac: bool,
     pub charge: ChargeMode,
@@ -112,7 +113,7 @@ impl Power {
             fan_tables: demo,
             mode: settings.map_or(Mode::Gaming, |s| s.mode),
             fan_boost: settings.is_some_and(|s| s.fan_boost),
-            fan_boost_choices: 0,
+            choices: 0,
             limits: demo.then_some(PowerLimits { pl1: 60, pl2: 60, pl4: 165 }),
             on_ac: status::on_ac(),
             charge: settings.map_or(ChargeMode::HighCapacity, |s| s.charge_mode),
@@ -231,18 +232,33 @@ impl Power {
     /// The mode the performance key switches to (MyFanManager_RamFan1p5.ModeSwitchChanged).
     fn choose_fan_boost(&mut self, on: bool) {
         self.fan_boost = on;
-        self.fan_boost_choices += 1;
+        self.choices += 1;
+    }
+
+    fn choose_mode(&mut self, mode: Mode) {
+        self.mode = mode;
+        self.choices += 1;
+    }
+
+    /// What the EC changed by itself (the performance key, or Fan Boost's), from a reading asked for with `ticket`;
+    /// nothing if the app has set either since.
+    #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
+    fn changed_on_ec(&self, ticket: u64, mode: Mode, fan_boost: bool) -> (Option<Mode>, Option<bool>) {
+        if !self.reading_current(ticket) {
+            return (None, None);
+        }
+        ((mode != self.mode).then_some(mode), (fan_boost != self.fan_boost).then_some(fan_boost))
     }
 
     /// Taken when the EC reports a Fan Boost change, before reading it.
-    fn fan_boost_ticket(&self) -> u64 {
-        self.fan_boost_choices
+    fn choice_ticket(&self) -> u64 {
+        self.choices
     }
 
     /// Whether a reading asked for with `ticket` is still news: on Windows it can wait behind slow EC calls, and if
     /// the app set Fan Boost meanwhile (turned on and quickly off again) the reading is older than that choice.
-    fn fan_boost_reading_current(&self, ticket: u64) -> bool {
-        self.fan_boost_choices == ticket
+    fn reading_current(&self, ticket: u64) -> bool {
+        self.choices == ticket
     }
 
     fn next_mode(&self) -> Mode {
@@ -381,6 +397,33 @@ impl App {
             self.read_power_state();
         } else {
             self.check_fan_safety();
+        }
+    }
+
+    /// The performance key and Fan Boost's change the EC's mode byte by themselves. Windows hears of it as a hotkey;
+    /// Linux can't take those yet, so it reads the byte every second and follows, as the key's light does.
+    #[cfg(target_os = "linux")]
+    pub(super) fn check_ec_mode(&self) {
+        if !self.power.owned || !self.power.ready {
+            return;
+        }
+        let Some(ec) = self.power.ec.clone() else { return };
+        let ticket = self.power.choice_ticket();
+        ec.spawn(move |ec| {
+            if let Ok((mode, fan_boost)) = performance::current(ec) {
+                post(move |app| app.ec_mode_read(ticket, mode, fan_boost));
+            }
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    fn ec_mode_read(&mut self, ticket: u64, mode: Mode, fan_boost: bool) {
+        let (mode, fan_boost) = self.power.changed_on_ec(ticket, mode, fan_boost);
+        if let Some(on) = fan_boost {
+            self.fan_boost_from_ec(on, false);
+        }
+        if let Some(mode) = mode {
+            self.set_mode(mode); // the mode's own limits, fan curve and profile, as the key does on Windows
         }
     }
 
@@ -725,7 +768,7 @@ impl App {
         if mode == self.power.mode {
             return;
         }
-        self.power.mode = mode;
+        self.power.choose_mode(mode);
         self.power.chosen = true;
         self.settings_dirty = true;
         self.apply_power();
@@ -806,11 +849,11 @@ impl App {
             }
             hotkeys::FAN_BOOST_CHANGED | hotkeys::FAN_BOOST_OFF => {
                 let Some(ec) = self.power.ec.clone() else { return };
-                let ticket = self.power.fan_boost_ticket();
+                let ticket = self.power.choice_ticket();
                 ec.spawn(move |ec| {
                     let on = code == hotkeys::FAN_BOOST_CHANGED && performance::current(ec).is_ok_and(|(_, boost)| boost);
                     post(move |app| {
-                        if app.power.fan_boost_reading_current(ticket) {
+                        if app.power.reading_current(ticket) {
                             app.fan_boost_from_ec(on, code == hotkeys::FAN_BOOST_CHANGED);
                         }
                     });
@@ -1333,10 +1376,25 @@ mod tests {
         let mut power = Power::new(None, true);
         power.choose_fan_boost(true);
         // The EC reports the change; on Windows its reading can wait behind slow EC calls.
-        let reading = power.fan_boost_ticket();
+        let reading = power.choice_ticket();
         power.choose_fan_boost(false); // turned off again before the reading arrives
-        assert!(!power.fan_boost_reading_current(reading), "the old reading would turn Fan Boost back on");
-        assert!(power.fan_boost_reading_current(power.fan_boost_ticket())); // the key, with no click since
+        assert!(!power.reading_current(reading), "the old reading would turn Fan Boost back on");
+        assert!(power.reading_current(power.choice_ticket())); // the key, with no click since
+    }
+
+    #[test]
+    fn the_performance_key_is_followed_but_not_over_a_click() {
+        let mut power = Power::new(None, true);
+        power.mode = Mode::Gaming;
+        // The key switched the EC to Office by itself: the app follows.
+        let reading = power.choice_ticket();
+        assert_eq!(power.changed_on_ec(reading, Mode::Office, false), (Some(Mode::Office), None));
+        assert_eq!(power.changed_on_ec(reading, Mode::Gaming, false), (None, None)); // nothing changed
+        assert_eq!(power.changed_on_ec(reading, Mode::Gaming, true), (None, Some(true))); // the Fan Boost key
+        // A reading from before the app set a mode is older than that choice.
+        power.choose_mode(Mode::Turbo);
+        assert_eq!(power.changed_on_ec(reading, Mode::Gaming, false), (None, None));
+        assert_eq!(power.mode, Mode::Turbo);
     }
 
     #[test]

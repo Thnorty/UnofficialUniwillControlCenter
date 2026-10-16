@@ -1130,6 +1130,7 @@ impl App {
         every(1000, |app| {
             if !app.demo {
                 app.check_fan_safety();
+                app.check_ec_mode();
             }
         });
         every(5000, |app| {
