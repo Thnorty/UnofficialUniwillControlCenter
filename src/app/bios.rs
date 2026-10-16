@@ -217,7 +217,7 @@ impl App {
         let startup = startup_of(kind);
         self.write_bios(
             move |_| uefi::set_startup(startup, effect, timeout),
-            |app| app.set_status("The laptop's own startup lighting is back.", false, false),
+            |app| app.set_status("The startup lighting the laptop came with is back.", false, false),
         );
     }
 
@@ -225,7 +225,7 @@ impl App {
     fn startup_text(&self, kind: Kind) -> String {
         let Some(variable) = &self.bios.variable else {
             return match &self.bios.error {
-                _ if self.demo => "Before Windows starts, the laptop shows its own startup lighting.".into(),
+                _ if self.demo => "While the laptop starts, it shows the startup lighting it came with.".into(),
                 Some(error) => format!("The BIOS settings can't be read: {error}"),
                 None => "Reading the BIOS settings…".into(),
             };
@@ -235,11 +235,11 @@ impl App {
         let list = if kind == Kind::Keyboard { effects::KEYBOARD } else { effects::LIGHT_BAR };
         let name = list.iter().find(|e| e.id == effect[2] && !e.drawn_by_app()).map_or_else(|| format!("effect {}", effect[2]), |e| e.name.to_string());
         if effect[0] != 0x08 {
-            "Before Windows starts, the laptop shows its own startup lighting.".into()
+            "While the laptop starts, it shows the startup lighting it came with.".into()
         } else if effect == factory {
-            format!("Before Windows starts: {name}, the laptop's own startup lighting.")
+            format!("While the laptop starts: {name}, the startup lighting it came with.")
         } else {
-            format!("Before Windows starts: {name} at {}% brightness.", super::to_percent(effect[4]))
+            format!("While the laptop starts: {name} at {}% brightness.", super::to_percent(effect[4]))
         }
     }
 

@@ -419,7 +419,7 @@ export component LightingPage inherits VerticalLayout {
             HorizontalLayout {
                 spacing: 16px;
                 LinkButton {
-                    text: "Restore the laptop's own";
+                    text: "Restore original";
                     vertical-alignment: center;
                     clicked => { root.reset-startup(); }
                 }
@@ -431,7 +431,7 @@ export component LightingPage inherits VerticalLayout {
             }
         }
         Caption {
-            text: "Saves this effect, its colors, brightness and speed as what the " + (root.is-light-bar ? "light bar" : "keyboard") + " shows before Windows starts. Effects animated by this app can't run then, so they leave " + (root.is-light-bar ? "their first color." : "the zone colors.");
+            text: "Saves this effect, its colors, brightness and speed as what the " + (root.is-light-bar ? "light bar" : "keyboard") + " shows while the laptop starts. Effects animated by this app can't run then, so they leave " + (root.is-light-bar ? "their first color." : "the zone colors.");
         }
     }
 }
@@ -519,7 +519,7 @@ export component AlertsPage inherits VerticalLayout {
                     }
                     Caption {
                         text: "A countdown that keeps running in the background, also with this window closed (it's in the tray icon's menu too). When the time is up, "
-                            + (root.has-light-bar ? "the light bar blinks orange, " : "") + "a pop-up shows on the screen and Windows sends a notification. Handy as a break, study or cooking reminder.";
+                            + (root.has-light-bar ? "the light bar blinks orange, " : "") + "a pop-up shows on the screen and a notification is sent. Handy as a break, study or cooking reminder.";
                     }
                 }
             }
