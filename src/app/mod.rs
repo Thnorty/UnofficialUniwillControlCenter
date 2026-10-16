@@ -1488,6 +1488,7 @@ impl App {
                     app.apply_display();
                     if !app.demo {
                         app.check_hotkeys();
+                        crate::hardware::fans::forget_written(); // the fan tables too, maybe
                         app.apply_power(); // the EC forgets some of it in sleep
                     }
                 }),

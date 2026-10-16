@@ -769,6 +769,7 @@ impl App {
             return;
         }
         self.power.choose_mode(mode);
+        fans::forget_written(); // the EC may load the new mode's own table
         self.power.chosen = true;
         self.settings_dirty = true;
         self.apply_power();

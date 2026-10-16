@@ -159,8 +159,8 @@ fn changed_writes(written: Option<&Table>, table: &Table) -> Vec<(u16, u8)> {
 /// What this app last wrote to the RAM tables, while nothing else can have changed them since.
 static WRITTEN: Mutex<Option<Table>> = Mutex::new(None);
 
-/// The RAM tables may have changed (the EC copied a mode's table in, or Control Center took over): the next custom
-/// curve writes all of itself.
+/// The RAM tables may have changed (the curve was off, the laptop slept, the mode changed, or Control Center took
+/// over): the next custom curve writes all of itself. What was written holds only while a curve stays on.
 pub fn forget_written() {
     *WRITTEN.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
@@ -173,7 +173,6 @@ pub fn forget_written() {
 /// the copy would start early, under the next write), and it's done once 0xF5F and 0xF5D have changed.
 pub fn read_defaults(ec: &Registers) -> Result<Vec<(Mode, Table)>> {
     set_custom(ec, false)?;
-    forget_written();
     let tables = hotkeys::without_app_present(ec, || -> Result<Vec<(Mode, Table)>> {
         let mut tables = Vec::new();
         for mode in Mode::ALL {
@@ -222,7 +221,6 @@ pub fn apply_custom(ec: &Registers, table: &Table) -> Result<()> {
     let writes = changed_writes(WRITTEN.lock().unwrap_or_else(|e| e.into_inner()).as_ref(), table);
     if !writes.is_empty() {
         set_custom(ec, false)?;
-        forget_written();
     }
     for (address, value) in writes {
         ec.write(address, value)?;
@@ -250,6 +248,7 @@ pub fn set_custom(ec: &Registers, on: bool) -> Result<()> {
         ec.update(OEM_BYTE5, RESPECTIVE_BIT, RESPECTIVE_BIT)?;
         ec.update(RAM_FAN_CONTROL, RAM_FAN_BIT, RAM_FAN_BIT)?;
     } else {
+        forget_written();
         ec.update(RAM_FAN_CONTROL, RAM_FAN_BIT, 0)?;
         ec.update(OEM_BYTE5, RESPECTIVE_BIT, 0)?;
     }
@@ -371,6 +370,28 @@ mod tests {
         let state = helper.state.lock().unwrap();
         assert_eq!(state.registers[0x7C5] & 0x80, 0); // back to Control Center's default with the EC's own curve
         assert!(!state.releases.contains_key(&0x7C5));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_curve_turned_off_is_written_whole_next_time() {
+        use crate::hardware::fake_helper::{FakeHelper, serial};
+        use crate::hardware::helper_protocol::Request;
+        let _serial = serial();
+        let helper = FakeHelper::start("written", |_| {});
+        let ec = Ec::connect().unwrap();
+        forget_written();
+        let table = Table { cpu: gaming(), gpu: gaming() };
+        let table_writes = || helper.state.lock().unwrap().received.iter().filter(|(_, r)| matches!(r, Request::Write { address: 0xF00..=0xF5F, .. })).count();
+        let apply = |t: Table| ec.run_for(Duration::from_secs(5), move |r| apply_custom(r, &t)).unwrap();
+        apply(table.clone());
+        assert_eq!(table_writes(), 94);
+        apply(table.clone()); // still on: nothing to write
+        assert_eq!(table_writes(), 94);
+        // Off, the EC may load its own tables into RAM (or forget them in sleep): what was written is unknown.
+        ec.run_for(Duration::from_secs(5), |r| set_custom(r, false)).unwrap();
+        apply(table);
+        assert_eq!(table_writes(), 188);
     }
 
     #[cfg(target_os = "linux")]
