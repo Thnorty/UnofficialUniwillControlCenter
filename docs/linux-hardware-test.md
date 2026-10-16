@@ -42,7 +42,8 @@ first.
 | ☐ | Modes | Office, Gaming, Turbo in turn | The Performance page and Monitor follow; the fans' sound and RPM change as on Windows; the power limits shown follow the mode. |
 | ☐ | Fan Boost | On, then off | The fans go to full speed and back. |
 | ☐ | Profiles | Add a profile with custom PL1/PL2, apply it, switch back | The Monitor's CPU power follows the limits under load. |
-| ☐ | Fan curve | Turn a custom curve on, change a point, turn it off | The fans follow it on; on the laptop's curve again when off; `0x7C6` bit 2 (value `& 0x04`) set while on and clear after. |
+| ☐ | Fan curve | Raise only the GPU curve, turn the custom curve on, change a point, turn it off | Each fan follows its own curve (the GPU fan fast, the CPU fan on its curve) within about a minute; on the laptop's curve again when off. While on, `0x741 & 0x01`, `0x7C5 & 0x80` and `0x7C6 & 0x04` are set; all three clear after. |
+| ☐ | Performance key | Press it with the custom curve off, then on | Off: the app shows the key's mode within about a second, and keeps it after reopening. On: the key does nothing, and the note under the fan curve says so. |
 | ☐ | Crash with a curve on | Curve on, then `pkill -9 -f unofficial-uniwill-control-center` | Within a second `0x7C6 & 0x04` is 0 and the fans follow the laptop's curve. |
 | ☐ | Fan safety | (If it can be triggered) heavy load with a low custom curve | The app steps back to the laptop's curve and notifies. |
 
@@ -96,8 +97,9 @@ first.
 
 | | Check | Do | Expect |
 |---|---|---|---|
-| ☐ | Helper stopped | `sudo systemctl stop uucc-helper.socket uucc-helper.service`, then restart the app | The Performance page says the helper isn't running and how to start it; lighting still works. Start the socket again afterwards. |
-| ☐ | Helper restart | With the app open, `sudo systemctl restart uucc-helper.service` | The next change works (the app reconnects). |
+| ☐ | Helper stopped | With a custom curve on and the app open, `sudo systemctl stop uucc-helper.socket uucc-helper.service` | Within about 5 s the Performance page says the helper isn't running and how to start it; lighting still works. |
+| ☐ | Helper back | Then `sudo systemctl start uucc-helper.socket` | Within about 10 s the page works again, with the custom curve back on. |
+| ☐ | Helper restart | With a custom curve on and the app open, `sudo systemctl restart uucc-helper.service` | Within a few seconds the fans follow the curve again (the app sets everything again). |
 
 Secure Boot detection itself is covered by unit tests (the live USB has Secure Boot off).
 

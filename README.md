@@ -151,8 +151,8 @@ sudo dnf install ./unofficial-uniwill-control-center-<version>-1.x86_64.rpm   # 
 sudo apt install ./unofficial-uniwill-control-center_<version>-1_amd64.deb     # Ubuntu, Debian
 ```
 
-Then sign out and back in, so the lighting rule gives you the keyboard and light bar, and open **Unofficial Uniwill
-Control Center** from the app menu. The package installs:
+Then open **Unofficial Uniwill Control Center** from the app menu. Installing applies the lighting rule that gives
+you the keyboard and light bar; if the lighting doesn't respond, sign out and back in once. The package installs:
 
 - the app (`unofficial-uniwill-control-center`) and `uucc`, which run as you;
 - `uucc-helper`, a small root service that systemd starts when the app first asks. It's the only part that reaches the
@@ -175,13 +175,14 @@ The app also says why when the embedded controller can't be used for other reaso
 running (`sudo systemctl enable --now uucc-helper.socket`), Linux's own `uniwill` driver is in charge of it, or the
 laptop doesn't have the firmware interface this app knows.
 
-**What works on Linux:** Office, Gaming and Turbo, Fan Boost, profiles per mode, power limits (PL1, PL2 and PL4, up
+**What works on Linux:** Office, Gaming and Turbo (the performance key too), Fan Boost, profiles per mode, power limits (PL1, PL2 and PL4, up
 to the highest mode's own defaults), custom fan curves with their safety rules, battery care and USB charging, the
 keyboard and light bar lighting (the firmware's effects, the effects the app draws, Smooth Wave and the status
 effects), setups, the BIOS settings, the Monitor and Battery pages, the timer, `uucc`, the tray, start at login, and
 backup and restore.
 
-**Not on Linux yet:** the Fn keys and pop-ups (the firmware's hotkey events need a kernel driver), the Caps Lock and
+**Not on Linux yet:** the Fn keys and pop-ups (the firmware's hotkey events need a kernel driver), the performance
+key while a custom fan curve is on (the firmware then sends it as a hotkey event), the Caps Lock and
 Num Lock lights, the Typing, Music and Spectrum effects, turning the lights off when idle, plugins, app profiles,
 the TCC offset and GPU power (they come from the BIOS's power limit table, which the Linux build can't read yet).
 **Display color modes** won't come to Linux: Wayland has no whole-screen color setting an app can change. What

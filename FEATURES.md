@@ -121,7 +121,11 @@ Control Center's overclocking settings for Intel laptops:
 ### Fans
 - **Custom fan curve per mode:** Control Center's fan table editor. The EC's own table for each mode is read once
   (the same request Control Center makes: 0xF5F/0xF5D/0xF5E) and is the starting point; the curve is written to the
-  EC's RAM tables (0xF00–0xF5F) and switched on with 0x7C6 bit 2. CPU and GPU fans each have their own curve.
+  EC's RAM tables (0xF00–0xF5F) and switched on with 0x7C6 bit 2. CPU and GPU fans each follow their own curve:
+  the app also sets 0x7C5 bit 7 (Control Center's "Fan Control Respective", off by default there), without which the
+  EC doesn't keep the two curves apart. With the graphics card off, the GPU fan stays at the left end of its curve,
+  and the page says so. On Windows, where each EC call takes over 100 ms, only the registers that changed are
+  written.
 - **Fan safety protection:** while the EC's protection is on (0x7A5 bit 3, event 187) the fans go back to the EC's
   curve, as in Control Center.
 - **Fan speeds** (RPM and duty), as Control Center's `FanInfo` reads them.
@@ -306,11 +310,20 @@ EC window (the one its `ECRR`/`ECRW` methods use) and writes the BIOS settings v
 lighting controllers are used directly over `hidraw`. Where Linux differs:
 
 - **Fn keys and pop-ups:** not on Linux yet. The firmware's hotkey events reach user space only through a kernel
-  driver, so the Fn keyboard-light keys stay with the firmware, and there are no pop-ups, no Windows key lock or
-  touchpad toggle, and no Caps Lock and Num Lock lights on the light bar.
+  driver, so the Fn keyboard-light keys do nothing, and there are no pop-ups, no Windows key lock or touchpad toggle,
+  and no Caps Lock and Num Lock lights on the light bar.
+- **Performance key and Fan Boost key:** the EC switches the mode by itself, so the app reads the mode byte (0x751)
+  every second and follows it, with the mode's limits, fan curve and profile. While a custom curve is on, the EC's
+  app-present bit is set (below), and the EC then sends the key to the app as an event instead of switching: the key
+  does nothing on Linux until the hotkey events are, and the fan curve page says so.
+- **Custom fan curves** need the EC's app-present bit (0x741 bit 0), which Windows sets all along for the Fn keys.
+  Linux sets it only while a custom curve is on, and clears it with the curve.
 - **Fan safety protection:** without the hotkey event, the app checks the EC's safety flag every second while a
   custom curve is on, and steps back to the laptop's curve as on Windows. The helper also turns the custom curve off
-  if the app ends without doing it.
+  (and the bits that go with it) if the app ends without doing it.
+- **The helper stopping or restarting** while the app runs: it undoes the app's settings as the connection breaks.
+  The app checks every few seconds; stopped, the Performance and Battery pages say so until it's back, and either way
+  the app then sets everything again.
 - **Power limits:** Windows reads their range from the BIOS's power limit table through Control Center's driver; the
   Linux build can't read that table yet, so PL1, PL2 and PL4 go up to the highest mode's own defaults, and the TCC
   offset and GPU power (configurable TGP, Dynamic Boost) aren't offered.
