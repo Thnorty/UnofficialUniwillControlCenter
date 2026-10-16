@@ -78,6 +78,17 @@ export component AppWindow inherits Window {
     in property <bool> has-light-bar;
     in property <string> status-text;
     in property <bool> status-error;
+    // The last message, kept while it fades out.
+    property <string> toast-text;
+    property <bool> toast-error;
+    property <bool> toast-retry;
+    changed status-text => {
+        if root.status-text != "" {
+            root.toast-text = root.status-text;
+            root.toast-error = root.status-error;
+            root.toast-retry = root.show-retry;
+        }
+    }
     in property <bool> show-retry;
     in property <[color]> presets;
 
@@ -464,14 +475,6 @@ export component AppWindow inherits Window {
                     padding-top: 28px;
                     padding-bottom: 36px + (root.page == 7 || root.page == 8 ? root.page-overflow : 0px);
                     spacing: 16px;
-                    if root.status-text != "": InfoBar {
-                        message: root.status-text;
-                        critical: root.status-error;
-                        action: root.show-retry ? "Retry" : "";
-                        action-clicked => { root.retry(); }
-                        closable: true;
-                        closed => { root.dismiss-status(); }
-                    }
                     if root.page == 0: LightingPage {
                         is-light-bar: false;
                         view: root.kb-view;
@@ -696,6 +699,28 @@ export component AppWindow inherits Window {
                         import-settings => { root.import-settings(); }
                     }
                 }
+            }
+
+            // Messages pop up over the page at the bottom right and fade in and out: seen however far the page is
+            // scrolled, and the page doesn't move under them.
+            toast := InfoBar {
+                property <bool> shown: root.status-text != "";
+                width: Math.min(440px, parent.width - 48px);
+                height: self.preferred-height;
+                x: parent.width - self.width - 24px;
+                y: parent.height - self.height - 24px + (self.shown ? 0px : 12px);
+                opacity: self.shown ? 1 : 0;
+                visible: self.opacity > 0;
+                animate opacity, y { duration: 180ms; easing: ease-out; }
+                message: root.toast-text;
+                critical: root.toast-error;
+                action: root.toast-retry ? "Retry" : "";
+                action-clicked => { root.retry(); }
+                closable: true;
+                closed => { root.dismiss-status(); }
+                drop-shadow-blur: 16px;
+                drop-shadow-offset-y: 4px;
+                drop-shadow-color: #00000040;
             }
         }
     }
