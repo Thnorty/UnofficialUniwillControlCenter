@@ -97,7 +97,7 @@ first.
 
 | | Check | Do | Expect |
 |---|---|---|---|
-| ☐ | Helper stopped | With a custom curve on and the app open, `sudo systemctl stop uucc-helper.socket uucc-helper.service` | Within about 5 s the Performance page says the helper isn't running and how to start it; lighting still works. |
+| ☐ | Helper stopped | With a custom curve on and the app open, `sudo systemctl stop uucc-helper.socket uucc-helper.service` | Within about 5 s the Performance page says the helper isn't running and how to start it; lighting still works. The fans are back on the laptop's curve: `0x7C6 & 0x04`, `0x7C5 & 0x80` and `0x741 & 0x01` are clear. |
 | ☐ | Helper back | Then `sudo systemctl start uucc-helper.socket` | Within about 10 s the page works again, with the custom curve back on. |
 | ☐ | Helper restart | With a custom curve on and the app open, `sudo systemctl restart uucc-helper.service` | Within a few seconds the fans follow the curve again (the app sets everything again). |
 

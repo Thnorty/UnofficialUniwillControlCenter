@@ -48,7 +48,7 @@ pub fn readable(address: u16) -> bool {
 }
 
 /// What to undo when a client goes away: per register, the bits to set and their values.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Releases(BTreeMap<u16, (u8, u8)>);
 
 impl Releases {

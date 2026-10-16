@@ -31,11 +31,14 @@ mod linux {
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::Path;
-    use std::sync::{Arc, Mutex};
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex, MutexGuard};
     use std::time::{Duration, Instant};
 
     use crate::ec::{self, EcAccess, EcWindow};
     use crate::protocol::{self, Envelope, Reply, Unavailable};
+    use crate::rules::Releases;
     use crate::server::{self, Session};
     use crate::{efivar, polkit};
 
@@ -45,17 +48,27 @@ mod linux {
     const REFUSE_WAIT: Duration = Duration::from_secs(2);
 
     /// What every client shares: the EC (one request at a time), how many authorized clients are connected since
-    /// when, and how many connections wait for authorization.
+    /// when, how many connections wait for authorization, and what each connected client wants undone (for when the
+    /// helper itself is stopped). `sessions` is only locked while holding `ec`.
     struct Shared {
         ec: Mutex<Option<Box<dyn EcAccess>>>,
         status: Result<u64, Unavailable>,
         clients: Mutex<(usize, Instant)>,
         pending: Mutex<usize>,
+        sessions: Mutex<BTreeMap<u64, Releases>>,
+        next_session: AtomicU64,
     }
 
     impl Shared {
         fn new(ec: Option<Box<dyn EcAccess>>, status: Result<u64, Unavailable>) -> Shared {
-            Shared { ec: Mutex::new(ec), status, clients: Mutex::new((0, Instant::now())), pending: Mutex::new(0) }
+            Shared {
+                ec: Mutex::new(ec),
+                status,
+                clients: Mutex::new((0, Instant::now())),
+                pending: Mutex::new(0),
+                sessions: Mutex::new(BTreeMap::new()),
+                next_session: AtomicU64::new(0),
+            }
         }
     }
 
@@ -97,6 +110,11 @@ mod linux {
     }
 
     pub fn run() {
+        // `systemctl stop`, and with it an uninstall or an upgrade, ends the helper with SIGTERM: what the connected
+        // app asked to have undone is undone first. The signals are blocked before anything else, so one that comes
+        // early waits for the thread that takes them.
+        let signals = stop_signals();
+        unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, &signals, std::ptr::null_mut()) };
         let mut status = ec::check(&ec::Paths::system());
         let window = match status {
             Ok(base) => match EcWindow::map(base) {
@@ -120,6 +138,14 @@ mod linux {
         };
         let shared = Arc::new(Shared::new(window, status));
 
+        let stopping = shared.clone();
+        std::thread::spawn(move || {
+            let mut signal = 0;
+            unsafe { libc::sigwait(&signals, &mut signal) };
+            let _ec = release_all(&stopping);
+            std::process::exit(0);
+        });
+
         let watcher = shared.clone();
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_secs(5));
@@ -130,6 +156,29 @@ mod linux {
         });
 
         serve_all(listener, shared, authorized);
+    }
+
+    /// SIGTERM and SIGINT.
+    fn stop_signals() -> libc::sigset_t {
+        let mut signals: libc::sigset_t = unsafe { std::mem::zeroed() };
+        unsafe {
+            libc::sigemptyset(&mut signals);
+            libc::sigaddset(&mut signals, libc::SIGTERM);
+            libc::sigaddset(&mut signals, libc::SIGINT);
+        }
+        signals
+    }
+
+    /// Undoes what every connected client asked to have undone, and keeps the EC locked so no request comes after.
+    fn release_all(shared: &Shared) -> MutexGuard<'_, Option<Box<dyn EcAccess>>> {
+        let mut ec = shared.ec.lock().unwrap_or_else(|e| e.into_inner());
+        let sessions = std::mem::take(&mut *shared.sessions.lock().unwrap_or_else(|e| e.into_inner()));
+        if let Some(ec) = ec.as_deref_mut() {
+            for (_, mut releases) in sessions {
+                server::apply(&mut releases, ec);
+            }
+        }
+        ec
     }
 
     /// Whether polkit lets the connected process use the helper. Asked as soon as it connects, before anything is
@@ -221,6 +270,7 @@ mod linux {
         let mut reader = BufReader::new(stream.try_clone()?);
         let mut writer = stream.try_clone()?;
         let mut session = Session::default();
+        let id = shared.next_session.fetch_add(1, Ordering::Relaxed);
         let result = loop {
             let envelope: Envelope = match protocol::read_line(&mut reader) {
                 Ok(Some(envelope)) => envelope,
@@ -237,13 +287,17 @@ mod linux {
             let reply = {
                 let mut ec = shared.ec.lock().unwrap_or_else(|e| e.into_inner());
                 let ec = ec.as_mut().map(|ec| -> &mut dyn EcAccess { ec.as_mut() });
-                server::handle(envelope.request, &mut session, ec, &shared.status, Path::new(efivar::VARIABLE))
+                let reply = server::handle(envelope.request, &mut session, ec, &shared.status, Path::new(efivar::VARIABLE));
+                shared.sessions.lock().unwrap_or_else(|e| e.into_inner()).insert(id, session.releases().clone());
+                reply
             };
             if let Err(error) = protocol::write_line(&mut writer, &reply) {
                 break Err(error);
             }
         };
-        if let Some(ec) = shared.ec.lock().unwrap_or_else(|e| e.into_inner()).as_deref_mut() {
+        let mut ec = shared.ec.lock().unwrap_or_else(|e| e.into_inner());
+        shared.sessions.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        if let Some(ec) = ec.as_deref_mut() {
             server::release(&mut session, ec);
         }
         result
@@ -269,7 +323,11 @@ mod linux {
         }
 
         fn ask_status(stream: &mut UnixStream) -> Reply {
-            let envelope = Envelope { version: protocol::VERSION, request: protocol::Request::Status };
+            ask(stream, protocol::Request::Status)
+        }
+
+        fn ask(stream: &mut UnixStream, request: protocol::Request) -> Reply {
+            let envelope = Envelope { version: protocol::VERSION, request };
             protocol::write_line(stream, &envelope).unwrap();
             let mut line = String::new();
             BufReader::new(stream.try_clone().unwrap()).read_line(&mut line).unwrap();
@@ -306,6 +364,22 @@ mod linux {
                 std::thread::sleep(Duration::from_millis(10));
             }
             assert_eq!(clients(&shared), 0);
+        }
+
+        #[test]
+        fn stopping_undoes_what_connected_clients_registered() {
+            use protocol::Request;
+            let shared = Arc::new(Shared::new(Some(Box::new(crate::ec::FakeEc([0; 0x1000]))), Ok(0xFE41_0000)));
+            let path = start("stopping", &shared, |_| true);
+            let mut client = UnixStream::connect(&path).unwrap();
+            assert_eq!(ask(&mut client, Request::OnDisconnect { address: 0x7C6, mask: 0x04, value: 0 }), Reply::Done);
+            assert_eq!(ask(&mut client, Request::Update { address: 0x7C6, mask: 0x04, value: 0x04 }), Reply::Done);
+            // `systemctl stop`, an uninstall or an upgrade while the app is still connected: the custom fan curve
+            // mustn't stay on with nothing watching the EC's safety protection.
+            let mut ec = release_all(&shared);
+            assert_eq!(ec.as_mut().unwrap().read(0x7C6) & 0x04, 0);
+            drop(ec);
+            drop(client);
         }
 
         #[test]

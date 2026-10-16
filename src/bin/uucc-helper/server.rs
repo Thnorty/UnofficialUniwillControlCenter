@@ -18,6 +18,13 @@ pub struct Session {
     releases: Releases,
 }
 
+impl Session {
+    /// What to undo when the client goes away.
+    pub fn releases(&self) -> &Releases {
+        &self.releases
+    }
+}
+
 fn not_written(address: u16) -> Reply {
     Reply::Refused { message: format!("Register 0x{address:03X} isn't one this app writes") }
 }
@@ -99,7 +106,12 @@ fn update(ec: &mut dyn EcAccess, address: u16, mask: u8, value: u8) {
 
 /// Undoes what the client asked to have undone when it went away.
 pub fn release(session: &mut Session, ec: &mut dyn EcAccess) {
-    for (address, mask, value) in session.releases.take() {
+    apply(&mut session.releases, ec);
+}
+
+/// Undoes `releases`, leaving none.
+pub fn apply(releases: &mut Releases, ec: &mut dyn EcAccess) {
+    for (address, mask, value) in releases.take() {
         update(ec, address, mask, value);
     }
 }
