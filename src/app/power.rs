@@ -26,6 +26,9 @@ pub(super) struct Power {
     pub shared_ec: Arc<Mutex<Option<Ec>>>,
     connecting: bool,
     ec_error: Option<String>,
+    /// The helper connections opened when its settings were last sent (Linux): another means it restarted.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    helper_connections: u64,
     /// This app sets the mode, the fans and battery care; false while Control Center's service runs.
     owned: bool,
     /// The EC's state has been read since connecting.
@@ -100,6 +103,7 @@ impl Power {
             shared_ec: Arc::new(Mutex::new(None)),
             connecting: false,
             ec_error: None,
+            helper_connections: 0,
             owned: demo,
             ready: demo,
             chosen: settings.is_some(),
@@ -326,6 +330,10 @@ impl App {
                 *self.power.shared_ec.lock().unwrap_or_else(|e| e.into_inner()) = Some(ec.clone());
                 self.power.ec = Some(ec);
                 self.power.ec_error = None;
+                #[cfg(target_os = "linux")]
+                {
+                    self.power.helper_connections = crate::hardware::ec::connections_opened();
+                }
                 self.start_hotkeys();
                 self.check_power_owner();
             }
@@ -358,6 +366,8 @@ impl App {
             }
             return;
         }
+        #[cfg(target_os = "linux")]
+        self.check_helper();
         if system::control_center_running() {
             if self.power.owned || !self.power.ready {
                 self.power.owned = false;
@@ -371,6 +381,44 @@ impl App {
             self.read_power_state();
         } else {
             self.check_fan_safety();
+        }
+    }
+
+    /// The helper can stop or restart while the app runs, and either way it undoes the app's settings as the
+    /// connection breaks. Stopped: the pages say so, and connecting starts over as at start once it's back, which sets
+    /// everything again. Restarted: everything is set again now.
+    #[cfg(target_os = "linux")]
+    fn check_helper(&self) {
+        let Some(ec) = self.power.ec.clone() else { return };
+        ec.spawn(|ec| {
+            let result = ec.check().map_err(error_text);
+            let opened = crate::hardware::ec::connections_opened();
+            post(move |app| app.helper_checked(result, opened));
+        });
+    }
+
+    #[cfg(target_os = "linux")]
+    fn helper_checked(&mut self, result: std::result::Result<(), String>, opened: u64) {
+        match result {
+            Err(reason) if crate::hardware::ec::may_come_back(&reason) => {
+                self.note_custom(false);
+                self.power.ec = None;
+                *self.power.shared_ec.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                self.power.owned = false;
+                self.power.ready = false;
+                self.set_ec_unavailable(&reason);
+                self.power.ec_error = Some(reason);
+                self.refresh_power();
+            }
+            Err(_) => {}
+            Ok(()) if opened != self.power.helper_connections => {
+                self.power.helper_connections = opened;
+                if self.power.owned && self.power.ready {
+                    fans::forget_written();
+                    self.apply_power();
+                }
+            }
+            Ok(()) => {}
         }
     }
 

@@ -10,6 +10,7 @@ use std::io::{self, BufReader};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::time::Duration;
 
@@ -44,6 +45,15 @@ struct Link {
 
 static LINK: Mutex<Option<Link>> = Mutex::new(None);
 
+/// How many connections to the helper have been opened.
+static OPENED: AtomicU64 = AtomicU64::new(0);
+
+/// How many connections to the helper have been opened. A new one after the first means the helper restarted, and
+/// it undid the app's settings as the old connection broke.
+pub fn connections_opened() -> u64 {
+    OPENED.load(Ordering::Acquire)
+}
+
 fn socket() -> PathBuf {
     std::env::var_os("UUCC_HELPER_SOCKET").map(PathBuf::from).unwrap_or_else(|| protocol::SOCKET.into())
 }
@@ -60,6 +70,7 @@ impl Link {
             let stream = UnixStream::connect(&path)?;
             stream.set_read_timeout(Some(ANSWER_TIMEOUT))?;
             self.connection = Some((path, BufReader::new(stream.try_clone()?), stream));
+            OPENED.fetch_add(1, Ordering::AcqRel);
             for (&address, &(mask, value)) in &self.releases.clone() {
                 self.send(&Request::OnDisconnect { address, mask, value })?;
             }
@@ -200,6 +211,15 @@ impl Registers {
         Ok(self.read(address)? & (1 << bit) != 0)
     }
 
+    /// Whether the helper is still there and can reach the EC.
+    pub fn check(&self) -> Result<()> {
+        match request(Request::Status)? {
+            Reply::Ready => Ok(()),
+            Reply::Refused { message } => Err(EcUnavailable(message).into()),
+            other => Err(unexpected(other)),
+        }
+    }
+
     /// Has the helper set the bits in `mask` of `address` to those of `value` when the app goes away.
     pub fn on_disconnect(&self, address: u16, mask: u8, value: u8) -> Result<()> {
         done(request(Request::OnDisconnect { address, mask, value })?)
@@ -267,6 +287,16 @@ mod tests {
     }
 
     #[test]
+    fn a_stopped_helper_is_noticed() {
+        let _serial = serial();
+        let helper = FakeHelper::start("stopped", |s| s.close_first_after = Some(1)); // just Status
+        let ec = Ec::connect().unwrap();
+        drop(helper); // `systemctl stop uucc-helper.socket uucc-helper.service`
+        let error = ec.run_for(Duration::from_secs(5), |r| r.check()).err().expect("the helper is gone");
+        assert!(may_come_back(&format!("{error:#}")), "{error:#}");
+    }
+
+    #[test]
     fn reconnects_after_helper_restart() {
         let _serial = serial();
         // The first connection answers Status and OnDisconnect, then goes away like a restarted helper.
@@ -276,8 +306,11 @@ mod tests {
         });
         let ec = Ec::connect().unwrap();
         ec.run_for(Duration::from_secs(5), |r| r.on_disconnect(0x7C6, 0x04, 0)).unwrap();
+        let opened = connections_opened();
         let value = ec.run_for(Duration::from_secs(5), |r| r.read(0x751)).unwrap();
         assert_eq!(value, 0x33);
+        // The old helper undid the app's settings as the connection broke, so the app sets them again.
+        assert_eq!(connections_opened(), opened + 1);
         let state = helper.state.lock().unwrap();
         let later: Vec<&Request> = state.received.iter().filter(|(n, _)| *n > 0).map(|(_, r)| r).collect();
         assert_eq!(later, [&Request::OnDisconnect { address: 0x7C6, mask: 0x04, value: 0 }, &Request::Read { address: 0x751 }]);
