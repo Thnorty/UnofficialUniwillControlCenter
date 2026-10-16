@@ -1046,6 +1046,9 @@ impl App {
 
     fn set_fn_mode(&mut self, text: &str) {
         self.fn_mode = text.to_string();
+        if let Some(ui) = self.ui() {
+            ui.set_hotkeys_active(self.hotkeys.is_some());
+        }
         self.refresh_settings_page();
     }
 

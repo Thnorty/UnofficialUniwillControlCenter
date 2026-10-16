@@ -309,18 +309,18 @@ as the signed-in user; a small root helper, `uucc-helper`, reaches the embedded 
 EC window (the one its `ECRR`/`ECRW` methods use) and writes the BIOS settings variable through efivarfs. The
 lighting controllers are used directly over `hidraw`. Where Linux differs:
 
-- **Fn keys and pop-ups:** not on Linux yet. The firmware's hotkey events reach user space only through a kernel
-  driver, so the Fn keyboard-light keys do nothing, and there are no pop-ups, no Windows key lock or touchpad toggle,
-  and no Caps Lock and Num Lock lights on the light bar.
-- **Performance key and Fan Boost key:** the EC switches the mode by itself, so the app reads the mode byte (0x751)
-  every second and follows it, with the mode's limits, fan curve and profile. While a custom curve is on, the EC's
-  app-present bit is set (below), and the EC then sends the key to the app as an event instead of switching: the key
-  does nothing on Linux until the hotkey events are, and the fan curve page says so.
-- **Custom fan curves** need the EC's app-present bit (0x741 bit 0), which Windows sets all along for the Fn keys.
-  Linux sets it only while a custom curve is on, and clears it with the curve.
-- **Fan safety protection:** without the hotkey event, the app checks the EC's safety flag every second while a
-  custom curve is on, and steps back to the laptop's curve as on Windows. The helper also turns the custom curve off
-  (and the bits that go with it) if the app ends without doing it.
+- **Fn keys:** the keyboard light keys, the light bar key, the performance key and the EC's Fan Boost and fan safety
+  reports work as on Windows. The firmware's `_Q53` hands each hotkey to its WMI device as event 0xd2; with no WMI
+  driver bound, the kernel still sends that as an ACPI netlink event. The helper listens for it and reads the code
+  from the EC (ACPI byte 0x7C, window 0x47C, there for about 20 ms after the event), and passes it to the app over a
+  connection of its own. As on Windows, the app holds the EC's app-present bit (0x741 bit 0) while it runs; the
+  helper clears it if the app goes away, and the firmware has the keys again. Still missing: pop-ups, the Windows key
+  lock, the touchpad toggle and the Caps Lock and Num Lock lights on the light bar.
+- **Without the hotkeys** (a kernel without the ACPI netlink family): the app reads the mode byte (0x751) every
+  second to follow the performance key, checks the EC's safety flag every second while a custom curve is on, and sets
+  the app-present bit only while a custom curve is on (the EC keeps to the RAM fan tables only with it); the
+  performance key then does nothing while a curve is on, and the fan curve page says so. The helper turns the custom
+  curve off (and the bits that go with it) if the app ends without doing it.
 - **The helper stopping or restarting** while the app runs: it undoes the app's settings as the connection breaks.
   The app checks every few seconds; stopped, the Performance and Battery pages say so until it's back, and either way
   the app then sets everything again.

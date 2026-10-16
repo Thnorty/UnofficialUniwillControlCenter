@@ -149,6 +149,7 @@ export component AppWindow inherits Window {
     in property <[Metric]> fan-metrics;
     in property <bool> curve-available;
     in property <bool> curve-enabled;
+    in property <bool> hotkeys-active;
     in property <bool> curve-busy;
     in property <string> curve-note;
     in property <bool> fan-safety;
@@ -566,6 +567,7 @@ export component AppWindow inherits Window {
                         fans: root.fan-metrics;
                         curve-available: root.curve-available;
                         curve-enabled: root.curve-enabled;
+                        hotkeys-active: root.hotkeys-active;
                         curve-busy: root.curve-busy;
                         curve-note: root.curve-note;
                         safety: root.fan-safety;

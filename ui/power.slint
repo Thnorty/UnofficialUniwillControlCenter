@@ -380,6 +380,8 @@ export component PerformancePage inherits VerticalLayout {
     in property <[Metric]> fans;
     in property <bool> curve-available;
     in property <bool> curve-enabled;
+    // The Fn keys reach the app (on Linux, through the helper): the performance key works with a custom curve on.
+    in property <bool> hotkeys-active;
     in property <bool> curve-busy;
     in property <string> curve-note;
     in property <bool> safety;
@@ -831,7 +833,7 @@ export component PerformancePage inherits VerticalLayout {
                 }
                 // A custom curve needs the EC's app-present bit, and with it set the performance key goes to the app as
                 // an event, which Linux can't take yet.
-                if Platform.linux && root.curve-enabled: HorizontalLayout {
+                if Platform.linux && root.curve-enabled && !root.hotkeys-active: HorizontalLayout {
                     spacing: 10px;
                     Glyph {
                         text: Glyphs.info;

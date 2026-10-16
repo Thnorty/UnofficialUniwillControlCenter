@@ -166,9 +166,9 @@ its rules: read first, change only its own fields, the same size and attributes,
   do.
 - **Fan safety without events:** while a custom curve is on, the app reads `0x7A5` bit 3 once a second and reacts as
   it does to event 187.
-- **Fn keys:** not taken over in 3.5.0; the app doesn't set the app-present bit, so the firmware handles the
-  keyboard-light keys itself. The brightness the app shows follows the controller, as it does on Windows after Fn
-  keys were used while the app was closed.
+- **Fn keys:** taken over as on Windows, through the helper and the kernel's ACPI netlink events (see
+  [the Fn keys spec](2026-10-16-linux-fn-keys-design.md)); the app holds the app-present bit while it runs, and also
+  needs it for custom fan curves.
 - **Power limit ranges:** without Control Center's driver, the existing fallback applies (each limit up to the highest
   mode's own).
 
