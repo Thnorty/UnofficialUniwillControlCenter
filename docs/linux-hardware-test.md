@@ -1,6 +1,7 @@
 # Linux hardware test
 
-The checks to run on the laptop before a Linux release, from a Fedora live USB (KDE Plasma, Secure Boot off), where
+The checks to run on the laptop before a Linux release, from a Fedora live USB (KDE Plasma) and an Ubuntu one (GNOME),
+both with Secure Boot off, where
 everything installed is gone after a reboot. Tick each line; for a failure, note what you saw and fix it with a test
 first.
 
@@ -29,8 +30,8 @@ first.
 
 | | Check | Do | Expect |
 |---|---|---|---|
-| ☐ | Risk question | First start | A kdialog warning with OK/Cancel that mentions the helper running as root; OK starts the app. |
-| ☐ | Hidden pages | Look at the navigation | No Display or Plugins page; no Typing, Music or Spectrum tiles; Settings has no idle timer, touchpad or Windows key rows and says "Start at login". |
+| ☐ | Risk question | First start | A kdialog (KDE) or zenity (GNOME) warning with OK/Cancel that mentions the helper running as root; OK starts the app. |
+| ☐ | Hidden pages | Look at the navigation | No Display or Plugins page; no Typing, Music or Spectrum tiles; Settings has no idle timer or touchpad rows, has "Lock the Windows key", and says "Start at login". |
 | ☐ | Icons and font | Every page | Every icon draws (no empty boxes); text in the desktop's font. |
 | ☐ | Theme | Switch Plasma between Breeze Light and Breeze Dark | The window follows. |
 | ☐ | Helper started | `systemctl status uucc-helper.service` | `active (running)` while the app runs. |
@@ -45,7 +46,9 @@ first.
 | ☐ | Fan curve | Raise only the GPU curve, turn the custom curve on, change a point, turn it off | Each fan follows its own curve (the GPU fan fast, the CPU fan on its curve) within about a minute; on the laptop's curve again when off. While on, `0x741 & 0x01`, `0x7C5 & 0x80` and `0x7C6 & 0x04` are set; all three clear after. |
 | ☐ | Fn keys | Keyboard light down, up and cycle, a few times each, with the custom curve off and on | The keyboard brightness steps (5, 20, 40, 60, 80, 100%) and the slider follows. Settings says the Fn keys are handled instantly by this app. |
 | ☐ | Performance key | Press it with the custom curve off, then on | The app switches modes each time (the key's light and the app agree), also with the curve on; no note under the fan curve. |
-| ☐ | Other keys | Screen brightness, volume, touchpad, airplane mode, webcam | They work as before. |
+| ☐ | Other keys | Screen brightness, volume, touchpad, airplane mode, webcam | They work as before. On GNOME the touchpad key toggles the touchpad (the app gives GNOME's "Toggle touchpad" shortcut `<Ctrl><Super>0xca`). |
+| ☐ | Windows key lock | The switch in Settings, then Fn+Windows | The Windows key stops opening the launcher; the switch follows Fn+Windows. |
+| ☐ | Pop-ups | Keyboard light keys, the performance key, Fn+Windows (window not active), a timer, Fan Boost | KDE: Plasma's own pop-ups with Breeze icons. GNOME, after one sign-out and sign-in: GNOME's own, and `gnome-extensions info uucc-osd@thnorty.github.io` says `State: ACTIVE`. |
 | ☐ | Hotkeys log | `journalctl -u uucc-helper --no-pager` | No "Can't hear the laptop's hotkeys". |
 | ☐ | Crash with a curve on | Curve on, then `pkill -9 -f unofficial-uniwill-control-center` | Within a second `0x7C6 & 0x04` is 0 and the fans follow the laptop's curve. |
 | ☐ | Fan safety | (If it can be triggered) heavy load with a low custom curve | The app steps back to the laptop's curve and notifies. |
@@ -83,7 +86,8 @@ first.
 | ☐ | Notifications | Start a 1-minute timer | A desktop notification when it ends. |
 | ☐ | Charger | Unplug and plug in the charger | The power limits and the Battery page follow within a couple of seconds. |
 | ☐ | Sleep | Suspend and wake | Lighting and mode come back. |
-| ☐ | One instance | Open the app again from the menu | The running window comes forward; no second app. |
+| ☐ | One instance | Open the app again from the menu | The running window comes forward, also when minimized; no second app. |
+| ☐ | Tray and minimized | Minimize the window, then click the tray icon | The window comes back. |
 | ☐ | Start at login | Turn it on | `~/.config/autostart/unofficial-uniwill-control-center.desktop` exists with `--tray`. |
 | ☐ | File dialogs | Settings › Back up…, then Restore… | The desktop's own file dialogs; restoring restarts the app with the settings. |
 
