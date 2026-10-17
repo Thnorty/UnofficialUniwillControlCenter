@@ -182,7 +182,9 @@ keyboard and light bar lighting (the firmware's effects, the effects the app dra
 effects), setups, the BIOS settings, the Monitor and Battery pages, the timer, `uucc`, the tray, start at login, and
 backup and restore.
 
-**Not on Linux yet:** pop-ups for the Fn keys, the Windows key lock, the touchpad toggle, the Caps Lock and Num Lock
+**Pop-ups** on Linux are KDE Plasma's own, with its icons; other desktops show none.
+
+**Not on Linux yet:** the Windows key lock switch, the touchpad toggle, the Caps Lock and Num Lock pop-ups and
 lights, the Typing, Music and Spectrum effects, turning the lights off when idle, plugins, app profiles,
 the TCC offset and GPU power (they come from the BIOS's power limit table, which the Linux build can't read yet).
 **Display color modes** won't come to Linux: Wayland has no whole-screen color setting an app can change. What

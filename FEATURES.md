@@ -314,8 +314,14 @@ lighting controllers are used directly over `hidraw`. Where Linux differs:
   driver bound, the kernel still sends that as an ACPI netlink event. The helper listens for it and reads the code
   from the EC (ACPI byte 0x7C, window 0x47C, there for about 20 ms after the event), and passes it to the app over a
   connection of its own. As on Windows, the app holds the EC's app-present bit (0x741 bit 0) while it runs; the
-  helper clears it if the app goes away, and the firmware has the keys again. Still missing: pop-ups, the Windows key
-  lock, the touchpad toggle and the Caps Lock and Num Lock lights on the light bar.
+  helper clears it if the app goes away, and the firmware has the keys again. Still missing: the Windows key lock
+  switch, the touchpad toggle and the Caps Lock and Num Lock pop-ups and lights on the light bar.
+- **Pop-ups:** KDE Plasma's own, through its pop-up service (`org.kde.osdService` on the session bus): its keyboard
+  brightness pop-up for the keyboard light keys, and its text pop-up with a Breeze icon for the rest (`lock` and
+  `object-unlocked` for the Windows key, `battery-profile-powersave`, `-balanced` and `-performance` for Office, Gaming
+  and Turbo, `chronometer` for the timer, `brightness-high` for the light bar, `temperature-cold` for Fan Boost and
+  `view-list-icons` for setups). They're sent from a thread of their own, in order. Other desktops have no such
+  service (GNOME keeps its pop-ups to itself), and nothing shows there.
 - **Without the hotkeys** (a kernel without the ACPI netlink family): the app reads the mode byte (0x751) every
   second to follow the performance key, checks the EC's safety flag every second while a custom curve is on, and sets
   the app-present bit only while a custom curve is on (the EC keeps to the RAM fan tables only with it); the
