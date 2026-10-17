@@ -93,6 +93,49 @@ pub mod touchpad {
     }
 }
 
+/// The GNOME Shell extension the package installs so the app's pop-ups can show on GNOME (`shell::osd`).
+pub mod gnome_extension {
+    pub const UUID: &str = "uucc-osd@thnorty.github.io";
+
+    /// Turns the extension on in GNOME's settings the first time, unless the user turned it off. GNOME loads extensions
+    /// at sign-in, so the pop-ups start with the next one.
+    pub fn enable() {
+        let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+        if !desktop.split(':').any(|name| name.eq_ignore_ascii_case("GNOME")) {
+            return;
+        }
+        let _ = std::thread::Builder::new().name("GNOME extension".into()).spawn(|| {
+            let gsettings = |args: &[&str]| {
+                let output = std::process::Command::new("gsettings").args(args).output().ok().filter(|o| o.status.success())?;
+                Some(String::from_utf8_lossy(&output.stdout).into_owned())
+            };
+            let (Some(enabled), Some(disabled)) =
+                (gsettings(&["get", "org.gnome.shell", "enabled-extensions"]), gsettings(&["get", "org.gnome.shell", "disabled-extensions"]))
+            else {
+                return;
+            };
+            if let Some(list) = enabled_with_it(&enabled, &disabled) {
+                gsettings(&["set", "org.gnome.shell", "enabled-extensions", &list]);
+            }
+        });
+    }
+
+    /// GNOME's enabled list with the extension added, as `gsettings set` takes it; None when it's listed already, the
+    /// user turned it off (it's in the disabled list), or the list isn't one this understands.
+    pub(super) fn enabled_with_it(enabled: &str, disabled: &str) -> Option<String> {
+        let quoted = format!("'{UUID}'");
+        let (enabled, disabled) = (enabled.trim(), disabled.trim());
+        if enabled.contains(&quoted) || disabled.contains(&quoted) {
+            return None;
+        }
+        if enabled == "@as []" || enabled == "[]" {
+            return Some(format!("[{quoted}]"));
+        }
+        let items = enabled.strip_prefix('[')?.strip_suffix(']')?;
+        Some(format!("[{items}, {quoted}]"))
+    }
+}
+
 /// Whether Caps Lock and Num Lock are on.
 pub fn lock_keys() -> (bool, bool) {
     (false, false)
@@ -205,6 +248,21 @@ mod tests {
     fn a_shortcut_someone_chose_is_kept() {
         assert_eq!(touchpad::gnome_shortcut_to_set("GNOME", "['<Super>t']"), None);
         assert_eq!(touchpad::gnome_shortcut_to_set("GNOME", "['<Ctrl><Super>0xca']"), None); // already there
+    }
+
+    #[test]
+    fn the_pop_up_extension_is_added_to_gnomes_enabled_list() {
+        let uuid = gnome_extension::UUID;
+        assert_eq!(gnome_extension::enabled_with_it("@as []", "@as []"), Some(format!("['{uuid}']")));
+        assert_eq!(gnome_extension::enabled_with_it("['ubuntu-dock@ubuntu.com']\n", "@as []"), Some(format!("['ubuntu-dock@ubuntu.com', '{uuid}']")));
+    }
+
+    #[test]
+    fn the_pop_up_extension_is_left_as_it_is_once_listed_or_turned_off() {
+        let uuid = gnome_extension::UUID;
+        assert_eq!(gnome_extension::enabled_with_it(&format!("['a@b', '{uuid}']"), "@as []"), None);
+        assert_eq!(gnome_extension::enabled_with_it("@as []", &format!("['{uuid}']")), None); // turned off by the user
+        assert_eq!(gnome_extension::enabled_with_it("not a list", "@as []"), None);
     }
 
     #[test]

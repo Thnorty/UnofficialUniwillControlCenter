@@ -23,6 +23,8 @@ paths=(
     /usr/lib/udev/rules.d/70-uucc-lighting.rules
     /usr/share/applications/unofficial-uniwill-control-center.desktop
     /usr/share/icons/hicolor/256x256/apps/unofficial-uniwill-control-center.png
+    /usr/share/gnome-shell/extensions/uucc-osd@thnorty.github.io/metadata.json
+    /usr/share/gnome-shell/extensions/uucc-osd@thnorty.github.io/extension.js
 )
 
 check() {

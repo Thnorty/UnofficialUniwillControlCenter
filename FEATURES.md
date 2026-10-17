@@ -326,8 +326,14 @@ lighting controllers are used directly over `hidraw`. Where Linux differs:
   brightness pop-up for the keyboard light keys, and its text pop-up with a Breeze icon for the rest (`lock` and
   `object-unlocked` for the Windows key, `battery-profile-powersave`, `-balanced` and `-performance` for Office, Gaming
   and Turbo, `chronometer` for the timer, `brightness-high` for the light bar, `temperature-cold` for Fan Boost and
-  `view-list-icons` for setups). They're sent from a thread of their own, in order. Other desktops have no such
-  service (GNOME keeps its pop-ups to itself), and nothing shows there.
+  `view-list-icons` for setups). They're sent from a thread of their own, in order.
+- **Pop-ups on GNOME:** GNOME Shell keeps its pop-up call (`ShowOSD`) to its own components, so the packages install a
+  small GNOME Shell extension (`uucc-osd@thnorty.github.io`, GNOME 45 to 50) that shows them with GNOME's own pop-up:
+  `Show(icon, label, level)` on `io.github.thnorty.uucc.Osd`. The keyboard light keys get a bar with
+  `keyboard-brightness-symbolic`; the rest Adwaita's symbolic icons (`changes-prevent` and `changes-allow`, the
+  `power-profile-*` icons, `alarm`, `display-brightness`, `weather-windy` and `view-list`). The app adds the extension
+  to GNOME's enabled list the first time (not if the user turned it off), and GNOME loads it at the next sign-in.
+  Other desktops have no pop-ups.
 - **Without the hotkeys** (a kernel without the ACPI netlink family): the app reads the mode byte (0x751) every
   second to follow the performance key, checks the EC's safety flag every second while a custom curve is on, and sets
   the app-present bit only while a custom curve is on (the EC keeps to the RAM fan tables only with it); the

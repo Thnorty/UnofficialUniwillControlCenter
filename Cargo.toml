@@ -104,7 +104,7 @@ strip = true
 panic = "unwind"
 
 # The Linux packages (scripts/build-linux.sh): the app, uucc, the root helper with its systemd units and polkit
-# action, and the udev rule for the lighting controllers.
+# action, the udev rule for the lighting controllers, and the GNOME Shell extension for the pop-ups.
 [package.metadata.deb]
 maintainer = "Thnorty <ototatik@gmail.com>"
 copyright = "2026 Thnorty <ototatik@gmail.com>"
@@ -124,6 +124,8 @@ assets = [
     ["packaging/linux/unofficial-uniwill-control-center.desktop", "usr/share/applications/unofficial-uniwill-control-center.desktop", "644"],
     ["res/app.png", "usr/share/icons/hicolor/256x256/apps/unofficial-uniwill-control-center.png", "644"],
     ["LICENSE", "usr/share/doc/unofficial-uniwill-control-center/LICENSE", "644"],
+    ["packaging/linux/gnome-shell-extension/uucc-osd@thnorty.github.io/metadata.json", "usr/share/gnome-shell/extensions/uucc-osd@thnorty.github.io/metadata.json", "644"],
+    ["packaging/linux/gnome-shell-extension/uucc-osd@thnorty.github.io/extension.js", "usr/share/gnome-shell/extensions/uucc-osd@thnorty.github.io/extension.js", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -142,6 +144,8 @@ assets = [
     { source = "packaging/linux/unofficial-uniwill-control-center.desktop", dest = "/usr/share/applications/unofficial-uniwill-control-center.desktop", mode = "644" },
     { source = "res/app.png", dest = "/usr/share/icons/hicolor/256x256/apps/unofficial-uniwill-control-center.png", mode = "644" },
     { source = "LICENSE", dest = "/usr/share/licenses/unofficial-uniwill-control-center/LICENSE", mode = "644", doc = true },
+    { source = "packaging/linux/gnome-shell-extension/uucc-osd@thnorty.github.io/metadata.json", dest = "/usr/share/gnome-shell/extensions/uucc-osd@thnorty.github.io/metadata.json", mode = "644" },
+    { source = "packaging/linux/gnome-shell-extension/uucc-osd@thnorty.github.io/extension.js", dest = "/usr/share/gnome-shell/extensions/uucc-osd@thnorty.github.io/extension.js", mode = "644" },
 ]
 
 [package.metadata.generate-rpm.requires]

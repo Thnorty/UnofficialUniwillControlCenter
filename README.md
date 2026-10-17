@@ -183,7 +183,8 @@ keyboard and light bar lighting (the firmware's effects, the effects the app dra
 effects), setups, the BIOS settings, the Monitor and Battery pages, the timer, `uucc`, the tray, start at login, and
 backup and restore.
 
-**Pop-ups** on Linux are KDE Plasma's own, with its icons; other desktops show none.
+**Pop-ups** on Linux are the desktop's own: KDE Plasma's, and on GNOME through a small extension the package installs
+(it starts working after the next sign-in). Other desktops show none.
 
 **Not on Linux yet:** the touchpad toggle, the Caps Lock and Num Lock pop-ups and
 lights, the Typing, Music and Spectrum effects, turning the lights off when idle, plugins, app profiles,
