@@ -65,8 +65,9 @@ pub mod touchpad {
     }
 
     const MEDIA_KEYS: &str = "org.gnome.settings-daemon.plugins.media-keys";
-    /// What the laptop's touchpad key sends: Windows 11's touchpad toggle shortcut.
-    const TOUCHPAD_KEY: &str = "['<Ctrl><Super>F24']";
+    /// What the laptop's touchpad key sends: Windows 11's touchpad toggle shortcut. The usual keyboard layouts give F24
+    /// no name GNOME matches, so it's given by its key code (evdev 194 + 8), which GNOME's shortcuts take as `0x..`.
+    const TOUCHPAD_KEY: &str = "['<Ctrl><Super>0xca']";
 
     /// The touchpad key sends Ctrl+Super+F24. KDE takes that as the touchpad toggle; GNOME only knows the dedicated
     /// touchpad key, so its own "Toggle touchpad" shortcut gets this combination, unless someone chose one already.
@@ -194,7 +195,7 @@ mod tests {
 
     #[test]
     fn gnome_learns_the_touchpad_key_while_its_shortcut_is_empty() {
-        let shortcut = Some("['<Ctrl><Super>F24']");
+        let shortcut = Some("['<Ctrl><Super>0xca']");
         assert_eq!(touchpad::gnome_shortcut_to_set("ubuntu:GNOME", "['']"), shortcut);
         assert_eq!(touchpad::gnome_shortcut_to_set("GNOME", "@as []"), shortcut);
         assert_eq!(touchpad::gnome_shortcut_to_set("GNOME", "[]\n"), shortcut);
@@ -203,7 +204,7 @@ mod tests {
     #[test]
     fn a_shortcut_someone_chose_is_kept() {
         assert_eq!(touchpad::gnome_shortcut_to_set("GNOME", "['<Super>t']"), None);
-        assert_eq!(touchpad::gnome_shortcut_to_set("GNOME", "['<Ctrl><Super>F24']"), None); // already there
+        assert_eq!(touchpad::gnome_shortcut_to_set("GNOME", "['<Ctrl><Super>0xca']"), None); // already there
     }
 
     #[test]
