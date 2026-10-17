@@ -317,6 +317,9 @@ lighting controllers are used directly over `hidraw`. Where Linux differs:
   helper clears it if the app goes away, and the firmware has the keys again. The Windows key lock works too: the
   switch asks the EC to flip it (trigger byte 0x767 bit 0), and the EC reports the result as code 64 or 65, as on
   Windows. Still missing: the touchpad toggle and the Caps Lock and Num Lock pop-ups and lights on the light bar.
+- **Touchpad key:** it sends Ctrl+Super+F24, Windows 11's touchpad toggle shortcut. KDE takes that as the touchpad
+  toggle by itself; on GNOME the app gives GNOME's own "Toggle touchpad" shortcut (`org.gnome.settings-daemon.plugins.
+  media-keys touchpad-toggle`) that combination while it's empty, so GNOME toggles the touchpad and shows its pop-up.
 - **Pop-ups:** KDE Plasma's own, through its pop-up service (`org.kde.osdService` on the session bus): its keyboard
   brightness pop-up for the keyboard light keys, and its text pop-up with a Breeze icon for the rest (`lock` and
   `object-unlocked` for the Windows key, `battery-profile-powersave`, `-balanced` and `-performance` for Office, Gaming

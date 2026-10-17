@@ -63,6 +63,33 @@ pub mod touchpad {
     pub fn toggle() -> Result<()> {
         bail!("Not available on Linux yet")
     }
+
+    const MEDIA_KEYS: &str = "org.gnome.settings-daemon.plugins.media-keys";
+    /// What the laptop's touchpad key sends: Windows 11's touchpad toggle shortcut.
+    const TOUCHPAD_KEY: &str = "['<Ctrl><Super>F24']";
+
+    /// The touchpad key sends Ctrl+Super+F24. KDE takes that as the touchpad toggle; GNOME only knows the dedicated
+    /// touchpad key, so its own "Toggle touchpad" shortcut gets this combination, unless someone chose one already.
+    pub fn teach_gnome() {
+        let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+        if gnome_shortcut_to_set(&desktop, "[]").is_none() {
+            return;
+        }
+        let _ = std::thread::Builder::new().name("Touchpad shortcut".into()).spawn(move || {
+            let gsettings = |args: &[&str]| std::process::Command::new("gsettings").args(args).output().ok().filter(|o| o.status.success());
+            let Some(current) = gsettings(&["get", MEDIA_KEYS, "touchpad-toggle"]) else { return };
+            if let Some(shortcut) = gnome_shortcut_to_set(&desktop, &String::from_utf8_lossy(&current.stdout)) {
+                gsettings(&["set", MEDIA_KEYS, "touchpad-toggle", shortcut]);
+            }
+        });
+    }
+
+    /// The shortcut to give GNOME's "Toggle touchpad", given the desktop and the setting as `gsettings get` prints it.
+    pub(super) fn gnome_shortcut_to_set(desktop: &str, current: &str) -> Option<&'static str> {
+        let gnome = desktop.split(':').any(|name| name.eq_ignore_ascii_case("GNOME"));
+        let empty = matches!(current.trim(), "['']" | "[]" | "@as []");
+        (gnome && empty).then_some(TOUCHPAD_KEY)
+    }
 }
 
 /// Whether Caps Lock and Num Lock are on.
@@ -164,6 +191,26 @@ pub mod startup {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gnome_learns_the_touchpad_key_while_its_shortcut_is_empty() {
+        let shortcut = Some("['<Ctrl><Super>F24']");
+        assert_eq!(touchpad::gnome_shortcut_to_set("ubuntu:GNOME", "['']"), shortcut);
+        assert_eq!(touchpad::gnome_shortcut_to_set("GNOME", "@as []"), shortcut);
+        assert_eq!(touchpad::gnome_shortcut_to_set("GNOME", "[]\n"), shortcut);
+    }
+
+    #[test]
+    fn a_shortcut_someone_chose_is_kept() {
+        assert_eq!(touchpad::gnome_shortcut_to_set("GNOME", "['<Super>t']"), None);
+        assert_eq!(touchpad::gnome_shortcut_to_set("GNOME", "['<Ctrl><Super>F24']"), None); // already there
+    }
+
+    #[test]
+    fn other_desktops_are_left_alone() {
+        assert_eq!(touchpad::gnome_shortcut_to_set("KDE", "['']"), None); // KDE knows the key by itself
+        assert_eq!(touchpad::gnome_shortcut_to_set("", "['']"), None);
+    }
 
     fn config(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("uucc-autostart-test-{}-{name}", std::process::id()));

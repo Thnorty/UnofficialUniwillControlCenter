@@ -462,6 +462,10 @@ impl App {
             startup::migrate();
         }
         #[cfg(target_os = "linux")]
+        if !demo {
+            touchpad::teach_gnome();
+        }
+        #[cfg(target_os = "linux")]
         let start_at_login_set = !demo && !settings.start_at_login_set && startup::enable_first_time(&mut settings.start_at_login_set).is_ok();
         #[cfg(not(target_os = "linux"))]
         let start_at_login_set = false;
