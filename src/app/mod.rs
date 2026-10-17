@@ -2080,9 +2080,14 @@ fn fit_to_screen(ui: &AppWindow) {
     }
 }
 
-/// On Linux the desktop places and decorates the window.
+/// On Linux the desktop places and decorates the window. Wayland has no way for an app to bring back its minimized
+/// window or raise it, so one that's up is hidden first: Slint then destroys it, and showing it makes a new one, which
+/// the desktop puts in front.
 #[cfg(target_os = "linux")]
 fn show_window(ui: &AppWindow) {
+    if ui.window().is_visible() {
+        let _ = ui.hide();
+    }
     let _ = ui.show();
 }
 
