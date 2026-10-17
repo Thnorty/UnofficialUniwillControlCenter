@@ -184,7 +184,7 @@ backup and restore.
 
 **Pop-ups** on Linux are KDE Plasma's own, with its icons; other desktops show none.
 
-**Not on Linux yet:** the Windows key lock switch, the touchpad toggle, the Caps Lock and Num Lock pop-ups and
+**Not on Linux yet:** the touchpad toggle, the Caps Lock and Num Lock pop-ups and
 lights, the Typing, Music and Spectrum effects, turning the lights off when idle, plugins, app profiles,
 the TCC offset and GPU power (they come from the BIOS's power limit table, which the Linux build can't read yet).
 **Display color modes** won't come to Linux: Wayland has no whole-screen color setting an app can change. What

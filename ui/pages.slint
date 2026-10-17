@@ -654,7 +654,7 @@ export component SettingsPage inherits VerticalLayout {
         }
     }
 
-    // Linux has no idle input, touchpad toggle or Windows key lock here yet.
+    // Linux has no idle input or touchpad toggle here yet.
     if !Platform.linux: VerticalLayout {
         spacing: 4px;
         padding-bottom: 20px;
@@ -676,7 +676,7 @@ export component SettingsPage inherits VerticalLayout {
         }
     }
 
-    if !Platform.linux: VerticalLayout {
+    VerticalLayout {
         padding-bottom: 20px;
         spacing: 4px;
         SectionHeader {
@@ -684,7 +684,7 @@ export component SettingsPage inherits VerticalLayout {
             height: 28px;
             vertical-alignment: top;
         }
-        SettingRow {
+        if !Platform.linux: SettingRow {
             icon: Glyphs.touchpad;
             title: "Touchpad";
             description: root.touchpad-state == 0 ? "Turns the touchpad on or off, like its Fn shortcut." : "Follows the touchpad's Fn shortcut too.";
@@ -700,7 +700,9 @@ export component SettingsPage inherits VerticalLayout {
         SettingRow {
             icon: Glyphs.lock;
             title: "Lock the Windows key";
-            description: root.winkey-available ? "Stops the Windows key from opening Start, for games. Fn+Windows does the same." : "Needs the Fn keys to be handled by this app (see below).";
+            description: !root.winkey-available ? "Needs the Fn keys to be handled by this app (see below)."
+                : Platform.linux ? "Stops the Windows key from opening the app launcher, for games. Fn+Windows does the same."
+                : "Stops the Windows key from opening Start, for games. Fn+Windows does the same.";
             ToggleSwitch {
                 checked: root.winkey-locked;
                 enabled: root.winkey-available;

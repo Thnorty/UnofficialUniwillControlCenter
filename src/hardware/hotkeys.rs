@@ -294,6 +294,22 @@ mod tests {
     }
 
     #[test]
+    fn linux_windows_key_lock_goes_through_the_helper() {
+        let _serial = serial();
+        let helper = FakeHelper::start("hotkeys-win-key", |s| s.registers[0x768] = 0x01);
+        let hotkeys = Hotkeys::start(Ec::connect().unwrap(), |_| {}).unwrap();
+        let locked = hotkeys.query_win_key_lock().recv_timeout(Duration::from_secs(2)).unwrap().unwrap();
+        assert!(locked);
+        hotkeys.toggle_win_key_lock();
+        let started = std::time::Instant::now();
+        while helper.state.lock().unwrap().registers[0x767] & 0x01 == 0 && started.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(helper.state.lock().unwrap().registers[0x767] & 0x01, 0x01); // the EC flips it and reports 64/65
+        hotkeys.release();
+    }
+
+    #[test]
     fn abandoned_linux_hotkeys_close_their_subscription() {
         let _serial = serial();
         let helper = FakeHelper::start("hotkeys-abandoned", |s| s.hotkeys_stay_open = true);

@@ -314,8 +314,9 @@ lighting controllers are used directly over `hidraw`. Where Linux differs:
   driver bound, the kernel still sends that as an ACPI netlink event. The helper listens for it and reads the code
   from the EC (ACPI byte 0x7C, window 0x47C, there for about 20 ms after the event), and passes it to the app over a
   connection of its own. As on Windows, the app holds the EC's app-present bit (0x741 bit 0) while it runs; the
-  helper clears it if the app goes away, and the firmware has the keys again. Still missing: the Windows key lock
-  switch, the touchpad toggle and the Caps Lock and Num Lock pop-ups and lights on the light bar.
+  helper clears it if the app goes away, and the firmware has the keys again. The Windows key lock works too: the
+  switch asks the EC to flip it (trigger byte 0x767 bit 0), and the EC reports the result as code 64 or 65, as on
+  Windows. Still missing: the touchpad toggle and the Caps Lock and Num Lock pop-ups and lights on the light bar.
 - **Pop-ups:** KDE Plasma's own, through its pop-up service (`org.kde.osdService` on the session bus): its keyboard
   brightness pop-up for the keyboard light keys, and its text pop-up with a Breeze icon for the rest (`lock` and
   `object-unlocked` for the Windows key, `battery-profile-powersave`, `-balanced` and `-performance` for Office, Gaming
