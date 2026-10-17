@@ -3,6 +3,8 @@ name = "unofficial-uniwill-control-center"
 version = "3.5.0"
 edition = "2024"
 description = "Lighting, performance modes, fans and battery care for laptops built by Uniwill"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/Thnorty/UnofficialUniwillControlCenter"
 publish = false
 
 [[bin]]
@@ -105,6 +107,7 @@ panic = "unwind"
 # action, and the udev rule for the lighting controllers.
 [package.metadata.deb]
 maintainer = "Thnorty <ototatik@gmail.com>"
+copyright = "2026 Thnorty <ototatik@gmail.com>"
 extended-description = "Keyboard and light bar lighting, performance modes, fans, battery care and a hardware monitor for laptops built by Uniwill, with a small root helper (uucc-helper) for the embedded controller."
 section = "utils"
 priority = "optional"
@@ -120,11 +123,10 @@ assets = [
     ["packaging/linux/70-uucc-lighting.rules", "usr/lib/udev/rules.d/70-uucc-lighting.rules", "644"],
     ["packaging/linux/unofficial-uniwill-control-center.desktop", "usr/share/applications/unofficial-uniwill-control-center.desktop", "644"],
     ["res/app.png", "usr/share/icons/hicolor/256x256/apps/unofficial-uniwill-control-center.png", "644"],
+    ["LICENSE", "usr/share/doc/unofficial-uniwill-control-center/LICENSE", "644"],
 ]
 
 [package.metadata.generate-rpm]
-# RPM needs a license field; the repository has none chosen yet, which means all rights reserved.
-license = "All rights reserved"
 summary = "Lighting, performance modes, fans and battery care for laptops built by Uniwill"
 post_install_script = "packaging/linux/postinst"
 pre_uninstall_script = "packaging/linux/prerm"
@@ -139,6 +141,7 @@ assets = [
     { source = "packaging/linux/70-uucc-lighting.rules", dest = "/usr/lib/udev/rules.d/70-uucc-lighting.rules", mode = "644" },
     { source = "packaging/linux/unofficial-uniwill-control-center.desktop", dest = "/usr/share/applications/unofficial-uniwill-control-center.desktop", mode = "644" },
     { source = "res/app.png", dest = "/usr/share/icons/hicolor/256x256/apps/unofficial-uniwill-control-center.png", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/licenses/unofficial-uniwill-control-center/LICENSE", mode = "644", doc = true },
 ]
 
 [package.metadata.generate-rpm.requires]

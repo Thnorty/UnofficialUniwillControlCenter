@@ -55,6 +55,7 @@ Source: "..\target\release\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\target\release\uucc.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\FEATURES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\PLUGINS.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 
 [InstallDelete]
 ; Left from when the app was called Tulpar Control. An update keeps the folder it was installed in.

@@ -16,6 +16,7 @@ in one small app that looks like Windows 11, and on Linux too.
 ![Slint](https://img.shields.io/badge/UI-Slint_1.18-2379F4)
 ![Single exe](https://img.shields.io/badge/install-a_single_.exe-6c757d)
 ![Version](https://img.shields.io/badge/version-3.5-8a2be2)
+![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 
 <img src="docs/images/keyboard-preview.gif" width="760" alt="The keyboard preview animating the Wave effect">
 
@@ -365,6 +366,12 @@ target-demo\release\UnofficialUniwillControlCenter.exe --demo
 | `tools/` | PowerShell scripts used to test the embedded controller's behavior. |
 
 </details>
+
+## License
+
+GPL-3.0-or-later: see [LICENSE](LICENSE). You may use, change and share the app; versions you share must stay open
+source under the same license. The window is built with [Slint](https://slint.dev), used under its GPL-3.0 option.
+The Linux icons are Microsoft's Fluent System Icons, under the MIT license (`ui/fonts/FluentSystemIcons-LICENSE.txt`).
 
 ---
 
