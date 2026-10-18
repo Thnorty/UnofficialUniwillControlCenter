@@ -204,9 +204,9 @@ backup and restore.
 **Pop-ups** on Linux are the desktop's own: KDE Plasma's, and on GNOME through a small extension the package installs
 (it starts working after the next sign-in). Other desktops show none.
 
-**Not on Linux yet:** the touchpad toggle, the Caps Lock and Num Lock pop-ups and
-lights, the Typing, Music and Spectrum effects, turning the lights off when idle, plugins, app profiles,
-the TCC offset and GPU power (they come from the BIOS's power limit table, which the Linux build can't read yet).
+**Missing on Linux:** the touchpad switch in Settings (the touchpad key itself works), the Caps Lock and Num Lock
+pop-ups and lights, the Typing, Music and Spectrum effects, turning the lights off when idle, plugins, app profiles,
+the TCC offset and GPU power (they come from the BIOS's power limit table, which the Linux build can't read).
 **Display color modes** won't come to Linux: Wayland has no whole-screen color setting an app can change. What
 isn't there is left out of the window rather than shown broken.
 

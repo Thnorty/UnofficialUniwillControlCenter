@@ -311,6 +311,21 @@ Not implemented:
 - **Light bars and LED strips:** only on models that have them.
 - **Firmware updates** for the keyboard controller.
 
+### Missing on Linux
+
+These work on Windows but not on Linux; on Linux they're left out of the window rather than shown broken:
+- **Touchpad switch** in Settings. The touchpad key itself works (KDE knows it; on GNOME the app sets the shortcut).
+- **Caps Lock and Num Lock:** their pop-ups and the light bar's flashes.
+- **Turning the lights off when idle.**
+- **Typing, Music and Spectrum effects:** Wayland doesn't let apps see key presses, and the sound capture isn't
+  written for Linux.
+- **Plugins,** and **app profiles** (they need the running programs).
+- **TCC offset and GPU power:** their ranges come from the BIOS's power limit table, which Windows reads through
+  Control Center's ACPI driver and the Linux build can't read.
+- **Modes, fans, power limits and battery care with Secure Boot on:** the kernel's lockdown blocks the embedded
+  controller, so Secure Boot has to be off for them.
+- **Display color modes** won't come to Linux: Wayland has no whole-screen color setting an app can change.
+
 ## On Linux
 
 Since 3.5.0 the app also runs on Linux (see the README's Linux section for installing it and for Secure Boot). It runs
@@ -325,7 +340,7 @@ lighting controllers are used directly over `hidraw`. Where Linux differs:
   connection of its own. As on Windows, the app holds the EC's app-present bit (0x741 bit 0) while it runs; the
   helper clears it if the app goes away, and the firmware has the keys again. The Windows key lock works too: the
   switch asks the EC to flip it (trigger byte 0x767 bit 0), and the EC reports the result as code 64 or 65, as on
-  Windows. Still missing: the touchpad toggle and the Caps Lock and Num Lock pop-ups and lights on the light bar.
+  Windows. What's missing on Linux is listed under [Missing on Linux](#missing-on-linux).
 - **Touchpad key:** it sends Ctrl+Super+F24, Windows 11's touchpad toggle shortcut. KDE takes that as the touchpad
   toggle by itself; on GNOME the app gives GNOME's own "Toggle touchpad" shortcut (`org.gnome.settings-daemon.plugins.
   media-keys touchpad-toggle`) that combination while it's empty, so GNOME toggles the touchpad and shows its pop-up.
