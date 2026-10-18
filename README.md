@@ -71,6 +71,24 @@ in one small app that looks like Windows 11, and on Linux too.
 </tr>
 </table>
 
+## Beyond Control Center
+
+What this app adds over Uniwill's Control Center (the full list is in
+[FEATURES.md](FEATURES.md#added-beyond-control-center)):
+
+- **Linux support:** Fedora, Ubuntu, Debian and more, with the Fn keys and the desktop's own pop-ups on KDE and GNOME.
+  Control Center is Windows only.
+- **No service, broker or UWP app:** one small program, and `uucc` to control it from a terminal or a script.
+- **Effects the firmware doesn't have:** Smooth Wave, Spectrum, Typing, Star Spark, Star Hitting, and battery, CPU
+  and GPU gauges on the light bar.
+- **Finer control:** brightness in 1% steps with fades (Control Center has five levels), up to seven colors per
+  effect, and the light bar following the keyboard.
+- **Safer fan curves:** drag-to-edit curves with safety rules, each fan on its own curve, and the fans handed back to
+  the laptop if the app crashes.
+- **Integrated graphics only** as a GPU mode, besides Hybrid and NVIDIA only.
+- **Setups, plugins, a timer, back up and restore,** and a hardware monitor that doesn't wake the GPU.
+- **Works next to Control Center:** it steps back while Control Center's service runs.
+
 ## Screenshots
 
 <table>

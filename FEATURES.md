@@ -146,11 +146,6 @@ Control Center's overclocking settings for Intel laptops:
   instead of Windows Error Reporting holding it, and the installer, for about half a minute. Uninstalling removes the
   startup task and asks whether to remove the settings and plugins too (ticked to begin with), which also removes the
   hooks plugins added to Claude Code and the copy of its settings kept before them.
-- **Terminal (`uucc`):** `uucc.exe` sets the mode, Fan Boost, profile, charge mode, setups, lighting, display
-  colors and GPU mode, and prints the status with fresh readings, from any terminal without administrator rights.
-  It asks the running app over a named pipe that only the signed-in user can open, so the window and tray follow;
-  `--json` is for scripts and `--start` starts the app first. The installer adds it to `PATH` (an option, ticked). An
-  update shows that option on its Ready page, as chosen before (ticked if it never was), or says it's in `PATH` already.
 - **Tray:** runs in the tray and can start with Windows. The tray menu has the performance mode and Fan Boost.
   **Show in the tray** (Settings) turns the icon off: the app keeps running, notifications still show, starting it
   again opens the window. **Exit** at the bottom of Settings closes the app, with or without the icon.
@@ -160,8 +155,6 @@ Control Center's overclocking settings for Intel laptops:
 - **Earlier names:** the first start moves `%APPDATA%\TulparControl` (Tulpar Control) over, and replaces the startup
   task of Tulpar Control and of Keyboard RGB; settings from Keyboard RGB are read too. The single-instance lock and
   the window messages keep Tulpar Control's names, so an installer can close a running Tulpar Control.
-- **Coexists with Control Center:** steps back and leaves the Fn keys, the modes, the fans and battery care alone
-  while Control Center's service is running; the Performance and Battery pages then only show what it set.
 - **Display color modes:** Control Center's Display page (Display page): Vibrant (1.5× saturation, as Control
   Center), Cinema, Low blue light and Custom, each with its own saturation, contrast, color temperature and red,
   green and blue levels. Like Control Center, a color matrix over the whole screen through the Magnification API
@@ -174,7 +167,24 @@ Control Center's overclocking settings for Intel laptops:
 
 ## Added beyond Control Center
 
+- **Linux:** the whole app also runs on Linux (Fedora, Ubuntu, Debian and distributions based on them), which
+  Control Center never did: lighting, modes, fans, battery care, the BIOS settings, the Fn keys and the desktop's own
+  pop-ups on KDE Plasma and GNOME. See [On Linux](#on-linux).
 - **No Control Center needed:** no service, UWP app or broker. It is a single small exe.
+- **Terminal (`uucc`):** `uucc` sets the mode, Fan Boost, profile, charge mode, setups, lighting, display colors and
+  GPU mode, and prints the status with fresh readings, from any terminal without administrator rights. It asks the
+  running app (over a named pipe on Windows, a socket on Linux, that only the signed-in user can open), so the window
+  and tray follow; `--json` is for scripts and `--start` starts the app first. The Windows installer adds it to `PATH`
+  (an option, ticked). An update shows that option on its Ready page, as chosen before (ticked if it never was), or
+  says it's in `PATH` already.
+- **Coexists with Control Center:** steps back and leaves the Fn keys, the modes, the fans and battery care alone
+  while Control Center's service is running; the Performance and Battery pages then only show what it set.
+- **Integrated graphics only:** the GPU mode also offers integrated graphics only; Control Center switches between
+  Hybrid and NVIDIA only.
+- **Fans that follow their own curves:** the CPU and GPU fans each follow their own curve ("Fan Control Respective",
+  off by default in Control Center), so a GPU curve doesn't drive the CPU fan.
+- **The GPU left asleep:** its temperature isn't read while Optimus has it switched off, so reading it doesn't wake
+  it (about 25 W on the Tulpar). The hardware monitor only reads while a page shows its readings.
 - **Windows 11 interface:** a Settings-style window in the system's dark/light theme and accent color, with live
   previews of the keyboard and the light bar, animated effect tiles and a color picker. The navigation pane collapses
   to its icons (with tooltips) with the ☰ button, and stays that way.
@@ -283,10 +293,9 @@ Control Center's overclocking settings for Intel laptops:
 ### Rest of Control Center
 
 Not implemented:
-- **GPU tuning:** GPU core and memory overclocking, configurable TGP (here up to 35 W over the 80 W base), Dynamic
-  Boost (15 W) and NVIDIA Whisper Mode. They go through the NVIDIA driver, and couldn't be built and tried without
-  the GPU.
-- **GPU modes:** dGPU mode (Hybrid, iGPU, Auto) and disabling NVIDIA Optimus.
+- **GPU tuning:** GPU core and memory overclocking and NVIDIA Whisper Mode. They go through the NVIDIA driver, and
+  couldn't be built and tried without the GPU. (The configurable TGP and Dynamic Boost are there.)
+- **GPU modes:** the Auto mode and disabling NVIDIA Optimus. (Hybrid, integrated only and NVIDIA only are there.)
 - **Battery:** battery calibration. USB-C power delivery priority and starting up when the charger is connected
   aren't supported on this laptop: Control Center's own flags (`TypeCSupport`, `AcRecoverySwitchSupport`) say so and
   it hides them.
@@ -297,7 +306,7 @@ Not implemented:
 - **Keys:**
   - Fn Lock;
   - a Scroll Lock pop-up;
-  - key remapping, Game Mode and application profiles.
+  - key remapping and Game Mode. (Application profiles are there, as app profiles on the Setups page.)
 - **Device switches:** Wi-Fi, Bluetooth and webcam, and touchpad active-area settings.
 - **Light bars and LED strips:** only on models that have them.
 - **Firmware updates** for the keyboard controller.
@@ -328,7 +337,7 @@ lighting controllers are used directly over `hidraw`. Where Linux differs:
   and Turbo, `chronometer` for the timer, `brightness-high` for the light bar, `temperature-cold` for Fan Boost and
   `view-list-icons` for setups). They're sent from a thread of their own, in order.
 - **Pop-ups on GNOME:** GNOME Shell keeps its pop-up call (`ShowOSD`) to its own components, so the packages install a
-  small GNOME Shell extension (`uucc-osd@thnorty.github.io`, GNOME 45 to 50) that shows them with GNOME's own pop-up:
+  small GNOME Shell extension (`uucc-osd@thnorty.github.io`, GNOME 45 to 51) that shows them with GNOME's own pop-up:
   `Show(icon, label, level)` on `io.github.thnorty.uucc.Osd`. The keyboard light keys get a bar with
   `keyboard-brightness-symbolic`; the rest Adwaita's symbolic icons (`changes-prevent` and `changes-allow`, the
   `power-profile-*` icons, `alarm`, `display-brightness`, `weather-windy` and `view-list`). The app adds the extension

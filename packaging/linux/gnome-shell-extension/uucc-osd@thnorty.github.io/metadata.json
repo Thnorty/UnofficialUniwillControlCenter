@@ -3,5 +3,5 @@
   "name": "Unofficial Uniwill Control Center pop-ups",
   "description": "Shows Unofficial Uniwill Control Center's pop-ups (keyboard brightness, modes, Fan Boost, the Windows key lock, the timer) as GNOME's own, which GNOME doesn't let other apps show.",
   "url": "https://github.com/Thnorty/UnofficialUniwillControlCenter",
-  "shell-version": ["45", "46", "47", "48", "49", "50"]
+  "shell-version": ["45", "46", "47", "48", "49", "50", "51"]
 }
